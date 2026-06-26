@@ -1,0 +1,1547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><title>Factory Planner</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#16181a;--surf:#1f2225;--surf2:#191c1e;--b:#2e3236;--b2:#3a3f44;
+  --tx:#d0d4d8;--dim:#7a8088;--acc:#e8982a;--acc2:#c07820;
+  --grn:#4caa5c;--blu:#4a90d0;--red:#cc4444;
+}
+body{background:var(--bg);color:var(--tx);font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;min-height:100vh}
+.nav{display:flex;align-items:center;flex-wrap:wrap;background:#111315;border-bottom:1px solid var(--b);padding:0 16px;gap:0}
+.nav-logo{color:var(--acc);font-weight:800;font-size:14px;padding:12px 0;margin-right:14px;letter-spacing:-.02em;white-space:nowrap}
+.nav-tab{padding:12px 13px;font-size:13px;color:var(--dim);cursor:pointer;border-bottom:2px solid transparent;transition:color .12s,border-color .12s;white-space:nowrap}
+.nav-tab:hover{color:var(--tx)}.nav-tab.active{color:var(--acc);border-bottom-color:var(--acc)}
+.tab{display:none;padding:16px}.tab.active{display:block}
+.two-col{display:grid;grid-template-columns:340px 1fr;gap:14px;max-width:1080px}
+.full-w{max-width:1080px}
+@media(max-width:820px){.two-col{grid-template-columns:1fr}}
+.card{background:var(--surf);border:1px solid var(--b);border-radius:8px;padding:16px}
+.card+.card{margin-top:14px}
+.card-title{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-bottom:12px}
+label{display:block;font-size:12px;color:var(--dim);margin:9px 0 3px}
+label:first-of-type{margin-top:0}
+input[type=text],input[type=number],select{width:100%;background:var(--bg);border:1px solid var(--b2);border-radius:5px;color:var(--tx);padding:6px 9px;font-size:13px;outline:none}
+input:focus,select:focus{border-color:var(--acc)}
+.r2{display:flex;gap:8px}.r2>*{flex:1}
+button{cursor:pointer;border:none;border-radius:5px;padding:7px 14px;font-size:13px;font-weight:600;transition:opacity .12s;white-space:nowrap}
+button:hover{opacity:.82}
+.ba{background:var(--acc);color:#111}.bb{background:#272b2f;color:var(--tx);border:1px solid var(--b2)}
+.bx{background:transparent;color:var(--red);border:1px solid var(--red);padding:4px 8px;font-size:12px}
+.bsm{padding:5px 10px;font-size:12px}.bdef{background:transparent;color:var(--grn);border:1px solid var(--grn);padding:4px 8px;font-size:12px}
+.act{display:flex;gap:8px;margin-top:13px;flex-wrap:wrap}
+hr{border:none;border-top:1px solid var(--b);margin:11px 0}
+.io-row{display:flex;gap:6px;align-items:center;margin-bottom:6px;min-width:0}
+.io-row .io-amt{flex:0 0 60px!important;min-width:0}
+.io-row .io-res{flex:1!important;min-width:0}
+.tier-row{display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
+.tier-row input:first-child{flex:1;min-width:80px}.tier-row .spd{flex:0 0 68px!important}
+.litem{background:var(--surf2);border:1px solid var(--b);border-radius:6px;padding:10px 12px;margin-bottom:8px;min-width:0}
+.lh{display:flex;justify-content:space-between;align-items:flex-start;gap:6px;min-width:0}
+.lh>div:first-child{min-width:0;flex:1}
+.ln{font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ls{font-size:11px;color:var(--dim);margin-top:3px}
+.la{display:flex;gap:4px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end}
+.badge{display:inline-block;border-radius:4px;padding:2px 7px;font-size:11px;margin:2px 3px 2px 0}
+.bi{background:#2a1818;color:#cc7070}.bo{background:#182818;color:#5aaa6a}
+.bm{background:#181828;color:var(--blu)}.bdef-badge{background:#182a18;color:#4aaa5a;border:1px solid #2a5a2a}
+.alert{padding:9px 12px;border-radius:5px;font-size:12px;margin-top:10px}
+.ae{background:#2e1515;border:1px solid #662020;color:#e07070}
+.aw{background:#2a2010;border:1px solid #665500;color:#ddaa30}
+.empty{color:#444;text-align:center;padding:20px;font-style:italic;font-size:12px}
+.sl{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#444;margin:11px 0 6px}
+/* Planner */
+.mode-wrap{display:flex;gap:0;border:1px solid var(--b2);border-radius:6px;overflow:hidden;width:fit-content;margin-bottom:14px}
+.mode-btn{background:#272b2f;color:var(--dim);border:none;border-radius:0;padding:8px 18px;font-size:13px;cursor:pointer;transition:background .12s,color .12s}
+.mode-btn.active{background:var(--acc);color:#111;font-weight:700}
+.plan-panels{display:grid;grid-template-columns:300px 1fr;gap:14px;margin-top:14px}
+@media(max-width:840px){.plan-panels{grid-template-columns:1fr}}
+.ri{display:flex;align-items:center;justify-content:space-between;background:var(--surf2);border:1px solid var(--b);border-radius:6px;padding:10px 13px;margin-bottom:7px}
+.ri.tgt{border-color:var(--acc2);background:#21190d}
+.ri-l .rm{font-weight:700;font-size:13px}.ri-l .rr{font-size:11px;color:var(--dim);margin-top:1px}.ri-l .ro{font-size:11px;color:#4a9a5a;margin-top:2px}
+.ri-r{text-align:right}.ri-cnt{font-size:26px;font-weight:900;color:var(--acc);line-height:1}
+.ri-ex{font-size:11px;color:var(--dim)}
+.raw-i{display:flex;justify-content:space-between;align-items:center;background:var(--surf2);border:1px solid var(--b);border-radius:6px;padding:8px 13px;margin-bottom:6px}
+.raw-n{font-size:12px;color:var(--dim);font-style:italic}.raw-v{font-size:15px;font-weight:700;color:var(--blu)}
+.raw-s{font-size:10px;color:#4a6a8a}
+.tier-sel-row{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap}
+.tier-sel-row span{flex:1;min-width:80px;font-size:13px}
+.tier-sel-row select{flex:0 0 min(160px,100%)}
+.inp-row{display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap;min-width:0}
+.inp-row select,.inp-row input{flex:1;min-width:80px}.inp-row .inp-unit{flex:0 0 80px}.inp-row button{flex-shrink:0}
+.rec-override-row{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap}
+.rec-override-row span{flex:0 0 auto;min-width:80px;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rec-override-row select{flex:1;min-width:120px}
+.flow-card{overflow-x:auto}
+.flow-card svg text{font-family:'Segoe UI',system-ui,sans-serif}
+.ach-banner{background:#182818;border:1px solid #2a5a2a;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#5aaa6a}
+.rtree{overflow-x:auto;margin-top:10px;border-top:1px solid var(--b);padding-top:10px}
+.rtree svg{display:block;font-family:'Segoe UI',system-ui,sans-serif}
+.btree{background:transparent;color:var(--dim);border:1px solid var(--b2);padding:4px 8px;font-size:12px}
+.btree.open{color:var(--acc);border-color:var(--acc2)}
+/* Categories */
+.cat-hdr{display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--bg);border:1px solid var(--b);border-radius:6px;cursor:pointer;user-select:none;margin-bottom:4px}
+.cat-hdr:hover{border-color:var(--b2)}
+.cat-arrow{font-size:11px;color:var(--dim);width:10px;flex-shrink:0}
+.cat-name-lbl{font-weight:700;font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cat-ct{font-size:11px;color:var(--dim);flex-shrink:0}
+.cat-acts{display:flex;gap:4px;margin-left:4px;flex-shrink:0}
+.cat-body{padding-left:8px;padding-bottom:4px}
+.cat-add{display:flex;gap:6px;align-items:center;margin-top:3px}
+.cat-add input{flex:1;min-width:0}
+/* Profiles */
+.prof-wrap{display:flex;align-items:center;gap:6px;margin-left:auto;padding:4px 0;flex-shrink:0}
+.prof-sel{width:auto;min-width:100px;max-width:180px;background:var(--bg);font-size:12px;padding:4px 7px;border-radius:5px;border:1px solid var(--b2);color:var(--tx)}
+.prof-btn{padding:4px 9px;font-size:12px;background:transparent;color:var(--dim);border:1px solid var(--b2)}
+.prof-panel{display:none;background:var(--surf);border-bottom:1px solid var(--b);padding:12px 16px}
+.prof-panel.open{display:block}
+.prof-grid{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.prof-grid input{width:auto;flex:0 0 160px;font-size:12px;padding:5px 8px}
+.prof-grid button{font-size:12px;padding:5px 10px}
+.prof-item{display:inline-flex;align-items:center;gap:5px;background:var(--bg);border:1px solid var(--b);border-radius:5px;padding:4px 8px;font-size:12px}
+.prof-item.active{border-color:var(--acc);color:var(--acc)}
+.prof-item button{padding:2px 6px;font-size:11px}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <span class="nav-logo">⚙ Factory Planner</span>
+  <span class="nav-tab active" data-tab="machines">Machines</span>
+  <span class="nav-tab" data-tab="resources">Resources</span>
+  <span class="nav-tab" data-tab="planner">Planner</span>
+  <div class="prof-wrap">
+    <select id="prof-sel" class="prof-sel" onchange="switchProfile(this.value)"></select>
+    <button class="prof-btn" onclick="toggleProfilePanel()">Profiles</button>
+  </div>
+</nav>
+
+<!-- Profile management panel -->
+<div id="prof-panel" class="prof-panel">
+  <div class="prof-grid">
+    <input id="prof-new-name" type="text" placeholder="New profile name">
+    <button class="ba bsm" onclick="createProfile()">Create</button>
+    <button class="bb bsm" onclick="duplicateProfile()">Duplicate Current</button>
+    <button class="bb bsm" onclick="renameProfile()">Rename Current</button>
+    <button class="bx" onclick="deleteProfile()">Delete Current</button>
+    <span style="color:#444">|</span>
+    <button class="bb bsm" onclick="exportProfile()">Export Profile</button>
+    <button class="bb bsm" onclick="document.getElementById('prof-imp').click()">Import Profile</button>
+    <input id="prof-imp" type="file" accept=".json" style="display:none" onchange="importProfile(event)">
+  </div>
+</div>
+
+<!-- ══ MACHINES ══════════════════════════════════════ -->
+<div id="tab-machines" class="tab active">
+<div class="two-col">
+  <div class="card" style="align-self:start">
+    <div class="card-title" id="mf-title">New Machine</div>
+    <label>Machine name</label>
+    <input id="mf-name" type="text" placeholder="e.g. Assembler">
+    <hr>
+    <div class="sl">Tiers <span style="color:#555">(speed multiplier relative to base cycle time)</span></div>
+    <div id="mf-tiers"></div>
+    <button class="bb bsm" onclick="addTierRow()">+ Tier</button>
+    <div id="mf-err"></div>
+    <div class="act">
+      <button class="ba" onclick="saveMachine()">Save</button>
+      <button class="bb" onclick="cancelMachine()">Cancel</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Machines <span id="mach-ct" style="color:#444;font-size:11px"></span></div>
+    <div id="mach-list"><div class="empty">No machines yet.</div></div>
+    <div class="act">
+      <button class="bb bsm" onclick="exportData()">Export JSON</button>
+      <button class="bb bsm" onclick="document.getElementById('imp').click()">Import JSON</button>
+      <input id="imp" type="file" accept=".json" style="display:none" onchange="importData(event)">
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ══ RESOURCES ══════════════════════════════════════ -->
+<div id="tab-resources" class="tab">
+<div class="two-col">
+  <div>
+    <div class="card" style="align-self:start">
+      <div class="card-title" id="rf-title">New Resource</div>
+      <label>Name</label>
+      <input id="rf-name" type="text" placeholder="e.g. Iron Plate">
+      <label>Category</label>
+      <div class="cat-add">
+        <select id="rf-cat" style="flex:1"><option value="">— none —</option></select>
+        <button class="bb bsm" onclick="toggleCatForm()">+ New</button>
+      </div>
+      <div id="cat-form" style="display:none;margin-top:6px">
+        <div class="cat-add">
+          <input id="cat-new-name" type="text" placeholder="Category name">
+          <button class="ba bsm" onclick="addCategory()">Add</button>
+          <button class="bb bsm" onclick="toggleCatForm()">✕</button>
+        </div>
+      </div>
+
+      <!-- Optional inline recipe — hidden when editing an existing resource -->
+      <div id="rf-recipe-section">
+        <hr>
+        <div class="sl">Recipe <span style="color:#555;text-transform:none;letter-spacing:0;font-size:11px">(optional — leave blank for raw resource)</span></div>
+        <div class="r2">
+          <div>
+            <label>Machine</label>
+            <select id="rf-mach"><option value="">— none / raw —</option></select>
+          </div>
+          <div>
+            <label>Cycle time (s)</label>
+            <input id="rf-time" type="number" min="0.001" step="any" placeholder="e.g. 3.2">
+          </div>
+        </div>
+        <label>Output per cycle</label>
+        <input id="rf-outamt" type="number" min="0.001" step="any" value="1" placeholder="1">
+        <div class="sl">Inputs per cycle</div>
+        <div id="rf-inputs"></div>
+        <button class="bb bsm" onclick="addIO('rf-inputs')">+ Input</button>
+      </div>
+
+      <div id="rf-err"></div>
+      <div class="act">
+        <button class="ba" onclick="saveResource()">Save</button>
+        <button class="bb" onclick="cancelResource()">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Recipe editor, shown when a resource is selected -->
+    <div class="card" id="rec-editor" style="display:none;margin-top:14px">
+      <div class="card-title" id="rec-ed-title">Recipes</div>
+
+      <!-- Existing recipes list -->
+      <div id="rec-existing"></div>
+
+      <hr>
+      <div class="sl" id="rec-form-lbl">Add Recipe</div>
+      <label>Name <span style="color:#555">(optional)</span></label>
+      <input id="rec-name" type="text" placeholder="e.g. Iron Smelting">
+      <div class="r2">
+        <div>
+          <label>Machine</label>
+          <select id="rec-mach"><option value="">— none —</option></select>
+        </div>
+        <div>
+          <label>Cycle time (s)</label>
+          <input id="rec-time" type="number" min="0.001" step="any" placeholder="3.2">
+        </div>
+      </div>
+      <label>Output amount per cycle</label>
+      <input id="rec-outamt" type="number" min="0.001" step="any" value="1" placeholder="1">
+      <hr>
+      <div class="sl">Inputs per cycle</div>
+      <div id="rec-inputs"></div>
+      <button class="bb bsm" onclick="addIO('rec-inputs')">+ Input</button>
+      <div id="rec-err"></div>
+      <div class="act">
+        <button class="ba" onclick="saveRecipe()">Save Recipe</button>
+        <button class="bb" onclick="closeEditor()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Resources <span id="res-ct" style="color:#444;font-size:11px"></span></div>
+    <div id="res-list"><div class="empty">No resources yet.</div></div>
+  </div>
+</div>
+</div>
+
+<!-- ══ PLANNER ══════════════════════════════════════ -->
+<div id="tab-planner" class="tab">
+<div class="full-w">
+
+  <div class="card" style="margin-bottom:14px">
+    <div class="mode-wrap">
+      <button class="mode-btn active" id="mode-tgt" onclick="setPlanMode('target')">Target Output</button>
+      <button class="mode-btn"        id="mode-inp" onclick="setPlanMode('inputs')">From Available Inputs</button>
+    </div>
+
+    <!-- Target mode -->
+    <div id="pl-tgt">
+      <div class="r2" style="align-items:flex-end;gap:10px;flex-wrap:wrap">
+        <div style="flex:2;min-width:120px"><label>Target resource</label><select id="pl-res"><option value="">— select —</option></select></div>
+        <div style="flex:1;min-width:80px"><label>Amount</label><input id="pl-rate" type="number" min="0" step="any" placeholder="60"></div>
+        <div style="flex:1;min-width:80px"><label>Per</label>
+          <select id="pl-unit"><option value="60">minute</option><option value="1">second</option><option value="3600">hour</option></select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Inputs mode -->
+    <div id="pl-inp" style="display:none">
+      <div style="max-width:320px"><label>Target resource</label><select id="pl-inp-target"><option value="">— select —</option></select></div>
+      <div class="sl" style="margin-top:12px">Available inputs</div>
+      <div id="pl-inp-rows"></div>
+      <button class="bb bsm" onclick="addInputRow()">+ Add Input</button>
+    </div>
+  </div>
+
+  <!-- Machine tier overrides -->
+  <div class="card" id="pl-tier-card" style="margin-bottom:14px;display:none">
+    <div class="card-title">Machine Tiers</div>
+    <div id="pl-tier-rows"></div>
+  </div>
+
+  <!-- Recipe overrides -->
+  <div class="card" id="pl-rec-card" style="margin-bottom:14px;display:none">
+    <div class="card-title">Recipe Alternatives</div>
+    <div id="pl-rec-rows"></div>
+  </div>
+
+  <button class="ba" onclick="runPlanner()">Calculate</button>
+  <div id="pl-results"></div>
+</div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════════
+let machines   = [];  // {id,name,tiers:[{id,name,speedMult}]}
+let resources  = [];  // {id,name,categoryId,recipes:[…],defaultRecipeId}
+let categories = [];  // {id,name}
+let selTiers      = {};  // machineId → tierId
+let recOverrides  = {};  // resourceId → recipeId
+const catState    = {};  // catId → true=expanded (ephemeral)
+let planMode      = 'target';
+let editMachId    = null;
+let editResId     = null;
+let selResId      = null;
+let editRecId     = null;
+
+// ── Profiles ──
+let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
+let activeProfileId = null;
+
+function loadState(){
+  try{profiles=JSON.parse(localStorage.getItem('fp_profiles')||'[]');}catch{profiles=[];}
+  activeProfileId=localStorage.getItem('fp_active')||null;
+
+  // Migration: pull old per-key data into a default profile
+  if(!profiles.length){
+    let om=[],or=[],oc=[];
+    try{om=JSON.parse(localStorage.getItem('fp3_mach')||'[]');}catch{}
+    try{or=JSON.parse(localStorage.getItem('fp3_res') ||'[]');}catch{}
+    try{oc=JSON.parse(localStorage.getItem('fp3_cats')||'[]');}catch{}
+    let ot={},oo={};
+    try{ot=JSON.parse(localStorage.getItem('fp3_tiers')||'{}');}catch{}
+    try{oo=JSON.parse(localStorage.getItem('fp3_reco') ||'{}');}catch{}
+    const p={id:crypto.randomUUID(),name:'Default',machines:om,resources:or,categories:oc,selTiers:ot,recOverrides:oo};
+    profiles.push(p);
+    activeProfileId=p.id;
+  }
+  if(!activeProfileId)activeProfileId=profiles[0]?.id;
+  loadActiveProfile();
+}
+
+function loadActiveProfile(){
+  const p=profiles.find(p=>p.id===activeProfileId);
+  if(!p)return;
+  machines    = p.machines     || [];
+  resources   = p.resources    || [];
+  categories  = p.categories   || [];
+  selTiers    = p.selTiers     || {};
+  recOverrides= p.recOverrides || {};
+}
+
+function saveActiveProfile(){
+  const p=profiles.find(p=>p.id===activeProfileId);
+  if(!p)return;
+  p.machines=machines; p.resources=resources; p.categories=categories;
+  p.selTiers=selTiers; p.recOverrides=recOverrides;
+}
+
+function saveState(){
+  saveActiveProfile();
+  localStorage.setItem('fp_profiles',JSON.stringify(profiles));
+  localStorage.setItem('fp_active',activeProfileId);
+}
+
+// ── Profile CRUD ──
+function renderProfileSelector(){
+  const sel=document.getElementById('prof-sel');
+  sel.innerHTML=profiles.map(p=>
+    `<option value="${p.id}"${p.id===activeProfileId?' selected':''}>${p.name}</option>`
+  ).join('');
+}
+
+function switchProfile(id){
+  if(id===activeProfileId)return;
+  saveActiveProfile();
+  activeProfileId=id;
+  loadActiveProfile();
+  saveState();
+  reloadUI();
+}
+
+function reloadUI(){
+  renderProfileSelector();
+  renderMachines(); renderResources();
+  refreshMachSelects(); refreshCatSelect();
+  renderPlannerControls();
+  cancelMachine(); cancelResource();
+  if(selResId){selResId=null;document.getElementById('rec-editor').style.display='none';}
+  document.getElementById('pl-results').innerHTML='';
+  document.getElementById('rec-inputs').innerHTML='';
+  addIO('rec-inputs');
+  // clear edit states
+  Object.keys(catState).forEach(k=>delete catState[k]);
+}
+
+function toggleProfilePanel(){
+  document.getElementById('prof-panel').classList.toggle('open');
+}
+
+function createProfile(){
+  const nameEl=document.getElementById('prof-new-name');
+  const name=nameEl.value.trim()||'New Profile';
+  saveActiveProfile();
+  const p={id:crypto.randomUUID(),name,machines:[],resources:[],categories:[],selTiers:{},recOverrides:{}};
+  profiles.push(p);
+  activeProfileId=p.id;
+  loadActiveProfile();
+  saveState(); reloadUI();
+  nameEl.value='';
+}
+
+function duplicateProfile(){
+  saveActiveProfile();
+  const src=profiles.find(p=>p.id===activeProfileId);
+  if(!src)return;
+  const p=JSON.parse(JSON.stringify(src));
+  p.id=crypto.randomUUID();
+  p.name=src.name+' (copy)';
+  profiles.push(p);
+  activeProfileId=p.id;
+  loadActiveProfile();
+  saveState(); reloadUI();
+}
+
+function renameProfile(){
+  const p=profiles.find(p=>p.id===activeProfileId);
+  if(!p)return;
+  const v=prompt('Rename profile:',p.name);
+  if(v===null)return;
+  p.name=v.trim()||p.name;
+  saveState(); renderProfileSelector();
+}
+
+function deleteProfile(){
+  if(profiles.length<=1)return alert('Cannot delete the only profile.');
+  if(!confirm(`Delete profile "${profiles.find(p=>p.id===activeProfileId)?.name}"?`))return;
+  profiles=profiles.filter(p=>p.id!==activeProfileId);
+  activeProfileId=profiles[0].id;
+  loadActiveProfile();
+  saveState(); reloadUI();
+}
+
+function exportProfile(){
+  const p=profiles.find(p=>p.id===activeProfileId);
+  if(!p)return;
+  saveActiveProfile();
+  const data=JSON.parse(JSON.stringify(p));
+  delete data.id;
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  Object.assign(document.createElement('a'),{href:URL.createObjectURL(blob),download:`${p.name.replace(/[^a-z0-9_-]/gi,'_')}.json`}).click();
+}
+
+function importProfile(e){
+  const f=e.target.files[0]; if(!f)return;
+  const r=new FileReader();
+  r.onload=ev=>{
+    try{
+      const d=JSON.parse(ev.target.result);
+      const p={
+        id:crypto.randomUUID(),
+        name:d.name||f.name.replace(/\.json$/i,''),
+        machines:d.machines||[],
+        resources:d.resources||[],
+        categories:d.categories||[],
+        selTiers:d.selTiers||{},
+        recOverrides:d.recOverrides||{}
+      };
+      profiles.push(p);
+      activeProfileId=p.id;
+      loadActiveProfile();
+      saveState(); reloadUI();
+    }catch{alert('Invalid profile JSON.');}
+  };
+  r.readAsText(f); e.target.value='';
+}
+
+// ══════════════════════════════════════════════════════
+// TABS
+// ══════════════════════════════════════════════════════
+document.querySelectorAll('.nav-tab').forEach(t=>t.addEventListener('click',()=>{
+  const name=t.dataset.tab;
+  document.querySelectorAll('.nav-tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active');
+  document.getElementById('tab-'+name).classList.add('active');
+  if(name==='planner') renderPlannerControls();
+}));
+function goTab(name){document.querySelector(`.nav-tab[data-tab="${name}"]`).click();}
+
+// ══════════════════════════════════════════════════════
+// HELPERS
+// ══════════════════════════════════════════════════════
+function uid(){return crypto.randomUUID();}
+function rname(id){return resources.find(r=>r.id===id)?.name??id;}
+function mname(id){return machines.find(m=>m.id===id)?.name??id;}
+function setErr(id,msg){document.getElementById(id).innerHTML=msg?`<div class="alert ae">${msg}</div>`:''}
+function fmt(n,d=3){return isFinite(n)?n.toFixed(d):'-'}
+
+function buildResOpts(selectedId='', exclude=''){
+  const eligible = r => r.id !== exclude;
+  const opt = r => `<option value="${r.id}"${r.id===selectedId?' selected':''}>${r.name}</option>`;
+  // Group into categories + uncategorized
+  const catBuckets = {};
+  categories.forEach(c => catBuckets[c.id] = []);
+  const uncat = [];
+  resources.filter(eligible).forEach(r => {
+    if(r.categoryId && catBuckets[r.categoryId]) catBuckets[r.categoryId].push(r);
+    else uncat.push(r);
+  });
+  const hasCats = categories.some(c => catBuckets[c.id].length);
+  let html = '';
+  categories.forEach(c => {
+    const items = catBuckets[c.id];
+    if(!items.length) return;
+    html += `<optgroup label="${c.name}">${items.map(opt).join('')}</optgroup>`;
+  });
+  if(uncat.length){
+    html += hasCats
+      ? `<optgroup label="Other">${uncat.map(opt).join('')}</optgroup>`
+      : uncat.map(opt).join('');
+  }
+  return html;
+}
+
+function addIO(listId,resourceId='',amount=''){
+  // Only exclude selResId for the recipe-editor input list, not the resource-form input list
+  const excl=listId==='rec-inputs'?(selResId||''):'';
+  const row=document.createElement('div');
+  row.className='io-row';
+  row.innerHTML=`<input type="number" class="io-amt" min="0" step="any" placeholder="Qty" value="${amount}">
+    <select class="io-res" data-exclude="${excl}">${buildResOpts(resourceId,excl)}</select>
+    <button class="bx" onclick="this.parentElement.remove()">✕</button>`;
+  document.getElementById(listId).appendChild(row);
+}
+
+function getIORows(listId){
+  return[...document.querySelectorAll(`#${listId} .io-row`)].flatMap(row=>{
+    const amt=parseFloat(row.querySelector('input').value);
+    const rid=row.querySelector('select').value;
+    return(rid&&!isNaN(amt)&&amt>0)?[{resourceId:rid,amount:amt}]:[];
+  });
+}
+
+function refreshResSelects(){
+  document.querySelectorAll('.io-res').forEach(sel=>{
+    const cur=sel.value;
+    // Each select stores its own exclusion so rf-inputs rows are never affected by selResId
+    sel.innerHTML=buildResOpts(cur,sel.dataset.exclude||'');
+    sel.value=cur;
+  });
+}
+
+function refreshMachSelects(){
+  const opts=`<option value="">— none —</option>`+machines.map(m=>`<option value="${m.id}">${m.name}</option>`).join('');
+  const rawOpts=opts.replace('— none —','— none / raw —');
+  document.querySelectorAll('select.mach-sel').forEach(sel=>{const cur=sel.value;sel.innerHTML=opts;sel.value=cur;});
+  const recMach=document.getElementById('rec-mach');
+  if(recMach){const cur=recMach.value;recMach.innerHTML=opts;recMach.value=cur;}
+  const rfMach=document.getElementById('rf-mach');
+  if(rfMach){const cur=rfMach.value;rfMach.innerHTML=rawOpts;rfMach.value=cur;}
+}
+
+function refreshCatSelect(){
+  const opts='<option value="">— none —</option>'+categories.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+  const el=document.getElementById('rf-cat');
+  if(el){const cur=el.value;el.innerHTML=opts;el.value=cur;}
+}
+
+// ══════════════════════════════════════════════════════
+// CATEGORIES
+// ══════════════════════════════════════════════════════
+function toggleCatForm(){
+  const f=document.getElementById('cat-form');
+  f.style.display=f.style.display==='none'?'':'none';
+  if(f.style.display!=='none')document.getElementById('cat-new-name').focus();
+}
+
+function addCategory(){
+  const nameEl=document.getElementById('cat-new-name');
+  const name=nameEl.value.trim();
+  if(!name)return;
+  categories.push({id:uid(),name});
+  saveState(); refreshCatSelect(); renderResources();
+  nameEl.value=''; toggleCatForm();
+}
+
+function editCat(id,e){
+  e.stopPropagation();
+  const cat=categories.find(c=>c.id===id);
+  if(!cat)return;
+  const v=prompt('Rename category:',cat.name);
+  if(v===null)return;
+  cat.name=v.trim()||cat.name;
+  saveState(); refreshCatSelect(); renderResources();
+}
+
+function delCat(id,e){
+  e.stopPropagation();
+  if(!confirm('Delete category? Resources will become uncategorised.'))return;
+  categories=categories.filter(c=>c.id!==id);
+  resources.forEach(r=>{if(r.categoryId===id)r.categoryId=null;});
+  saveState(); refreshCatSelect(); renderResources();
+}
+
+function toggleCat(catId){
+  catState[catId]=!catState[catId];
+  const body=document.getElementById(`catbody-${catId}`);
+  const arrow=document.getElementById(`catarrow-${catId}`);
+  if(body)body.style.display=catState[catId]?'':'none';
+  if(arrow)arrow.textContent=catState[catId]?'▾':'▸';
+}
+
+// ══════════════════════════════════════════════════════
+// CLOSE RECIPE EDITOR
+// ══════════════════════════════════════════════════════
+function closeEditor(){
+  const wasSelResId=selResId;
+  selResId=null;
+  cancelRecipe();
+  document.getElementById('rec-editor').style.display='none';
+  // Re-render resource list so the selected-border highlight clears
+  if(wasSelResId)renderResources();
+}
+
+// ══════════════════════════════════════════════════════
+// MACHINES
+// ══════════════════════════════════════════════════════
+function addTierRow(name='',speedMult=''){
+  const row=document.createElement('div');
+  row.className='tier-row';
+  row.innerHTML=`<input type="text" placeholder="Tier name (e.g. Mk1)" value="${name}">
+    <span style="color:#555;flex-shrink:0">×</span>
+    <input type="number" class="spd" min="0.01" step="0.1" placeholder="Speed" value="${speedMult}">
+    <button class="bx" onclick="this.parentElement.remove()">✕</button>`;
+  document.getElementById('mf-tiers').appendChild(row);
+}
+
+function getTierRows(){
+  return[...document.querySelectorAll('#mf-tiers .tier-row')].flatMap(row=>{
+    const [nameI,spdI]=row.querySelectorAll('input');
+    const n=nameI.value.trim(), s=parseFloat(spdI.value);
+    return(n&&!isNaN(s)&&s>0)?[{id:uid(),name:n,speedMult:s}]:[];
+  });
+}
+
+function saveMachine(){
+  const name=document.getElementById('mf-name').value.trim();
+  if(!name) return setErr('mf-err','Name required.');
+  const tiers=getTierRows();
+  if(!tiers.length) return setErr('mf-err','Add at least one tier.');
+  setErr('mf-err','');
+  if(editMachId){
+    const m=machines.find(x=>x.id===editMachId);
+    if(m){m.name=name; m.tiers=tiers;}
+  } else {
+    machines.push({id:uid(),name,tiers});
+  }
+  saveState(); cancelMachine(); renderMachines(); refreshMachSelects();
+}
+
+function cancelMachine(){
+  editMachId=null;
+  document.getElementById('mf-name').value='';
+  document.getElementById('mf-tiers').innerHTML='';
+  document.getElementById('mf-title').textContent='New Machine';
+  setErr('mf-err','');
+  addTierRow('Mk1',1);
+}
+
+function editMach(id){
+  editMachId=id;
+  const m=machines.find(x=>x.id===id);
+  if(!m)return;
+  document.getElementById('mf-name').value=m.name;
+  document.getElementById('mf-title').textContent='Edit Machine';
+  document.getElementById('mf-tiers').innerHTML='';
+  m.tiers.forEach(t=>addTierRow(t.name,t.speedMult));
+}
+
+function delMach(id){
+  if(!confirm('Delete machine? Recipes using it will lose the assignment.'))return;
+  machines=machines.filter(m=>m.id!==id);
+  saveState(); renderMachines(); refreshMachSelects();
+}
+
+function renderMachines(){
+  const el=document.getElementById('mach-list');
+  document.getElementById('mach-ct').textContent=`(${machines.length})`;
+  if(!machines.length){el.innerHTML='<div class="empty">No machines yet.</div>';return;}
+  el.innerHTML=machines.map(m=>{
+    const tRows=m.tiers.map(t=>`<span class="badge bm">${t.name} ×${t.speedMult}</span>`).join('');
+    return`<div class="litem"><div class="lh">
+      <div><div class="ln">${m.name}</div><div style="margin-top:5px">${tRows}</div></div>
+      <div class="la">
+        <button class="bb bsm" onclick="editMach('${m.id}')">Edit</button>
+        <button class="bx" onclick="delMach('${m.id}')">Delete</button>
+      </div></div></div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════════════════
+// RESOURCES
+// ══════════════════════════════════════════════════════
+function saveResource(){
+  const name=document.getElementById('rf-name').value.trim();
+  const categoryId=document.getElementById('rf-cat').value||null;
+  if(!name)return setErr('rf-err','Name required.');
+  setErr('rf-err','');
+  if(editResId){
+    const r=resources.find(x=>x.id===editResId);
+    if(r){r.name=name;r.categoryId=categoryId;}
+  } else {
+    const newRes={id:uid(),name,categoryId,recipes:[],defaultRecipeId:null};
+    const machId=document.getElementById('rf-mach').value;
+    const ct=parseFloat(document.getElementById('rf-time').value);
+    const outAmt=parseFloat(document.getElementById('rf-outamt').value)||1;
+    const inputs=getIORows('rf-inputs');
+    if(!isNaN(ct)&&ct>0){
+      const rec={id:uid(),name:machId?`${mname(machId)} recipe`:`${name} recipe`,machineId:machId||null,cycleTime:ct,outputAmount:outAmt,inputs};
+      newRes.recipes.push(rec);
+      newRes.defaultRecipeId=rec.id;
+    }
+    resources.push(newRes);
+  }
+  saveState(); cancelResource(); renderResources(); refreshResSelects(); renderPlannerControls();
+}
+
+function cancelResource(){
+  editResId=null;
+  document.getElementById('rf-name').value='';
+  document.getElementById('rf-cat').value='';
+  document.getElementById('rf-title').textContent='New Resource';
+  document.getElementById('rf-mach').value='';
+  document.getElementById('rf-time').value='';
+  document.getElementById('rf-outamt').value='1';
+  document.getElementById('rf-inputs').innerHTML='';
+  document.getElementById('rf-recipe-section').style.display='';
+  setErr('rf-err','');
+}
+
+function editRes(id){
+  editResId=id;
+  const r=resources.find(x=>x.id===id);
+  if(!r)return;
+  document.getElementById('rf-name').value=r.name;
+  document.getElementById('rf-cat').value=r.categoryId||'';
+  document.getElementById('rf-title').textContent='Edit Resource';
+  document.getElementById('rf-recipe-section').style.display='none';
+}
+
+function delRes(id){
+  if(!confirm('Delete resource?'))return;
+  resources=resources.filter(r=>r.id!==id);
+  if(selResId===id){selResId=null;document.getElementById('rec-editor').style.display='none';}
+  saveState(); renderResources(); refreshResSelects(); renderPlannerControls();
+}
+
+function selectResource(id){
+  selResId=id;
+  const r=resources.find(x=>x.id===id);
+  if(!r)return;
+  document.getElementById('rec-editor').style.display='';
+  document.getElementById('rec-ed-title').textContent=`Recipes for "${r.name}"`;
+  refreshMachSelects();
+  cancelRecipe();
+  renderRecipesForResource(id);
+}
+
+// ══════════════════════════════════════════════════════
+// RESOURCE TREE DIAGRAM
+// ══════════════════════════════════════════════════════
+const TW=156, TH=62, THGAP=18, TVGAP=52;
+
+function toggleResTree(resId, btn){
+  const el=document.getElementById(`rtree-${resId}`);
+  const open=el.style.display!=='none'&&el.innerHTML;
+  if(open){ el.style.display='none'; el.innerHTML=''; btn.classList.remove('open'); btn.textContent='▸ Tree'; return; }
+  el.innerHTML=buildResTreeSVG(resId);
+  el.style.display='';
+  btn.classList.add('open');
+  btn.textContent='▾ Tree';
+}
+
+// Build recursive tree node (uses default recipe, tracks visited to break cycles)
+function treeNode(resId, visited){
+  if(visited.has(resId)) return {resId,cyclic:true,children:[]};
+  const vis2=new Set(visited); vis2.add(resId);
+  const res=resources.find(r=>r.id===resId);
+  const rec=res?(res.recipes.find(r=>r.id===res.defaultRecipeId)??res.recipes[0]??null):null;
+  if(!rec) return {resId,raw:true,children:[]};
+  const mach=rec.machineId?machines.find(m=>m.id===rec.machineId):null;
+  return {resId,rec,mach,children:rec.inputs.map(i=>treeNode(i.resourceId,vis2))};
+}
+
+// Post-order: compute minimum subtree width
+function treeWidth(n){
+  if(!n.children.length){n.tw=TW;return;}
+  n.children.forEach(treeWidth);
+  const span=n.children.reduce((s,c)=>s+c.tw,0)+THGAP*(n.children.length-1);
+  n.tw=Math.max(TW,span);
+}
+
+// Pre-order: assign x/y positions
+function treePos(n,lx,depth){
+  n.depth=depth; n.ty=10+depth*(TH+TVGAP);
+  if(!n.children.length){ n.tx=lx+Math.round((n.tw-TW)/2); return; }
+  let cx=lx;
+  n.children.forEach(c=>{treePos(c,cx,depth+1);cx+=c.tw+THGAP;});
+  const f=n.children[0], l=n.children[n.children.length-1];
+  n.tx=Math.round((f.tx+l.tx+TW)/2-TW/2);
+}
+
+// Flatten into {nodes,edges} for rendering
+function treeCollect(n,nodes=[],edges=[]){
+  nodes.push(n);
+  n.children.forEach(c=>{
+    edges.push({x1:n.tx+TW/2,y1:n.ty+TH,x2:c.tx+TW/2,y2:c.ty});
+    treeCollect(c,nodes,edges);
+  });
+  return{nodes,edges};
+}
+
+function buildResTreeSVG(resId){
+  const root=treeNode(resId,new Set());
+  treeWidth(root); treePos(root,0,0);
+  const{nodes,edges}=treeCollect(root);
+  const maxD=Math.max(...nodes.map(n=>n.depth));
+  const svgW=root.tw+20, svgH=(maxD+1)*(TH+TVGAP)-TVGAP+20;
+
+  // Truncate long text to fit node width (approx 13px per char at font-size 11)
+  function clip(str,maxCh){return str&&str.length>maxCh?str.slice(0,maxCh-1)+'…':str;}
+
+  const edgeSVG=edges.map(e=>{
+    const my=(e.y1+e.y2)/2;
+    return`<path d="M${e.x1},${e.y1} C${e.x1},${my} ${e.x2},${my} ${e.x2},${e.y2}" fill="none" stroke="#2a4050" stroke-width="1.5"/>`;
+  }).join('');
+
+  const nodeSVG=nodes.map(n=>{
+    const isRoot=n===root, isRaw=!!n.raw, isCyc=!!n.cyclic;
+    const bg   =isRoot?'#221808':isRaw?'#111a11':isCyc?'#1a1010':'#0e1a26';
+    const bord =isRoot?'#b07020':isRaw?'#2a4a2a':isCyc?'#663333':'#1e3a54';
+    const bdash=isRaw?'stroke-dasharray="5 3"':isCyc?'stroke-dasharray="3 2"':'';
+    const nameC=isRoot?'#e09030':isRaw?'#5aaa6a':isCyc?'#cc6666':'#4a8ab8';
+    const name =clip(rname(n.resId),18);
+    const mline=isRaw?'raw resource':isCyc?'⚠ cycle detected':(n.mach?clip(n.mach.name,20):'no machine');
+    const rline=(!isRaw&&!isCyc&&n.rec)?clip(n.rec.name,22):'';
+    const mCol =isRaw?'#3a7a4a':isCyc?'#aa5555':'#4a6a88';
+    const sw   =isRoot?2:1.5;
+    return`<rect x="${n.tx}" y="${n.ty}" width="${TW}" height="${TH}" rx="6" fill="${bg}" stroke="${bord}" stroke-width="${sw}" ${bdash}/>
+      <text x="${n.tx+TW/2}" y="${n.ty+18}" text-anchor="middle" font-size="12" font-weight="700" fill="${nameC}">${name}</text>
+      <line x1="${n.tx+8}" y1="${n.ty+25}" x2="${n.tx+TW-8}" y2="${n.ty+25}" stroke="${bord}" stroke-width="1"/>
+      <text x="${n.tx+TW/2}" y="${n.ty+37}" text-anchor="middle" font-size="10" fill="${mCol}">${mline}</text>
+      ${rline?`<text x="${n.tx+TW/2}" y="${n.ty+51}" text-anchor="middle" font-size="10" fill="#2a4a60">${rline}</text>`:''}`;
+  }).join('');
+
+  return`<svg width="${svgW}" height="${svgH}" xmlns="http://www.w3.org/2000/svg">${edgeSVG}${nodeSVG}</svg>`;
+}
+
+function resItemHTML(r){
+  const recCount=r.recipes.length;
+  const defRec=r.recipes.find(x=>x.id===r.defaultRecipeId)??r.recipes[0];
+  const sub=recCount===0
+    ?'<span style="color:#444;font-size:11px">raw resource</span>'
+    :`<span style="color:#5a8a6a;font-size:11px">${recCount} recipe${recCount>1?'s':''}${defRec?` · ${defRec.name||'(unnamed)'}`:''}</span>`;
+  const hasRec=recCount>0;
+  return`<div class="litem" style="${selResId===r.id?'border-color:var(--acc2)':''}">
+    <div class="lh">
+      <div><div class="ln">${r.name}</div><div style="margin-top:2px">${sub}</div></div>
+      <div class="la">
+        ${hasRec?`<button class="btree bsm" id="treebtn-${r.id}" onclick="toggleResTree('${r.id}',this)">▸ Tree</button>`:''}
+        <button class="bb bsm" onclick="editRes('${r.id}')">Edit</button>
+        <button class="bb bsm" onclick="selectResource('${r.id}')">Recipes</button>
+        <button class="bx" onclick="delRes('${r.id}')">Del</button>
+      </div>
+    </div>
+    ${hasRec?`<div class="rtree" id="rtree-${r.id}" style="display:none"></div>`:''}
+  </div>`;
+}
+
+function catHeaderHTML(id,name,count,isUncat){
+  const exp=catState[id]||false;
+  const acts=isUncat?'':`
+    <div class="cat-acts">
+      <button class="bb bsm" onclick="editCat('${id}',event)">Rename</button>
+      <button class="bx" onclick="delCat('${id}',event)">Del</button>
+    </div>`;
+  return`<div class="cat-hdr" onclick="toggleCat('${id}')">
+    <span class="cat-arrow" id="catarrow-${id}">${exp?'▾':'▸'}</span>
+    <span class="cat-name-lbl">${name}</span>
+    <span class="cat-ct">${count}</span>
+    ${acts}
+  </div>
+  <div class="cat-body" id="catbody-${id}" style="${exp?'':'display:none'}">`;
+}
+
+function renderResources(){
+  const el=document.getElementById('res-list');
+  document.getElementById('res-ct').textContent=`(${resources.length})`;
+  if(!resources.length){el.innerHTML='<div class="empty">No resources yet.</div>';return;}
+
+  // Bucket by category
+  const buckets={};
+  categories.forEach(c=>{buckets[c.id]=[];});
+  const uncat=[];
+  resources.forEach(r=>{
+    if(r.categoryId&&buckets[r.categoryId])buckets[r.categoryId].push(r);
+    else uncat.push(r);
+  });
+
+  let html='';
+  // Named categories
+  categories.forEach(cat=>{
+    const items=buckets[cat.id];
+    html+=catHeaderHTML(cat.id,cat.name,`${items.length} resource${items.length!==1?'s':''}`,false);
+    html+=items.map(resItemHTML).join('');
+    html+='</div>'; // close cat-body
+  });
+  // Uncategorised (only show section header if there are named categories too)
+  if(uncat.length){
+    if(categories.length){
+      html+=catHeaderHTML('__uncat','Uncategorised',`${uncat.length} resource${uncat.length!==1?'s':''}`,true);
+      html+=uncat.map(resItemHTML).join('');
+      html+='</div>';
+    } else {
+      html+=uncat.map(resItemHTML).join('');
+    }
+  }
+  el.innerHTML=html;
+}
+
+// ── Recipes ─────────────────────────────────────────
+function saveRecipe(){
+  if(!selResId)return;
+  const name    = document.getElementById('rec-name').value.trim();
+  const machId  = document.getElementById('rec-mach').value;
+  const ct      = parseFloat(document.getElementById('rec-time').value);
+  const outAmt  = parseFloat(document.getElementById('rec-outamt').value)||1;
+  const inputs  = getIORows('rec-inputs');
+  if(isNaN(ct)||ct<=0)return setErr('rec-err','Cycle time must be > 0.');
+  setErr('rec-err','');
+  const res=resources.find(r=>r.id===selResId);
+  if(!res)return;
+  const rec={
+    id:editRecId||uid(),
+    name:name||(machId?mname(machId)+' recipe':'Recipe'),
+    machineId:machId||null,
+    cycleTime:ct,
+    outputAmount:outAmt,
+    inputs
+  };
+  if(editRecId){
+    const i=res.recipes.findIndex(r=>r.id===editRecId);
+    if(i!==-1)res.recipes[i]=rec;
+  } else {
+    res.recipes.push(rec);
+    if(!res.defaultRecipeId)res.defaultRecipeId=rec.id;
+  }
+  const savedResId=selResId;
+  saveState(); closeEditor(); renderRecipesForResource(savedResId); renderResources(); refreshResSelects();
+}
+
+function cancelRecipe(){
+  editRecId=null;
+  document.getElementById('rec-name').value='';
+  document.getElementById('rec-mach').value='';
+  document.getElementById('rec-time').value='';
+  document.getElementById('rec-outamt').value='1';
+  document.getElementById('rec-inputs').innerHTML='';
+  document.getElementById('rec-form-lbl').textContent='Add Recipe';
+  setErr('rec-err','');
+  addIO('rec-inputs');
+  refreshResSelects(); // ensures rf-inputs rows reflect latest resources without exclusion side-effects
+}
+
+function editRecipe(recId, resId){
+  selResId=resId;
+  const res=resources.find(r=>r.id===resId);
+  if(!res)return;
+  const rec=res.recipes.find(r=>r.id===recId);
+  if(!rec)return;
+  editRecId=recId;
+  document.getElementById('rec-name').value=rec.name||'';
+  document.getElementById('rec-mach').value=rec.machineId||'';
+  document.getElementById('rec-time').value=rec.cycleTime;
+  document.getElementById('rec-outamt').value=rec.outputAmount??1;
+  document.getElementById('rec-inputs').innerHTML='';
+  rec.inputs.forEach(i=>addIO('rec-inputs',i.resourceId,i.amount));
+  if(!rec.inputs.length)addIO('rec-inputs');
+  document.getElementById('rec-form-lbl').textContent='Edit Recipe';
+}
+
+function delRecipe(recId,resId){
+  const res=resources.find(r=>r.id===resId);
+  if(!res)return;
+  res.recipes=res.recipes.filter(r=>r.id!==recId);
+  if(res.defaultRecipeId===recId)res.defaultRecipeId=res.recipes[0]?.id??null;
+  saveState(); renderRecipesForResource(resId); renderResources();
+}
+
+function setDefaultRecipe(recId,resId){
+  const res=resources.find(r=>r.id===resId);
+  if(res){res.defaultRecipeId=recId; saveState(); renderRecipesForResource(resId); renderResources();}
+}
+
+function renderRecipesForResource(resId){
+  const res=resources.find(r=>r.id===resId);
+  const el=document.getElementById('rec-existing');
+  if(!res||!res.recipes.length){el.innerHTML='<div class="empty" style="padding:10px 0">No recipes yet.</div>';return;}
+  el.innerHTML=res.recipes.map(rec=>{
+    const m=rec.machineId?machines.find(m=>m.id===rec.machineId):null;
+    const isDef=rec.id===res.defaultRecipeId;
+    const inBadges=rec.inputs.map(i=>`<span class="badge bi">${i.amount}× ${rname(i.resourceId)}</span>`).join('');
+    const outBadge=`<span class="badge bo">${rec.outputAmount??1}× ${res.name}</span>`;
+    return`<div class="litem" style="${isDef?'border-color:#2a5a2a;background:#151e15':''}">
+      <div class="lh">
+        <div>
+          <span class="ln">${rec.name||'(unnamed)'}</span>
+          ${isDef?'<span class="badge bdef-badge" style="margin-left:6px">default</span>':''}
+          ${m?`<span class="badge bm" style="margin-left:4px">${m.name}</span>`:''}
+        </div>
+        <div class="la">
+          ${!isDef?`<button class="bdef" onclick="setDefaultRecipe('${rec.id}','${resId}')">Set Default</button>`:''}
+          <button class="bb bsm" onclick="editRecipe('${rec.id}','${resId}')">Edit</button>
+          <button class="bx" onclick="delRecipe('${rec.id}','${resId}')">Del</button>
+        </div>
+      </div>
+      <div style="margin-top:6px">${inBadges}${inBadges?'<span style="color:#333;margin:0 4px">→</span>':''}${outBadge}</div>
+      <div class="ls">${rec.cycleTime}s cycle · ${fmt(rec.outputAmount??1/rec.cycleTime,3)}/s per machine${m?` · ${m.name}`:''}</div>
+    </div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════════════════
+// PLANNER CONTROLS
+// ══════════════════════════════════════════════════════
+function setPlanMode(mode){
+  planMode=mode;
+  document.getElementById('pl-tgt').style.display  = mode==='target'?'':'none';
+  document.getElementById('pl-inp').style.display  = mode==='inputs'?'':'none';
+  document.getElementById('mode-tgt').classList.toggle('active', mode==='target');
+  document.getElementById('mode-inp').classList.toggle('active', mode==='inputs');
+}
+
+function renderPlannerControls(){
+  // Populate target selects
+  const opts='<option value="">— select —</option>'+resources.map(r=>`<option value="${r.id}">${r.name}</option>`).join('');
+  ['pl-res','pl-inp-target'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(!el)return;
+    const cur=el.value;
+    el.innerHTML=opts;
+    if(cur)el.value=cur;
+  });
+
+  // Machine tier cards
+  const tierCard=document.getElementById('pl-tier-card');
+  const tierRows=document.getElementById('pl-tier-rows');
+  if(!machines.length){tierCard.style.display='none';}
+  else {
+    tierCard.style.display='';
+    tierRows.innerHTML=machines.map(m=>{
+      const tierOpts=m.tiers.map(t=>`<option value="${t.id}"${selTiers[m.id]===t.id?' selected':''}>${t.name} (×${t.speedMult})</option>`).join('');
+      return`<div class="tier-sel-row">
+        <span>${m.name}</span>
+        <select onchange="selTiers['${m.id}']=this.value;saveState()">
+          ${tierOpts}
+        </select></div>`;
+    }).join('');
+  }
+
+  // Recipe override cards (only resources with >1 recipe)
+  const recCard=document.getElementById('pl-rec-card');
+  const recRows=document.getElementById('pl-rec-rows');
+  const multiRecRes=resources.filter(r=>r.recipes.length>1);
+  if(!multiRecRes.length){recCard.style.display='none';}
+  else {
+    recCard.style.display='';
+    recRows.innerHTML=multiRecRes.map(r=>{
+      const opts=r.recipes.map(rec=>{
+        const isDefault=rec.id===r.defaultRecipeId;
+        return`<option value="${rec.id}"${recOverrides[r.id]===rec.id||(!recOverrides[r.id]&&isDefault)?' selected':''}>${rec.name}${isDefault?' (default)':''}</option>`;
+      }).join('');
+      return`<div class="rec-override-row">
+        <span>${r.name}</span>
+        <select onchange="recOverrides['${r.id}']=this.value;saveState()">${opts}</select>
+      </div>`;
+    }).join('');
+  }
+}
+
+function addInputRow(){
+  const row=document.createElement('div');
+  row.className='inp-row';
+  const opts=resources.map(r=>`<option value="${r.id}">${r.name}</option>`).join('');
+  row.innerHTML=`<select>${opts}</select>
+    <input type="number" min="0" step="any" placeholder="Rate" value="60">
+    <select class="inp-unit">
+      <option value="60">/ min</option><option value="1">/ sec</option><option value="3600">/ hr</option>
+    </select>
+    <button class="bx" onclick="this.parentElement.remove()">✕</button>`;
+  document.getElementById('pl-inp-rows').appendChild(row);
+}
+
+// ══════════════════════════════════════════════════════
+// COMPUTATION
+// ══════════════════════════════════════════════════════
+function getActiveRecipe(resId){
+  const res=resources.find(r=>r.id===resId);
+  if(!res||!res.recipes.length)return null;
+  const ov=recOverrides[resId];
+  if(ov){const r=res.recipes.find(r=>r.id===ov);if(r)return r;}
+  return res.recipes.find(r=>r.id===res.defaultRecipeId)??res.recipes[0];
+}
+
+function effectiveCycleTime(rec){
+  if(!rec.machineId)return rec.cycleTime;
+  const m=machines.find(m=>m.id===rec.machineId);
+  if(!m||!m.tiers.length)return rec.cycleTime;
+  const tierId=selTiers[rec.machineId];
+  const tier=tierId?m.tiers.find(t=>t.id===tierId):m.tiers[0];
+  return tier?rec.cycleTime/tier.speedMult:rec.cycleTime;
+}
+
+function activeTierName(rec){
+  if(!rec.machineId)return '';
+  const m=machines.find(m=>m.id===rec.machineId);
+  if(!m)return '';
+  const tierId=selTiers[rec.machineId];
+  const tier=tierId?m.tiers.find(t=>t.id===tierId):m.tiers[0];
+  return tier?tier.name:'';
+}
+
+// Core chain: topological sort → propagate demand
+// useCeil=true  (target mode):      propagate ceil(exact) machines' inputs so every built
+//                                   machine is fully supplied and runs at 100% capacity.
+// useCeil=false (from-inputs mode): propagate fractional exact demand; machines may run
+//                                   below 100% when inputs are the binding constraint.
+function computeChain(targetResId, targetRatePerSec, inputSet=new Set(), useCeil=false){
+  const seen={}, depsOf={};
+  function explore(id){
+    if(seen[id])return; seen[id]=1;
+    if(inputSet.has(id))return;
+    const rec=getActiveRecipe(id);
+    if(!rec)return;
+    depsOf[id]=rec.inputs.map(i=>i.resourceId);
+    rec.inputs.forEach(i=>explore(i.resourceId));
+  }
+  explore(targetResId);
+
+  const visited=new Set(), order=[];
+  function topo(id){
+    if(visited.has(id))return; visited.add(id);
+    (depsOf[id]??[]).forEach(topo);
+    order.unshift(id);
+  }
+  topo(targetResId);
+
+  const demand={[targetResId]:targetRatePerSec};
+  const nodes=[], addedRec=new Set(), rawNeeds={};
+
+  for(const resId of order){
+    const d=demand[resId]??0;
+    if(d<=0)continue;
+    if(inputSet.has(resId)){rawNeeds[resId]=(rawNeeds[resId]??0)+d;continue;}
+    const rec=getActiveRecipe(resId);
+    if(!rec){rawNeeds[resId]=(rawNeeds[resId]??0)+d;continue;}
+    const ct=effectiveCycleTime(rec);
+    const outAmt=rec.outputAmount??1;
+    const exact=d/(outAmt/ct);
+    if(!addedRec.has(rec.id)){
+      addedRec.add(rec.id);
+      nodes.push({rec,exact,resId});
+    } else {
+      const n=nodes.find(n=>n.rec.id===rec.id);
+      if(exact>n.exact)n.exact=exact;
+    }
+    // Propagate inputs for ceil (full capacity) or exact (constrained) depending on mode
+    const propagate=useCeil?Math.ceil(exact):exact;
+    rec.inputs.forEach(inp=>{
+      demand[inp.resourceId]=(demand[inp.resourceId]??0)+(inp.amount/ct)*propagate;
+    });
+  }
+  return{nodes,rawNeeds};
+}
+
+// Input-constrained mode: find max achievable rate then compute chain.
+// Uses exact (non-ceil) propagation throughout — inputs are the constraint so we
+// work within them precisely and show per-machine efficiency in the results.
+function computeFromInputs(targetResId, inputMap){
+  const inputSet=new Set(Object.keys(inputMap));
+  // Rate-1 pass with exact math to find proportional raw needs for bottleneck calc
+  const{nodes:n1,rawNeeds:rn1}=computeChain(targetResId,1,inputSet,false);
+
+  const missing=Object.keys(rn1).filter(id=>!inputMap[id]);
+  if(missing.length)return{error:`Required resources not in inputs: ${missing.map(rname).join(', ')}`};
+  if(!Object.keys(rn1).length&&!n1.length)return{error:'No recipe found for target resource.'};
+
+  let achievable=Infinity, bottleneckRes=null;
+  Object.entries(rn1).forEach(([id,need])=>{
+    if(need<=0)return;
+    const a=(inputMap[id]??0)/need;
+    if(a<achievable){achievable=a;bottleneckRes=id;}
+  });
+  if(!isFinite(achievable)||achievable<=0)return{error:'Could not compute achievable rate.'};
+
+  // Final pass at achievable rate — still exact so raw needs match available inputs
+  const{nodes,rawNeeds}=computeChain(targetResId,achievable,inputSet,false);
+  return{nodes,rawNeeds,achievable,bottleneckRes};
+}
+
+// ══════════════════════════════════════════════════════
+// PLANNER RUN
+// ══════════════════════════════════════════════════════
+function runPlanner(){
+  const resEl=document.getElementById('pl-results');
+  let result;
+
+  if(planMode==='target'){
+    const resId  =document.getElementById('pl-res').value;
+    const rateNum=parseFloat(document.getElementById('pl-rate').value);
+    const unit   =parseFloat(document.getElementById('pl-unit').value);
+    const unitLbl=document.getElementById('pl-unit').selectedOptions[0].text;
+    if(!resId)      return resEl.innerHTML='<div class="alert ae">Select a target resource.</div>';
+    if(!rateNum||rateNum<=0)return resEl.innerHTML='<div class="alert ae">Enter a positive rate.</div>';
+    const{nodes,rawNeeds}=computeChain(resId,rateNum/unit,new Set(),true);
+    if(!nodes.length)return resEl.innerHTML=`<div class="alert ae">No recipe produces "${rname(resId)}". Add one in Resources.</div>`;
+    renderResults(resId,nodes,rawNeeds,`${rateNum} ${rname(resId)}/${unitLbl}`,null,resEl);
+  } else {
+    const targetId=document.getElementById('pl-inp-target').value;
+    if(!targetId)return resEl.innerHTML='<div class="alert ae">Select a target resource.</div>';
+    const rows=[...document.querySelectorAll('#pl-inp-rows .inp-row')];
+    if(!rows.length)return resEl.innerHTML='<div class="alert ae">Add at least one input resource.</div>';
+    const inputMap={};
+    rows.forEach(row=>{
+      const[resSel,rateInp,unitSel]=row.querySelectorAll('select,input');
+      const rid=resSel.value, rate=parseFloat(rateInp.value), unit=parseFloat(unitSel.value);
+      if(rid&&!isNaN(rate)&&rate>0)inputMap[rid]=(inputMap[rid]??0)+rate/unit;
+    });
+    if(!Object.keys(inputMap).length)return resEl.innerHTML='<div class="alert ae">No valid input rows.</div>';
+    const res=computeFromInputs(targetId,inputMap);
+    if(res.error)return resEl.innerHTML=`<div class="alert ae">${res.error}</div>`;
+    const achLabel=`${fmt(res.achievable*60,3)}/min`;
+    renderResults(targetId,res.nodes,res.rawNeeds,`max ${achLabel} ${rname(targetId)}`,res,resEl);
+  }
+}
+
+function renderResults(targetResId, nodes, rawNeeds, header, inputMeta, el){
+  const fromInputs=!!inputMeta;
+  let left=`<div class="card-title">${header}</div>`;
+
+  if(inputMeta){
+    const bName=inputMeta.bottleneckRes?rname(inputMeta.bottleneckRes):'?';
+    left+=`<div class="ach-banner">Bottleneck: <strong>${bName}</strong> · achievable: <strong>${fmt(inputMeta.achievable*60,3)}/min</strong> (${fmt(inputMeta.achievable,4)}/s)</div>`;
+  }
+
+  nodes.forEach(({rec,exact,resId})=>{
+    const count=Math.ceil(exact);
+    const isTgt=resId===targetResId;
+    const m=rec.machineId?machines.find(m=>m.id===rec.machineId):null;
+    const tier=activeTierName(rec);
+    const ct=effectiveCycleTime(rec);
+    const ratePerMachine=(rec.outputAmount??1)/ct;
+
+    // Always show the planned flow rate (what this stage was calculated to produce),
+    // not the theoretical max of N machines. In target mode inputs are provisioned
+    // for the ceiled count so machines are supplied, but the output rate displayed
+    // is the exact demanded amount — not the rounded-up surplus capacity.
+    const actualRate = exact * ratePerMachine;
+    const fullRate   = count*ratePerMachine;
+    const eff        = exact/count;                         // 0–1
+    const effPct     = (eff*100).toFixed(1);
+    const atCapacity = eff>0.999;
+
+    left+=`<div class="ri${isTgt?' tgt':''}">
+      <div class="ri-l">
+        <div class="rm">${m?m.name:'(no machine)'}${tier?` <span style="color:#6a8090;font-size:11px">${tier}</span>`:''}</div>
+        <div class="rr">${rec.name}</div>
+        <div class="ro">${fmt(actualRate,3)}/s ${rname(resId)}${fromInputs&&!atCapacity?` <span style="color:#c07030">(${effPct}% capacity · max ${fmt(fullRate,3)}/s)</span>`:''}</div>
+      </div>
+      <div class="ri-r">
+        <div class="ri-cnt">${count}</div>
+        <div class="ri-ex">${fmt(exact,2)} exact</div>
+      </div></div>`;
+  });
+
+  if(Object.keys(rawNeeds).length){
+    left+=`<div class="sl" style="margin-top:12px">Raw inputs</div>`;
+    Object.entries(rawNeeds).forEach(([rid,rate])=>{
+      left+=`<div class="raw-i">
+        <span class="raw-n">${rname(rid)}</span>
+        <div class="ri-r"><div class="raw-v">${fmt(rate,4)}/s</div><div class="raw-s">${fmt(rate*60,3)}/min</div></div>
+      </div>`;
+    });
+  }
+
+  el.innerHTML=`<div class="plan-panels">
+    <div class="card">${left}</div>
+    <div class="card flow-card"><div class="card-title">Flow diagram</div>${buildFlowSVG(targetResId,nodes,rawNeeds,fromInputs)}</div>
+  </div>`;
+}
+
+// ══════════════════════════════════════════════════════
+// FLOW DIAGRAM
+// ══════════════════════════════════════════════════════
+function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
+  if(!nodes.length)return'<div class="empty">Nothing to display.</div>';
+
+  const byOut={};
+  nodes.forEach(n=>{ byOut[n.resId]=n; });
+
+  // ── Depth assignment (0 = target, N = N hops upstream) ──
+  const dc={};
+  function nodeDepth(recId){
+    if(dc[recId]!==undefined)return dc[recId];
+    dc[recId]=0;
+    const n=nodes.find(x=>x.rec.id===recId);
+    if(!n)return 0;
+    let mx=-1;
+    nodes.forEach(c=>{
+      if(c.rec.id===recId)return;
+      c.rec.inputs.forEach(inp=>{
+        if(n.resId===inp.resourceId){const d=nodeDepth(c.rec.id);if(d>mx)mx=d;}
+      });
+    });
+    return(dc[recId]=mx+1);
+  }
+  nodes.forEach(n=>nodeDepth(n.rec.id));
+  const maxD=Math.max(...nodes.map(n=>dc[n.rec.id]));
+
+  // ── Group by depth; sort within each column by category then name ──
+  const byD={};
+  for(let d=0;d<=maxD;d++)byD[d]=[];
+  nodes.forEach(n=>byD[dc[n.rec.id]].push(n));
+  const catOrd={};
+  categories.forEach((c,i)=>catOrd[c.id]=i);
+  for(let d=0;d<=maxD;d++){
+    byD[d].sort((a,b)=>{
+      const ra=resources.find(r=>r.id===a.resId), rb=resources.find(r=>r.id===b.resId);
+      const ca=ra?.categoryId!=null?(catOrd[ra.categoryId]??999):999;
+      const cb=rb?.categoryId!=null?(catOrd[rb.categoryId]??999):999;
+      return ca!==cb ? ca-cb : rname(a.resId).localeCompare(rname(b.resId));
+    });
+  }
+
+  // ── Dimensions ──
+  // LANE_H: vertical space reserved above and below the node area for highway routing
+  const NW=196, NH=88, HGAP=112, VGAP=22, RW=150, RH=60, PAD=24, LANE_H=52, LANE_STEP=16;
+  const rawEntries=Object.entries(rawNeeds);
+  const rawZone=rawEntries.length?RW+HGAP:0;
+  const STEP=NW+HGAP;
+  const colX=d=>PAD+rawZone+(maxD-d)*STEP;
+
+  const maxRows=Math.max(...Object.values(byD).map(a=>a.length),rawEntries.length,1);
+  const totalH=maxRows*(NH+VGAP)-VGAP;
+  const nodeTop=PAD+LANE_H;   // y-offset where nodes begin
+
+  // ── Node positions ──
+  const posR={};
+  for(let d=0;d<=maxD;d++){
+    const col=byD[d];
+    const colH=col.length*(NH+VGAP)-VGAP;
+    const sy=nodeTop+Math.floor((totalH-colH)/2);
+    col.forEach((n,i)=>{posR[n.rec.id]={x:colX(d),y:sy+i*(NH+VGAP)};});
+  }
+  const rawColH=rawEntries.length*(RH+VGAP)-VGAP;
+  const rawSY=nodeTop+Math.floor((totalH-rawColH)/2);
+  const posRaw={};
+  rawEntries.forEach(([rid],i)=>{posRaw[rid]={x:PAD,y:rawSY+i*(RH+VGAP)};});
+
+  const svgW=colX(0)+NW+PAD;
+  const svgH=totalH+nodeTop+PAD+LANE_H;
+
+  // Highway lane y-coordinates (above = small y, below = large y)
+  // Per-edge lane allocation to prevent parallel long edges from overlapping
+  let aboveLaneI=0, belowLaneI=0;
+  const aboveLaneBase=PAD+6;
+  const belowLaneBase=svgH-PAD-6;
+  function allocLane(above){
+    return above?(aboveLaneBase+aboveLaneI++*LANE_STEP):(belowLaneBase-belowLaneI++*LANE_STEP);
+  }
+  // Choose lane side: edges whose nodes average in the top half go through the top lane
+  // (keeps the routing loop tight to the nodes it connects)
+  function chooseLane(y1,y2){
+    return (y1+y2)/2 < nodeTop+totalH/2;
+  }
+
+  // ── Category colour palette for node borders/headings ──
+  const palette=['#4a8ab8','#5aaa6a','#c07820','#8060c0','#50a0a8','#c04060','#70b880','#9080b0'];
+  function catCol(resId){
+    const res=resources.find(r=>r.id===resId);
+    if(!res||!res.categoryId)return null;
+    const i=categories.findIndex(c=>c.id===res.categoryId);
+    return i>=0?palette[i%palette.length]:null;
+  }
+
+  let defs=`<defs>
+    <marker id="ar"     markerWidth="7" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0,7 3,0 6" fill="#3a5060"/></marker>
+    <marker id="arlong" markerWidth="7" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0,7 3,0 6" fill="#2a4858"/></marker>
+  </defs>`;
+  let edges='',raws='',boxes='';
+
+  // ── Edge renderer ──
+  function drawEdge(x1,y1,x2,y2,lbl,isLong){
+    let path;
+    if(isLong){
+      // Highway routing: exit source → curve into lane → horizontal → curve out to target
+      // This guarantees the path never passes through intermediate node columns
+      const laneY=allocLane(chooseLane(y1,y2));
+      const s=34;
+      path=`M${x1},${y1} C${x1+s},${y1} ${x1+s},${laneY} ${x1+s*2},${laneY} L${x2-s*2},${laneY} C${x2-s},${laneY} ${x2-s},${y2} ${x2},${y2}`;
+    } else {
+      const dx=(x2-x1)*0.44;
+      path=`M${x1},${y1} C${x1+dx},${y1} ${x2-dx},${y2} ${x2},${y2}`;
+    }
+    edges+=`<path d="${path}" fill="none" stroke="${isLong?'#253848':'#2a4050'}" stroke-width="2" marker-end="url(#${isLong?'arlong':'ar'})"/>`;
+
+    // Label near arrowhead — just before the line enters the target box
+    if(lbl){
+      // Offset above or below based on approach angle
+      const lyOff=(y1<=y2)?-9:12;
+      const lx=x2-7, ly=y2+lyOff;
+      const bgW=lbl.length*5.5+8;
+      edges+=`<rect x="${lx-bgW}" y="${ly-11}" width="${bgW}" height="13" rx="3" fill="#13151a" opacity=".94"/>`;
+      edges+=`<text x="${lx}" y="${ly}" text-anchor="end" font-size="10" fill="#5a8aaa">${lbl}</text>`;
+    }
+  }
+
+  // ── Recipe → Recipe ──
+  nodes.forEach(consumer=>{
+    const cp=posR[consumer.rec.id];
+    if(!cp)return;
+    const ct=effectiveCycleTime(consumer.rec);
+    consumer.rec.inputs.forEach(inp=>{
+      const pn=byOut[inp.resourceId];
+      if(!pn||!posR[pn.rec.id])return;
+      const pp=posR[pn.rec.id];
+      const isLong=(dc[pn.rec.id]-dc[consumer.rec.id])>1;
+      const rate=(inp.amount/ct)*consumer.exact;
+      drawEdge(pp.x+NW,pp.y+NH/2,cp.x,cp.y+NH/2,`${fmt(rate,2)}/s ${rname(inp.resourceId)}`,isLong);
+    });
+  });
+
+  // ── Raw → Recipe ──
+  rawEntries.forEach(([rid])=>{
+    const rp=posRaw[rid];
+    if(!rp)return;
+    nodes.forEach(consumer=>{
+      const cp=posR[consumer.rec.id];
+      if(!cp)return;
+      const ct=effectiveCycleTime(consumer.rec);
+      consumer.rec.inputs.forEach(inp=>{
+        if(inp.resourceId!==rid)return;
+        // Long if consumer is not in the deepest recipe column
+        const isLong=dc[consumer.rec.id]<maxD;
+        const rate=(inp.amount/ct)*consumer.exact;
+        drawEdge(rp.x+RW,rp.y+RH/2,cp.x,cp.y+NH/2,`${fmt(rate,2)}/s`,isLong);
+      });
+    });
+  });
+
+  // ── Raw material boxes ──
+  rawEntries.forEach(([rid,rate])=>{
+    const p=posRaw[rid];
+    raws+=`<rect x="${p.x}" y="${p.y}" width="${RW}" height="${RH}" rx="6" fill="#111a11" stroke="#2a4a2a" stroke-width="1.5" stroke-dasharray="5 3"/>
+      <text x="${p.x+RW/2}" y="${p.y+18}" text-anchor="middle" font-size="12" font-weight="600" fill="#5aaa6a">${rname(rid)}</text>
+      <line x1="${p.x+8}" y1="${p.y+24}" x2="${p.x+RW-8}" y2="${p.y+24}" stroke="#2a4a2a" stroke-width="1"/>
+      <text x="${p.x+RW/2}" y="${p.y+38}" text-anchor="middle" font-size="10" fill="#3a7a4a">${fmt(rate,3)}/s</text>
+      <text x="${p.x+RW/2}" y="${p.y+51}" text-anchor="middle" font-size="10" fill="#2a6a3a">${fmt(rate*60,2)}/min</text>`;
+  });
+
+  // ── Recipe boxes ──
+  nodes.forEach(n=>{
+    const p=posR[n.rec.id];
+    if(!p)return;
+    const count=Math.ceil(n.exact);
+    const isTgt=n.resId===targetResId;
+    const m=n.rec.machineId?machines.find(m=>m.id===n.rec.machineId):null;
+    const tier=activeTierName(n.rec);
+    const cc=catCol(n.resId);
+    const bg  =isTgt?'#221808':'#0e1a26';
+    const bord=isTgt?'#b07020':(cc||'#1e3a54');
+    const mCol=isTgt?'#e09030':(cc||'#4a8ab8');
+    const cCol=isTgt?'#f0c060':'#c8d8ec';
+    const ct=effectiveCycleTime(n.rec);
+    const ratePerMachine=(n.rec.outputAmount??1)/ct;
+    const actualRate=n.exact*ratePerMachine; // planned flow rate, not max capacity
+    const eff=n.exact/count;
+    const atCap=eff>0.999;
+    const machLine=(m?m.name:'no machine')+(tier?` · ${tier}`:'');
+    // In from-inputs mode show efficiency band when not at 100%
+    const effBand=fromInputs&&!atCap
+      ?`<rect x="${p.x+1}" y="${p.y+NH-12}" width="${Math.round((NW-2)*eff)}" height="10" rx="0 0 6 6" fill="#c0702040"/>
+        <text x="${p.x+NW/2}" y="${p.y+NH-3}" text-anchor="middle" font-size="8" fill="#c07030">${(eff*100).toFixed(0)}%</text>`
+      :'';
+    boxes+=`<rect x="${p.x}" y="${p.y}" width="${NW}" height="${NH}" rx="7" fill="${bg}" stroke="${bord}" stroke-width="${isTgt?2:1.5}"/>
+      <text x="${p.x+NW/2}" y="${p.y+19}" text-anchor="middle" font-size="12" font-weight="700" fill="${mCol}">${machLine}</text>
+      <text x="${p.x+NW/2}" y="${p.y+33}" text-anchor="middle" font-size="10" fill="#5a7888">${n.rec.name}</text>
+      <line x1="${p.x+10}" y1="${p.y+40}" x2="${p.x+NW-10}" y2="${p.y+40}" stroke="#1e3040" stroke-width="1"/>
+      <text x="${p.x+NW/2}" y="${p.y+66}" text-anchor="middle" font-size="26" font-weight="900" fill="${cCol}">${count}</text>
+      <text x="${p.x+NW-7}" y="${p.y+NH-(fromInputs&&!atCap?15:5)}" text-anchor="end" font-size="9" fill="#3a5a70">${fmt(actualRate,2)}/s ${rname(n.resId)}</text>
+      ${effBand}`;
+  });
+
+  return`<div style="overflow-x:auto"><svg width="${svgW}" height="${svgH}" xmlns="http://www.w3.org/2000/svg" style="display:block;font-family:'Segoe UI',system-ui,sans-serif">${defs}${edges}${raws}${boxes}</svg></div>`;
+}
+
+// ══════════════════════════════════════════════════════
+// IMPORT / EXPORT
+// ══════════════════════════════════════════════════════
+function exportData(){
+  const data={machines,resources,categories};
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const p=profiles.find(p=>p.id===activeProfileId);
+  Object.assign(document.createElement('a'),{href:URL.createObjectURL(blob),download:`${(p?.name||'data').replace(/[^a-z0-9_-]/gi,'_')}-data.json`}).click();
+}
+function importData(e){
+  const f=e.target.files[0]; if(!f)return;
+  const r=new FileReader();
+  r.onload=ev=>{
+    try{
+      const d=JSON.parse(ev.target.result);
+      if(d.machines)machines=d.machines;
+      if(d.resources)resources=d.resources;
+      if(d.categories)categories=d.categories;
+      saveState(); renderMachines(); renderResources(); renderPlannerControls(); refreshMachSelects(); refreshCatSelect();
+    }catch{alert('Invalid JSON.');}
+  };
+  r.readAsText(f); e.target.value='';
+}
+
+// ══════════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════════
+loadState();
+renderProfileSelector();
+renderMachines();
+renderResources();
+refreshMachSelects();
+refreshCatSelect();
+renderPlannerControls();
+cancelMachine();
+cancelResource();
+addIO('rec-inputs');
+</script>
+</body>
+</html>
