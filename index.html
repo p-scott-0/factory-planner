@@ -154,6 +154,10 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
     <button class="bb bsm" onclick="exportProfile()">Export Profile</button>
     <button class="bb bsm" onclick="document.getElementById('prof-imp').click()">Import Profile</button>
     <input id="prof-imp" type="file" accept=".json" style="display:none" onchange="importProfile(event)">
+    <span style="color:#444">|</span>
+    <span style="font-size:12px;color:var(--dim)">Samples:</span>
+    <button class="bb bsm" onclick="loadSampleProfile('satisfactory')">Satisfactory</button>
+    <button class="bb bsm" onclick="loadSampleProfile('factorio')">Factorio</button>
   </div>
 </div>
 
@@ -557,6 +561,38 @@ function importProfile(e){
     }catch{alert('Invalid profile JSON.');}
   };
   r.readAsText(f); e.target.value='';
+}
+
+// Bundled sample profiles (repo profiles/ folder). Requires the app to be served
+// over HTTP (GitHub Pages, local server) — fetch of local files fails on file://.
+async function loadSampleProfile(key){
+  try{
+    const res=await fetch(`profiles/${key}.json`);
+    if(!res.ok)throw new Error(res.status);
+    const d=await res.json();
+    saveActiveProfile();
+    let name=d.name||key;
+    if(profiles.some(p=>p.name===name)){
+      let n=2; while(profiles.some(p=>p.name===`${name} (${n})`))n++;
+      name=`${name} (${n})`;
+    }
+    const p={
+      id:crypto.randomUUID(),
+      name,
+      machines:d.machines||[],
+      resources:d.resources||[],
+      categories:d.categories||[],
+      selTiers:d.selTiers||{},
+      recOverrides:d.recOverrides||{},
+      layout:d.layout||{instances:[],belts:[]}
+    };
+    profiles.push(p);
+    activeProfileId=p.id;
+    loadActiveProfile();
+    saveState(); reloadUI();
+  }catch{
+    alert('Could not load the sample profile. If you opened this file directly (file://), use "Import Profile" with the JSON files from the profiles/ folder instead.');
+  }
 }
 
 // ══════════════════════════════════════════════════════

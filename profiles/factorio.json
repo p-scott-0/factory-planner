@@ -1,0 +1,247 @@
+{
+  "name": "Factorio (starter)",
+  "categories": [
+    { "id": "cat-raw", "name": "Raw" },
+    { "id": "cat-intermediates", "name": "Intermediates" },
+    { "id": "cat-science", "name": "Science" }
+  ],
+  "machines": [
+    {
+      "id": "mach-drill",
+      "name": "Mining Drill",
+      "tiers": [
+        { "id": "tier-drill-electric", "name": "Electric", "speedMult": 1 },
+        { "id": "tier-drill-burner", "name": "Burner", "speedMult": 0.5 }
+      ],
+      "width": 3,
+      "height": 3,
+      "ports": [
+        { "type": "output", "side": "bottom", "offset": 1 }
+      ],
+      "buildCost": [
+        { "resourceId": "res-iron-plate", "amount": 10 },
+        { "resourceId": "res-gear", "amount": 5 },
+        { "resourceId": "res-circuit", "amount": 3 }
+      ]
+    },
+    {
+      "id": "mach-furnace",
+      "name": "Furnace",
+      "tiers": [
+        { "id": "tier-furnace-stone", "name": "Stone", "speedMult": 1 },
+        { "id": "tier-furnace-steel", "name": "Steel", "speedMult": 2 },
+        { "id": "tier-furnace-electric", "name": "Electric", "speedMult": 2 }
+      ],
+      "width": 2,
+      "height": 2,
+      "ports": [
+        { "type": "input", "side": "top", "offset": 0 },
+        { "type": "output", "side": "bottom", "offset": 1 }
+      ],
+      "buildCost": [
+        { "resourceId": "res-stone", "amount": 5 }
+      ]
+    },
+    {
+      "id": "mach-assembler",
+      "name": "Assembling Machine",
+      "tiers": [
+        { "id": "tier-am1", "name": "AM1", "speedMult": 0.5 },
+        { "id": "tier-am2", "name": "AM2", "speedMult": 0.75 },
+        { "id": "tier-am3", "name": "AM3", "speedMult": 1.25 }
+      ],
+      "width": 3,
+      "height": 3,
+      "ports": [
+        { "type": "input", "side": "left", "offset": 1 },
+        { "type": "output", "side": "right", "offset": 1 }
+      ],
+      "buildCost": [
+        { "resourceId": "res-iron-plate", "amount": 9 },
+        { "resourceId": "res-gear", "amount": 5 },
+        { "resourceId": "res-circuit", "amount": 3 }
+      ]
+    }
+  ],
+  "resources": [
+    {
+      "id": "res-iron-ore",
+      "name": "Iron Ore",
+      "categoryId": "cat-raw",
+      "recipes": [
+        {
+          "id": "rec-iron-ore",
+          "name": "Mine Iron Ore",
+          "machineId": "mach-drill",
+          "cycleTime": 2,
+          "outputAmount": 1,
+          "inputs": []
+        }
+      ],
+      "defaultRecipeId": "rec-iron-ore"
+    },
+    {
+      "id": "res-copper-ore",
+      "name": "Copper Ore",
+      "categoryId": "cat-raw",
+      "recipes": [
+        {
+          "id": "rec-copper-ore",
+          "name": "Mine Copper Ore",
+          "machineId": "mach-drill",
+          "cycleTime": 2,
+          "outputAmount": 1,
+          "inputs": []
+        }
+      ],
+      "defaultRecipeId": "rec-copper-ore"
+    },
+    {
+      "id": "res-stone",
+      "name": "Stone",
+      "categoryId": "cat-raw",
+      "recipes": [
+        {
+          "id": "rec-stone",
+          "name": "Mine Stone",
+          "machineId": "mach-drill",
+          "cycleTime": 2,
+          "outputAmount": 1,
+          "inputs": []
+        }
+      ],
+      "defaultRecipeId": "rec-stone"
+    },
+    {
+      "id": "res-iron-plate",
+      "name": "Iron Plate",
+      "categoryId": "cat-intermediates",
+      "recipes": [
+        {
+          "id": "rec-iron-plate",
+          "name": "Smelt Iron Plate",
+          "machineId": "mach-furnace",
+          "cycleTime": 3.2,
+          "outputAmount": 1,
+          "inputs": [
+            { "resourceId": "res-iron-ore", "amount": 1 }
+          ]
+        }
+      ],
+      "defaultRecipeId": "rec-iron-plate"
+    },
+    {
+      "id": "res-copper-plate",
+      "name": "Copper Plate",
+      "categoryId": "cat-intermediates",
+      "recipes": [
+        {
+          "id": "rec-copper-plate",
+          "name": "Smelt Copper Plate",
+          "machineId": "mach-furnace",
+          "cycleTime": 3.2,
+          "outputAmount": 1,
+          "inputs": [
+            { "resourceId": "res-copper-ore", "amount": 1 }
+          ]
+        }
+      ],
+      "defaultRecipeId": "rec-copper-plate"
+    },
+    {
+      "id": "res-stone-brick",
+      "name": "Stone Brick",
+      "categoryId": "cat-intermediates",
+      "recipes": [
+        {
+          "id": "rec-stone-brick",
+          "name": "Fire Stone Brick",
+          "machineId": "mach-furnace",
+          "cycleTime": 3.2,
+          "outputAmount": 1,
+          "inputs": [
+            { "resourceId": "res-stone", "amount": 2 }
+          ]
+        }
+      ],
+      "defaultRecipeId": "rec-stone-brick"
+    },
+    {
+      "id": "res-gear",
+      "name": "Iron Gear Wheel",
+      "categoryId": "cat-intermediates",
+      "recipes": [
+        {
+          "id": "rec-gear",
+          "name": "Iron Gear Wheel",
+          "machineId": "mach-assembler",
+          "cycleTime": 0.5,
+          "outputAmount": 1,
+          "inputs": [
+            { "resourceId": "res-iron-plate", "amount": 2 }
+          ]
+        }
+      ],
+      "defaultRecipeId": "rec-gear"
+    },
+    {
+      "id": "res-cable",
+      "name": "Copper Cable",
+      "categoryId": "cat-intermediates",
+      "recipes": [
+        {
+          "id": "rec-cable",
+          "name": "Copper Cable",
+          "machineId": "mach-assembler",
+          "cycleTime": 0.5,
+          "outputAmount": 2,
+          "inputs": [
+            { "resourceId": "res-copper-plate", "amount": 1 }
+          ]
+        }
+      ],
+      "defaultRecipeId": "rec-cable"
+    },
+    {
+      "id": "res-circuit",
+      "name": "Electronic Circuit",
+      "categoryId": "cat-intermediates",
+      "recipes": [
+        {
+          "id": "rec-circuit",
+          "name": "Electronic Circuit",
+          "machineId": "mach-assembler",
+          "cycleTime": 0.5,
+          "outputAmount": 1,
+          "inputs": [
+            { "resourceId": "res-iron-plate", "amount": 1 },
+            { "resourceId": "res-cable", "amount": 3 }
+          ]
+        }
+      ],
+      "defaultRecipeId": "rec-circuit"
+    },
+    {
+      "id": "res-red-science",
+      "name": "Automation Science Pack",
+      "categoryId": "cat-science",
+      "recipes": [
+        {
+          "id": "rec-red-science",
+          "name": "Automation Science Pack",
+          "machineId": "mach-assembler",
+          "cycleTime": 5,
+          "outputAmount": 1,
+          "inputs": [
+            { "resourceId": "res-gear", "amount": 1 },
+            { "resourceId": "res-copper-plate", "amount": 1 }
+          ]
+        }
+      ],
+      "defaultRecipeId": "rec-red-science"
+    }
+  ],
+  "selTiers": {},
+  "recOverrides": {},
+  "layout": { "instances": [], "belts": [] }
+}
