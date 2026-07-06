@@ -105,6 +105,13 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
 .prof-grid input{width:auto;flex:0 0 160px;font-size:12px;padding:5px 8px}
 .prof-grid button{font-size:12px;padding:5px 10px}
 .prof-item{display:inline-flex;align-items:center;gap:5px;background:var(--bg);border:1px solid var(--b);border-radius:5px;padding:4px 8px;font-size:12px}
+/* Tiers tab */
+.rt-card{margin-bottom:14px}
+.rt-card.rt-locked{opacity:.8;border-style:dashed}
+.rt-group{margin-top:8px}
+.rt-group .sl{margin:0 0 4px}
+.rt-group .prof-item{margin:2px 4px 2px 0}
+.rt-group .prof-item button{padding:0 3px;font-size:11px;background:transparent;border:none}
 .prof-item.active{border-color:var(--acc);color:var(--acc)}
 .prof-item button{padding:2px 6px;font-size:11px}
 /* Port/cost rows in machine form */
@@ -139,6 +146,7 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
   <span class="nav-logo">⚙ Factory Planner</span>
   <span class="nav-tab active" data-tab="machines">Machines</span>
   <span class="nav-tab" data-tab="resources">Resources</span>
+  <span class="nav-tab" data-tab="tiers">Tiers</span>
   <span class="nav-tab" data-tab="planner">Planner</span>
   <span class="nav-tab" data-tab="layout">Layout</span>
   <div class="prof-wrap">
@@ -165,12 +173,6 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
     <span style="font-size:12px;color:var(--dim)">Samples:</span>
     <button class="bb bsm" onclick="loadSampleProfile('satisfactory')">Satisfactory</button>
     <button class="bb bsm" onclick="loadSampleProfile('factorio')">Factorio</button>
-  </div>
-  <div class="prof-grid" style="margin-top:8px">
-    <span style="font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em">Research tiers</span>
-    <span id="rt-list" style="display:contents"></span>
-    <input id="rt-new-name" type="text" placeholder="New tier (e.g. Tier 3)">
-    <button class="bb bsm" onclick="addResearchTier()">Add Tier</button>
   </div>
 </div>
 
@@ -323,6 +325,25 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
 </div>
 </div>
 
+<!-- ══ TIERS ══════════════════════════════════════ -->
+<div id="tab-tiers" class="tab">
+<div class="full-w">
+  <div class="card" style="margin-bottom:14px">
+    <div class="card-title">Research Tiers</div>
+    <div style="font-size:12px;color:var(--dim);margin-bottom:10px">
+      Machines, individual machine tiers, resources, and belts can be gated behind a research tier.
+      The 🔓 selector in the nav bar sets the highest unlocked tier — anything above it is hidden everywhere else in the app.
+      This tab always shows everything, so skip it if you're avoiding spoilers.
+    </div>
+    <div class="cat-add" style="max-width:420px">
+      <input id="rt-new-name" type="text" placeholder="New tier name (e.g. Tier 3)">
+      <button class="ba bsm" onclick="addResearchTier()">Add Tier</button>
+    </div>
+  </div>
+  <div id="rt-cards"></div>
+</div>
+</div>
+
 <!-- ══ PLANNER ══════════════════════════════════════ -->
 <div id="tab-planner" class="tab">
 <div class="full-w">
@@ -353,9 +374,9 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
     </div>
   </div>
 
-  <!-- Machine tier overrides -->
+  <!-- Machine / belt tier caps -->
   <div class="card" id="pl-tier-card" style="margin-bottom:14px;display:none">
-    <div class="card-title">Machine Tiers</div>
+    <div class="card-title">Max Machine Tiers <span style="color:#555;text-transform:none;letter-spacing:0">— only machines with a choice are listed</span></div>
     <div id="pl-tier-rows"></div>
   </div>
 
@@ -429,6 +450,7 @@ let researchTiers = [];  // [{id,name}] ordered lowest → highest
 let beltTiers     = [];  // [{id,name,speed(items/sec),researchTierId}]
 let recToggles    = {};  // recipeId → false when disabled
 let unlockedTierId= null; // highest unlocked research tier (null = everything)
+let maxBeltTierId = null; // planner cap on belt tier (null = fastest unlocked)
 let selTiers      = {};  // machineId → tierId
 let recOverrides  = {};  // legacy (planner now auto-selects recipes)
 let rateUnit      = localStorage.getItem('fp_rateunit')==='s'?'s':'m'; // global display unit
@@ -477,6 +499,7 @@ function loadActiveProfile(){
   beltTiers     = p.beltTiers     || [];
   recToggles    = p.recToggles    || {};
   unlockedTierId= p.unlockedTierId?? null;
+  maxBeltTierId = p.maxBeltTierId ?? null;
   migrateTierCosts(machines);
 }
 
@@ -498,6 +521,7 @@ function saveActiveProfile(){
   p.selTiers=selTiers; p.recOverrides=recOverrides;
   p.researchTiers=researchTiers; p.beltTiers=beltTiers;
   p.recToggles=recToggles; p.unlockedTierId=unlockedTierId;
+  p.maxBeltTierId=maxBeltTierId;
   if(typeof saveLayout==='function')saveLayout();
 }
 
@@ -526,7 +550,7 @@ function switchProfile(id){
 
 function reloadUI(){
   renderProfileSelector();
-  renderUnlockSelector(); renderResearchTiers(); refreshTierSelects(); renderBeltTiers();
+  renderUnlockSelector(); renderTierTab(); refreshTierSelects(); renderBeltTiers();
   renderMachines(); renderResources();
   refreshMachSelects(); refreshCatSelect();
   renderPlannerControls();
@@ -617,6 +641,7 @@ function importProfile(e){
         beltTiers:d.beltTiers||[],
         recToggles:d.recToggles||{},
         unlockedTierId:d.unlockedTierId??null,
+        maxBeltTierId:d.maxBeltTierId??null,
         layout:d.layout||{instances:[],belts:[]}
       };
       profiles.push(p);
@@ -653,6 +678,7 @@ async function loadSampleProfile(key){
       beltTiers:d.beltTiers||[],
       recToggles:d.recToggles||{},
       unlockedTierId:d.unlockedTierId??null,
+      maxBeltTierId:d.maxBeltTierId??null,
       layout:d.layout||{instances:[],belts:[]}
     };
     profiles.push(p);
@@ -676,17 +702,95 @@ function renderUnlockSelector(){
 }
 function setUnlockedTier(id){unlockedTierId=id;saveState();reloadUI();}
 
-function renderResearchTiers(){
-  const el=document.getElementById('rt-list');
-  if(!el)return;
-  el.innerHTML=researchTiers.map((t,i)=>`<span class="prof-item">
-      <button ${i===0?'disabled':''} onclick="moveResearchTier('${t.id}',-1)" title="Move earlier">◂</button>
-      ${t.name}
-      <button ${i===researchTiers.length-1?'disabled':''} onclick="moveResearchTier('${t.id}',1)" title="Move later">▸</button>
-      <button onclick="renameResearchTier('${t.id}')" title="Rename">✎</button>
-      <button onclick="delResearchTier('${t.id}')" title="Delete" style="color:var(--red)">✕</button>
-    </span>`).join('')
-    ||'<span style="color:#444;font-size:12px">none — everything is always available</span>';
+// ── Tiers tab ──
+// Shows every tier with its assigned contents (this is the authoring view, so
+// research locks are NOT applied here) plus an "always available" overview.
+function renderTierTab(){
+  const wrap=document.getElementById('rt-cards');
+  if(!wrap)return;
+  // Normalise dangling tier references (deleted tiers) to "always available"
+  const norm=v=>researchTiers.some(t=>t.id===v)?v:null;
+  const kindsOf=tid=>({
+    machines:machines.filter(m=>norm(m.researchTierId)===tid),
+    machTiers:machines.flatMap(m=>(m.tiers||[]).filter(t=>norm(t.researchTierId)===tid&&m.tiers.length>1).map(t=>({m,t}))),
+    resources:resources.filter(r=>norm(r.researchTierId)===tid),
+    belts:beltTiers.filter(b=>norm(b.researchTierId)===tid)
+  });
+  const chip=(label,removeCall)=>`<span class="prof-item">${label}${removeCall?`<button onclick="${removeCall}" title="Clear tier assignment" style="color:var(--red)">✕</button>`:''}</span>`;
+  const group=(title,items)=>items.length?`<div class="rt-group"><div class="sl">${title} (${items.length})</div>${items.join('')}</div>`:'';
+  const contents=(k,removable)=>
+    group('Machines',k.machines.map(m=>chip(m.name,removable?`assignTier('m:${m.id}','')`:'')))+
+    group('Machine tiers',k.machTiers.map(({m,t})=>chip(`${m.name} · ${t.name}`,removable?`assignTier('mt:${m.id}:${t.id}','')`:'')))+
+    group('Resources',k.resources.map(r=>chip(r.name,removable?`assignTier('r:${r.id}','')`:'')))+
+    group('Belts',k.belts.map(b=>chip(b.name,removable?`assignTier('b:${b.id}','')`:'')));
+
+  function assignOpts(){
+    const opt=(v,label,curTid)=>{
+      const cur=tierName(norm(curTid));
+      return`<option value="${v}">${label}${cur?` (${cur})`:''}</option>`;
+    };
+    let h='<option value="">+ Assign an item to this tier…</option>';
+    if(machines.length)h+='<optgroup label="Machines">'+machines.map(m=>opt(`m:${m.id}`,m.name,m.researchTierId)).join('')+'</optgroup>';
+    const mts=machines.flatMap(m=>(m.tiers||[]).length>1?m.tiers.map(t=>({m,t})):[]);
+    if(mts.length)h+='<optgroup label="Machine tiers">'+mts.map(({m,t})=>opt(`mt:${m.id}:${t.id}`,`${m.name} · ${t.name}`,t.researchTierId)).join('')+'</optgroup>';
+    if(resources.length)h+='<optgroup label="Resources">'+resources.map(r=>opt(`r:${r.id}`,r.name,r.researchTierId)).join('')+'</optgroup>';
+    if(beltTiers.length)h+='<optgroup label="Belts">'+beltTiers.map(b=>opt(`b:${b.id}`,b.name,b.researchTierId)).join('')+'</optgroup>';
+    return h;
+  }
+
+  const ui=unlockedIdx();
+  let html=researchTiers.map((t,i)=>{
+    const k=kindsOf(t.id);
+    const total=k.machines.length+k.machTiers.length+k.resources.length+k.belts.length;
+    const locked=i>ui;
+    return`<div class="card rt-card${locked?' rt-locked':''}">
+      <div class="lh">
+        <div>
+          <div class="ln">${i+1}. ${t.name} ${locked?'<span class="badge bi">🔒 locked</span>':'<span class="badge bo">🔓 unlocked</span>'}</div>
+          <div class="ls">${total} item${total!==1?'s':''} gated at this tier</div>
+        </div>
+        <div class="la">
+          <button class="bb bsm" ${i===0?'disabled':''} onclick="moveResearchTier('${t.id}',-1)" title="Move earlier">↑</button>
+          <button class="bb bsm" ${i===researchTiers.length-1?'disabled':''} onclick="moveResearchTier('${t.id}',1)" title="Move later">↓</button>
+          <button class="bb bsm" onclick="renameResearchTier('${t.id}')">Rename</button>
+          <button class="bx" onclick="delResearchTier('${t.id}')">Del</button>
+        </div>
+      </div>
+      ${contents(k,true)||'<div class="empty" style="padding:8px">Nothing gated at this tier yet.</div>'}
+      <div style="margin-top:10px;max-width:380px">
+        <select onchange="assignTier(this.value,'${t.id}');this.value=''">${assignOpts()}</select>
+      </div>
+    </div>`;
+  }).join('');
+
+  if(!researchTiers.length){
+    html='<div class="card rt-card"><div class="empty">No research tiers yet — add one above. Without tiers, everything is always available.</div></div>';
+  } else {
+    const k0=kindsOf(null);
+    const t0=k0.machines.length+k0.machTiers.length+k0.resources.length+k0.belts.length;
+    html+=`<div class="card rt-card">
+      <div class="lh"><div><div class="ln">Always available</div>
+      <div class="ls">${t0} item${t0!==1?'s':''} with no research gate — use a tier card's assign dropdown to gate them</div></div></div>
+      ${contents(k0,false)||'<div class="empty" style="padding:8px">Everything is assigned to a tier.</div>'}
+    </div>`;
+  }
+  wrap.innerHTML=html;
+}
+
+// key: "m:<machId>" | "mt:<machId>:<tierId>" | "r:<resId>" | "b:<beltId>"; tierId '' clears
+function assignTier(key,tierId){
+  if(!key)return;
+  const tid=tierId||null;
+  const parts=key.split(':');
+  if(parts[0]==='m'){const m=machines.find(m=>m.id===parts[1]);if(m)m.researchTierId=tid;}
+  else if(parts[0]==='mt'){const m=machines.find(m=>m.id===parts[1]);const t=m?.tiers.find(t=>t.id===parts[2]);if(t)t.researchTierId=tid;}
+  else if(parts[0]==='r'){const r=resources.find(r=>r.id===parts[1]);if(r)r.researchTierId=tid;}
+  else if(parts[0]==='b'){const b=beltTiers.find(b=>b.id===parts[1]);if(b)b.researchTierId=tid;}
+  saveState();
+  // Gating may change what's visible everywhere
+  renderTierTab(); renderMachines(); renderResources(); renderBeltTiers();
+  renderPlannerControls(); refreshMachSelects();
+  if(typeof renderLyPalette==='function')renderLyPalette();
 }
 function addResearchTier(){
   const el=document.getElementById('rt-new-name');
@@ -779,6 +883,7 @@ document.querySelectorAll('.nav-tab').forEach(t=>t.addEventListener('click',()=>
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
   t.classList.add('active');
   document.getElementById('tab-'+name).classList.add('active');
+  if(name==='tiers') renderTierTab();
   if(name==='planner') renderPlannerControls();
   if(name==='layout'){ initLayoutCanvas(); renderLyPalette(); }
 }));
@@ -831,19 +936,26 @@ function researchTierOpts(sel){
 
 // ── Belt tiers ──
 function unlockedBelts(){return beltTiers.filter(b=>tierOk(b.researchTierId)).slice().sort((a,b)=>a.speed-b.speed);}
-// Lowest unlocked belt tier that can carry the rate; if none is fast enough,
+// Belts the planner may use: unlocked, capped at the "max belt tier" setting
+function plannerBelts(){
+  const bs=unlockedBelts();
+  if(!maxBeltTierId)return bs;
+  const i=bs.findIndex(b=>b.id===maxBeltTierId);
+  return i<0?bs:bs.slice(0,i+1);
+}
+// Lowest allowed belt tier that can carry the rate; if none is fast enough,
 // several of the fastest in parallel.
 function beltFor(ratePerSec){
-  const bs=unlockedBelts();
+  const bs=plannerBelts();
   if(!bs.length||ratePerSec<=0)return null;
   const b=bs.find(b=>b.speed>=ratePerSec-1e-9);
   if(b)return{belt:b,count:1};
   const top=bs[bs.length-1];
   return{belt:top,count:Math.ceil(ratePerSec/top.speed-1e-9)};
 }
-function beltSuffix(ratePerSec){
+function beltLabel(ratePerSec){
   const bf=beltFor(ratePerSec);
-  return bf?` · ${bf.count>1?bf.count+'× ':''}${bf.belt.name}`:'';
+  return bf?`${bf.count>1?bf.count+'× ':''}${bf.belt.name}`:'';
 }
 
 function buildResOpts(selectedId='', exclude=''){
@@ -1486,14 +1598,16 @@ function renderPlannerControls(){
     if(cur)el.value=cur;
   });
 
-  // Machine tier cards (only unlocked machines and tiers)
+  // Max machine tier selectors — only machines with more than one unlocked
+  // tier offer a real choice, so single-option machines are omitted.
   const tierCard=document.getElementById('pl-tier-card');
   const tierRows=document.getElementById('pl-tier-rows');
-  const availMachines=machines.filter(machUnlocked);
-  if(!availMachines.length){tierCard.style.display='none';}
+  const multiTier=machines.filter(m=>machUnlocked(m)&&unlockedMachTiers(m).length>1);
+  const ub=unlockedBelts();
+  if(!multiTier.length&&ub.length<2){tierCard.style.display='none';}
   else {
     tierCard.style.display='';
-    tierRows.innerHTML=availMachines.map(m=>{
+    let rows=multiTier.map(m=>{
       const cur=activeTier(m.id);
       const tierOpts=unlockedMachTiers(m).map(t=>`<option value="${t.id}"${cur&&cur.id===t.id?' selected':''}>${t.name} (×${t.speedMult})</option>`).join('');
       return`<div class="tier-sel-row">
@@ -1502,6 +1616,18 @@ function renderPlannerControls(){
           ${tierOpts}
         </select></div>`;
     }).join('');
+    // Max belt tier: caps which belts the planner assigns to flows (and the
+    // machine-output belt limit)
+    if(ub.length>1){
+      const cur=ub.some(b=>b.id===maxBeltTierId)?maxBeltTierId:'';
+      rows+=`<div class="tier-sel-row">
+        <span>Belts</span>
+        <select onchange="maxBeltTierId=this.value||null;saveState()">
+          <option value=""${cur?'':' selected'}>fastest unlocked</option>
+          ${ub.map(b=>`<option value="${b.id}"${cur===b.id?' selected':''}>≤ ${b.name} (${rfmt(b.speed,0)})</option>`).join('')}
+        </select></div>`;
+    }
+    tierRows.innerHTML=rows;
   }
 
   // Recipe toggles (only resources with >1 available-to-see recipe).
@@ -1655,16 +1781,31 @@ function computeChain(targetResId, targetRatePerSec, inputSet=new Set(), useCeil
     if(!rec){rawNeeds[resId]=(rawNeeds[resId]??0)+d;continue;}
     const ct=effectiveCycleTime(rec);
     const outAmt=rec.outputAmount??1;
-    const exact=d/(outAmt/ct);
+    const fullPerMach=outAmt/ct;
+    // Belt cap: a machine can't push out more than (output ports × best
+    // allowed belt speed). A 600/min machine with one output on 480/min
+    // belts is capped to 480/min — you can't attach a second belt to one
+    // port. Machines with no output ports defined are not capped.
+    let perMach=fullPerMach, beltCapped=false;
+    const bm=rec.machineId?machines.find(m=>m.id===rec.machineId):null;
+    const outPorts=bm?(bm.ports||[]).filter(p=>p.type==='output').length:0;
+    const pb=plannerBelts();
+    if(outPorts>0&&pb.length){
+      const cap=outPorts*pb[pb.length-1].speed;
+      if(cap<fullPerMach-1e-9){perMach=cap;beltCapped=true;}
+    }
+    const capF=perMach/fullPerMach; // fraction of full speed the machine can actually run at
+    const exact=d/perMach;
     if(!addedRec.has(rec.id)){
       addedRec.add(rec.id);
-      nodes.push({rec,exact,resId});
+      nodes.push({rec,exact,resId,perMach,fullPerMach,capF,beltCapped});
     } else {
       const n=nodes.find(n=>n.rec.id===rec.id);
       if(exact>n.exact)n.exact=exact;
     }
-    // Propagate inputs for ceil (full capacity) or exact (constrained) depending on mode
-    const propagate=useCeil?Math.ceil(exact):exact;
+    // Propagate inputs for ceil (full capacity) or exact (constrained) depending
+    // on mode; belt-capped machines consume inputs at their reduced rate.
+    const propagate=(useCeil?Math.ceil(exact):exact)*capF;
     rec.inputs.forEach(inp=>{
       demand[inp.resourceId]=(demand[inp.resourceId]??0)+(inp.amount/ct)*propagate;
     });
@@ -1747,13 +1888,14 @@ function renderResults(targetResId, nodes, rawNeeds, header, inputMeta, el){
     left+=`<div class="ach-banner">Bottleneck: <strong>${bName}</strong> · achievable: <strong>${rfmt(inputMeta.achievable,3)}</strong></div>`;
   }
 
-  nodes.forEach(({rec,exact,resId})=>{
+  nodes.forEach(n=>{
+    const {rec,exact,resId}=n;
     const count=Math.ceil(exact);
     const isTgt=resId===targetResId;
     const m=rec.machineId?machines.find(m=>m.id===rec.machineId):null;
     const tier=activeTierName(rec);
     const ct=effectiveCycleTime(rec);
-    const ratePerMachine=(rec.outputAmount??1)/ct;
+    const ratePerMachine=n.perMach??((rec.outputAmount??1)/ct);
 
     // Always show the planned flow rate (what this stage was calculated to produce),
     // not the theoretical max of N machines. In target mode inputs are provisioned
@@ -1770,6 +1912,7 @@ function renderResults(targetResId, nodes, rawNeeds, header, inputMeta, el){
         <div class="rm">${m?m.name:'(no machine)'}${tier?` <span style="color:#6a8090;font-size:11px">${tier}</span>`:''}</div>
         <div class="rr">${rec.name}</div>
         <div class="ro">${rfmt(actualRate,3)} ${rname(resId)}${fromInputs&&!atCapacity?` <span style="color:#c07030">(${effPct}% capacity · max ${rfmt(fullRate,3)})</span>`:''}</div>
+        ${n.beltCapped?`<div class="rr" style="color:#c07030">⚠ output belt-limited to ${rfmt(n.perMach,2)} per machine (would be ${rfmt(n.fullPerMach,2)})</div>`:''}
       </div>
       <div class="ri-r">
         <div class="ri-cnt">${count}</div>
@@ -1846,7 +1989,7 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
 
   // ── Dimensions ──
   // LANE_H: vertical space reserved above and below the node area for highway routing
-  const NW=196, NH=88, HGAP=112, VGAP=22, RW=150, RH=60, PAD=24, LANE_H=52, LANE_STEP=16;
+  const NW=196, NH=88, HGAP=128, VGAP=22, RW=150, RH=60, PAD=24, LANE_H=52, LANE_STEP=16;
   const rawEntries=Object.entries(rawNeeds);
   const rawZone=rawEntries.length?RW+HGAP:0;
   const STEP=NW+HGAP;
@@ -1903,14 +2046,15 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
   let edges='',raws='',boxes='';
 
   // ── Edge renderer ──
+  // lbl = {rate, name, belt} (all strings, belt may be '')
   function drawEdge(x1,y1,x2,y2,lbl,isLong){
     // dir handles both flow directions (nodes flow right→left: producer → consumer)
     const dir=Math.sign(x2-x1)||1;
-    let path;
+    let path, laneY=null;
     if(isLong){
       // Highway routing: exit source → curve into lane → horizontal → curve out to target
       // This guarantees the path never passes through intermediate node columns
-      const laneY=allocLane(chooseLane(y1,y2));
+      laneY=allocLane(chooseLane(y1,y2));
       const s=34*dir;
       path=`M${x1},${y1} C${x1+s},${y1} ${x1+s},${laneY} ${x1+s*2},${laneY} L${x2-s*2},${laneY} C${x2-s},${laneY} ${x2-s},${y2} ${x2},${y2}`;
     } else {
@@ -1919,15 +2063,25 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
     }
     edges+=`<path d="${path}" fill="none" stroke="${isLong?'#253848':'#2a4050'}" stroke-width="2" marker-end="url(#${isLong?'arlong':'ar'})"/>`;
 
-    // Label near arrowhead — just before the line enters the target box
     if(lbl){
-      // Offset above or below based on approach angle
-      const lyOff=(y1<=y2)?-9:12;
-      const lx=x2-7*dir, ly=y2+lyOff;
-      const bgW=lbl.length*5.5+8;
-      const bgX=dir>0?lx-bgW:lx;
-      edges+=`<rect x="${bgX}" y="${ly-11}" width="${bgW}" height="13" rx="3" fill="#13151a" opacity=".94"/>`;
-      edges+=`<text x="${lx}" y="${ly}" text-anchor="${dir>0?'end':'start'}" font-size="10" fill="#5a8aaa">${lbl}</text>`;
+      const clip=(s,n)=>s&&s.length>n?s.slice(0,n-1)+'…':(s||'');
+      const l1=`${lbl.rate}${lbl.belt?' · '+lbl.belt:''}`;
+      if(isLong){
+        // Highway labels sit on the lane run — a box-free band, so one long line is fine
+        const txt=`${l1} ${clip(lbl.name,26)}`;
+        const mx=(x1+x2)/2, ty=laneY-5;
+        const bgW=txt.length*5.5+10;
+        edges+=`<rect x="${mx-bgW/2}" y="${ty-10}" width="${bgW}" height="13" rx="3" fill="#13151a" opacity=".94"/>`;
+        edges+=`<text x="${mx}" y="${ty}" text-anchor="middle" font-size="10" fill="#5a8aaa">${txt}</text>`;
+      } else {
+        // Two-line label centred in the gap between columns, clear of node boxes
+        const l2=clip(lbl.name,23);
+        const mx=(x1+x2)/2, my=(y1+y2)/2;
+        const bgW=Math.max(l1.length*5.5,l2.length*5)+10;
+        edges+=`<rect x="${mx-bgW/2}" y="${my-15}" width="${bgW}" height="${l2?27:15}" rx="3" fill="#13151a" opacity=".92"/>`;
+        edges+=`<text x="${mx}" y="${my-4}" text-anchor="middle" font-size="10" fill="#5a8aaa">${l1}</text>`;
+        if(l2)edges+=`<text x="${mx}" y="${my+8}" text-anchor="middle" font-size="9" fill="#4a7090">${l2}</text>`;
+      }
     }
   }
 
@@ -1941,8 +2095,8 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
       if(!pn||!posR[pn.rec.id])return;
       const pp=posR[pn.rec.id];
       const isLong=(dc[pn.rec.id]-dc[consumer.rec.id])>1;
-      const rate=(inp.amount/ct)*consumer.exact;
-      drawEdge(pp.x+NW,pp.y+NH/2,cp.x,cp.y+NH/2,`${rfmt(rate,2)} ${rname(inp.resourceId)}${beltSuffix(rate)}`,isLong);
+      const rate=(inp.amount/ct)*consumer.exact*(consumer.capF??1);
+      drawEdge(pp.x+NW,pp.y+NH/2,cp.x,cp.y+NH/2,{rate:rfmt(rate,2),name:rname(inp.resourceId),belt:beltLabel(rate)},isLong);
     });
   });
 
@@ -1958,8 +2112,8 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
         if(inp.resourceId!==rid)return;
         // Long if consumer is not in the deepest recipe column
         const isLong=dc[consumer.rec.id]<maxD;
-        const rate=(inp.amount/ct)*consumer.exact;
-        drawEdge(rp.x+RW,rp.y+RH/2,cp.x,cp.y+NH/2,`${rfmt(rate,2)} ${rname(rid)}${beltSuffix(rate)}`,isLong);
+        const rate=(inp.amount/ct)*consumer.exact*(consumer.capF??1);
+        drawEdge(rp.x+RW,rp.y+RH/2,cp.x,cp.y+NH/2,{rate:rfmt(rate,2),name:rname(rid),belt:beltLabel(rate)},isLong);
       });
     });
   });
@@ -1967,7 +2121,7 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
   // ── Raw material boxes ──
   rawEntries.forEach(([rid,rate])=>{
     const p=posRaw[rid];
-    const rawBelt=beltSuffix(rate).replace(/^ · /,'');
+    const rawBelt=beltLabel(rate);
     raws+=`<rect x="${p.x}" y="${p.y}" width="${RW}" height="${RH}" rx="6" fill="#111a11" stroke="#2a4a2a" stroke-width="1.5" stroke-dasharray="5 3"/>
       <text x="${p.x+RW/2}" y="${p.y+18}" text-anchor="middle" font-size="12" font-weight="600" fill="#5aaa6a">${rname(rid)}</text>
       <line x1="${p.x+8}" y1="${p.y+24}" x2="${p.x+RW-8}" y2="${p.y+24}" stroke="#2a4a2a" stroke-width="1"/>
@@ -1988,12 +2142,11 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
     const bord=isTgt?'#b07020':(cc||'#1e3a54');
     const mCol=isTgt?'#e09030':(cc||'#4a8ab8');
     const cCol=isTgt?'#f0c060':'#c8d8ec';
-    const ct=effectiveCycleTime(n.rec);
-    const ratePerMachine=(n.rec.outputAmount??1)/ct;
+    const ratePerMachine=n.perMach??((n.rec.outputAmount??1)/effectiveCycleTime(n.rec));
     const actualRate=n.exact*ratePerMachine; // planned flow rate, not max capacity
     const eff=n.exact/count;
     const atCap=eff>0.999;
-    const machLine=(m?m.name:'no machine')+(tier?` · ${tier}`:'');
+    const machLine=(m?m.name:'no machine')+(tier?` · ${tier}`:'')+(n.beltCapped?' ⚠':'');
     // In from-inputs mode show efficiency band when not at 100%
     const effBand=fromInputs&&!atCap
       ?`<rect x="${p.x+1}" y="${p.y+NH-12}" width="${Math.round((NW-2)*eff)}" height="10" rx="0 0 6 6" fill="#c0702040"/>
@@ -2645,7 +2798,7 @@ loadLayout();
 renderProfileSelector();
 document.getElementById('unit-btn').textContent=rateUnit==='m'?'/min':'/s';
 renderUnlockSelector();
-renderResearchTiers();
+renderTierTab();
 refreshTierSelects();
 renderBeltTiers();
 renderMachines();

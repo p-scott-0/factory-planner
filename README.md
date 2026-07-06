@@ -45,6 +45,7 @@ A profile file is what **Export Profile** produces:
   "name": "My Game",
   "researchTiers": [ { "id": "rt0", "name": "Tier 0" } ],  // ordered progression ladder
   "unlockedTierId": null,                            // highest unlocked tier (null = all)
+  "maxBeltTierId": null,                             // planner belt cap (null = fastest unlocked)
   "beltTiers": [
     { "id": "belt-x", "name": "Belt Mk1", "speed": 1, "researchTierId": "rt0" } // speed in items/sec
   ],

@@ -40,10 +40,12 @@ A resource with no recipe is treated as a raw input — something that must be s
 Categories are user-defined labels for grouping resources. They affect visual organisation in the resource list and the flow diagram colour-coding. Categories have no mechanical effect.
 
 ### Research Tiers
-Research tiers are an ordered, user-defined progression ladder (e.g. Tier 0 … Tier 8). Machines, individual machine tiers, resources, and belt tiers can each be gated behind a research tier. A profile-wide **highest unlocked tier** selector (in the nav bar) hides everything gated above it — from lists, planner selects, the layout palette, everywhere — so shared profiles don't spoil later-game content. Items with no research tier are always available. To author gated content, temporarily raise the unlock level.
+Research tiers are an ordered, user-defined progression ladder (e.g. Tier 0 … Tier 8). Machines, individual machine tiers, resources, and belt tiers can each be gated behind a research tier. A profile-wide **highest unlocked tier** selector (in the nav bar) hides everything gated above it — from lists, planner selects, the layout palette, everywhere — so shared profiles don't spoil later-game content. Items with no research tier are always available. Tiers and their contents are managed in the dedicated **Tiers tab** (see UI structure), which deliberately shows everything regardless of the unlock level.
 
 ### Belt Tiers
-Belt tiers are named belt speeds (e.g. Belt Mk1 = 60/min), optionally research-gated. The planner labels every flow-diagram edge and raw input with the **lowest unlocked belt tier that can carry the rate**, or "N× fastest" when even the fastest belt needs parallel lanes. In the layout editor a belt-tier palette selects which tier new belts are drawn as; belts are colour-coded and the cost tracker counts segments per tier.
+Belt tiers are named belt speeds (e.g. Belt Mk1 = 60/min), optionally research-gated. The planner labels every flow-diagram edge and raw input with the **lowest allowed belt tier that can carry the rate**, or "N× fastest" when even the fastest belt needs parallel lanes. A **max belt tier** setting in the planner further caps which belts are considered, below the research unlock. In the layout editor a belt-tier palette selects which tier new belts are drawn as; belts are colour-coded and the cost tracker counts segments per tier.
+
+Belt speeds also cap machine throughput: a machine cannot output more than (number of output ports × best allowed belt speed) — one output port can only feed one belt. Belt-capped stages run below full speed, need proportionally more machines, consume inputs at the reduced rate, and are flagged with a warning in the results and diagram. Machines with no output ports defined are never capped.
 
 ---
 
@@ -82,7 +84,7 @@ Key behaviours:
 ### Flow Diagram
 Results are displayed as a visual graph alongside the machine list. The diagram shows:
 - One node per recipe stage, labelled with machine, recipe name, count, and actual output rate
-- Edges between nodes labelled with the resource name and flow rate
+- Edges between nodes labelled with the flow rate, required belt tier, and resource name — two-line labels centred in the gap between columns so they don't overlap node boxes; highway edges carry a single-line label on their lane
 - Raw input nodes at the far end of the graph
 - Nodes grouped left-to-right by dependency depth (raw inputs on the left, target on the right, following natural reading direction)
 - Nodes within each column sorted by category then name
@@ -137,7 +139,7 @@ Planner results include a **Build in Layout** action that places the calculated 
 ## User Interface Structure
 
 ### Navigation
-Four tabs: **Machines**, **Resources**, **Planner**, **Layout**. A profile selector, profile management panel (including the research-tier editor), the highest-unlocked-research-tier selector, and a global **items/min ↔ items/sec** display toggle are persistent in the nav bar. The rate-unit toggle affects every rate shown in the app.
+Five tabs: **Machines**, **Resources**, **Tiers**, **Planner**, **Layout**. A profile selector, profile management panel, the highest-unlocked-research-tier selector, and a global **items/min ↔ items/sec** display toggle are persistent in the nav bar. The rate-unit toggle affects every rate shown in the app.
 
 ### Machines Tab
 A form for defining and editing machines (name, research tier, tiers with per-tier build costs and research gates, footprint, ports) alongside a list of all defined machines with tier badges and port counts. The belt tier editor (name, speed, research tier) also lives here.
@@ -153,9 +155,12 @@ Resources are grouped under collapsible category headers. The uncategorised grou
 
 Each resource item can show a collapsible **dependency tree diagram** — a visual tree of the resource's recipe inputs, recursively expanded to raw resources.
 
+### Tiers Tab
+Manages the research-tier ladder: add, rename, reorder, and delete tiers. Each tier is a card showing everything gated at that tier (machines, machine tiers, resources, belts) with one-click unassignment, an assign dropdown to move any item into the tier, and a locked/unlocked indicator relative to the current unlock level. An "always available" card lists everything with no gate. This tab ignores the unlock filter by design — it is the authoring view.
+
 ### Planner Tab
 Two sub-panels:
-- Left: mode switcher (target / from-inputs), inputs for the chosen mode, tier selectors per machine (unlocked tiers only), enable/disable checkboxes for resources with multiple recipes, and the machine result list
+- Left: mode switcher (target / from-inputs), inputs for the chosen mode, a **Max Machine Tiers** card (tier selectors only for machines that actually have multiple unlocked tiers, plus a max-belt-tier cap), enable/disable checkboxes for resources with multiple recipes, and the machine result list
 - Right: the flow diagram
 
 ### Layout Tab
