@@ -125,6 +125,7 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
 .lcost-total{margin-top:8px;border-top:1px solid var(--b);padding-top:6px}
 .lcost-total .lcost-name{color:var(--acc)}
 @media(max-width:700px){.layout-side{width:160px}.layout-side .card{padding:8px}}
+#tab-layout{padding:0}
 </style>
 </head>
 <body>
@@ -546,7 +547,8 @@ function importProfile(e){
         resources:d.resources||[],
         categories:d.categories||[],
         selTiers:d.selTiers||{},
-        recOverrides:d.recOverrides||{}
+        recOverrides:d.recOverrides||{},
+        layout:d.layout||{instances:[],belts:[]}
       };
       profiles.push(p);
       activeProfileId=p.id;
@@ -812,9 +814,18 @@ function editMach(id){
 }
 
 function delMach(id){
-  if(!confirm('Delete machine? Recipes using it will lose the assignment.'))return;
+  if(!confirm('Delete machine? Recipes using it will lose the assignment, and placed instances are removed from the layout.'))return;
   machines=machines.filter(m=>m.id!==id);
-  saveState(); renderMachines(); refreshMachSelects();
+  // Remove placed instances of this machine and any belts attached to them
+  const gone=new Set(ly.instances.filter(i=>i.machineId===id).map(i=>i.id));
+  if(gone.size){
+    ly.instances=ly.instances.filter(i=>i.machineId!==id);
+    ly.belts=ly.belts.filter(b=>!gone.has(b.from.instId)&&!gone.has(b.to.instId));
+    if(gone.has(ly.selId))ly.selId=null;
+    saveLayout(); updateLyCost();
+  }
+  if(ly.placeMachId===id)ly.placeMachId=null;
+  saveState(); renderMachines(); refreshMachSelects(); renderLyPalette();
 }
 
 function renderMachines(){
@@ -1167,7 +1178,7 @@ function renderRecipesForResource(resId){
         </div>
       </div>
       <div style="margin-top:6px">${inBadges}${inBadges?'<span style="color:#333;margin:0 4px">→</span>':''}${outBadge}</div>
-      <div class="ls">${rec.cycleTime}s cycle · ${fmt(rec.outputAmount??1/rec.cycleTime,3)}/s per machine${m?` · ${m.name}`:''}</div>
+      <div class="ls">${rec.cycleTime}s cycle · ${fmt((rec.outputAmount??1)/rec.cycleTime,3)}/s per machine${m?` · ${m.name}`:''}</div>
     </div>`;
   }).join('');
 }
@@ -1488,9 +1499,9 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
   // LANE_H: vertical space reserved above and below the node area for highway routing
   const NW=196, NH=88, HGAP=112, VGAP=22, RW=150, RH=60, PAD=24, LANE_H=52, LANE_STEP=16;
   const rawEntries=Object.entries(rawNeeds);
-  const rawZone=rawEntries.length?RW+HGAP:0;
   const STEP=NW+HGAP;
-  const colX=d=>PAD+rawZone+(maxD-d)*STEP;
+  const colX=d=>PAD+d*STEP;          // depth 0 (target) in the leftmost column
+  const rawX=PAD+(maxD+1)*STEP;      // raw inputs at the far right
 
   const maxRows=Math.max(...Object.values(byD).map(a=>a.length),rawEntries.length,1);
   const totalH=maxRows*(NH+VGAP)-VGAP;
@@ -1507,9 +1518,9 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
   const rawColH=rawEntries.length*(RH+VGAP)-VGAP;
   const rawSY=nodeTop+Math.floor((totalH-rawColH)/2);
   const posRaw={};
-  rawEntries.forEach(([rid],i)=>{posRaw[rid]={x:PAD,y:rawSY+i*(RH+VGAP)};});
+  rawEntries.forEach(([rid],i)=>{posRaw[rid]={x:rawX,y:rawSY+i*(RH+VGAP)};});
 
-  const svgW=colX(0)+NW+PAD;
+  const svgW=(rawEntries.length?rawX+RW:colX(maxD)+NW)+PAD;
   const svgH=totalH+nodeTop+PAD+LANE_H;
 
   // Highway lane y-coordinates (above = small y, below = large y)
@@ -1543,12 +1554,14 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
 
   // ── Edge renderer ──
   function drawEdge(x1,y1,x2,y2,lbl,isLong){
+    // dir handles both flow directions (nodes flow right→left: producer → consumer)
+    const dir=Math.sign(x2-x1)||1;
     let path;
     if(isLong){
       // Highway routing: exit source → curve into lane → horizontal → curve out to target
       // This guarantees the path never passes through intermediate node columns
       const laneY=allocLane(chooseLane(y1,y2));
-      const s=34;
+      const s=34*dir;
       path=`M${x1},${y1} C${x1+s},${y1} ${x1+s},${laneY} ${x1+s*2},${laneY} L${x2-s*2},${laneY} C${x2-s},${laneY} ${x2-s},${y2} ${x2},${y2}`;
     } else {
       const dx=(x2-x1)*0.44;
@@ -1560,10 +1573,11 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
     if(lbl){
       // Offset above or below based on approach angle
       const lyOff=(y1<=y2)?-9:12;
-      const lx=x2-7, ly=y2+lyOff;
+      const lx=x2-7*dir, ly=y2+lyOff;
       const bgW=lbl.length*5.5+8;
-      edges+=`<rect x="${lx-bgW}" y="${ly-11}" width="${bgW}" height="13" rx="3" fill="#13151a" opacity=".94"/>`;
-      edges+=`<text x="${lx}" y="${ly}" text-anchor="end" font-size="10" fill="#5a8aaa">${lbl}</text>`;
+      const bgX=dir>0?lx-bgW:lx;
+      edges+=`<rect x="${bgX}" y="${ly-11}" width="${bgW}" height="13" rx="3" fill="#13151a" opacity=".94"/>`;
+      edges+=`<text x="${lx}" y="${ly}" text-anchor="${dir>0?'end':'start'}" font-size="10" fill="#5a8aaa">${lbl}</text>`;
     }
   }
 
@@ -1578,7 +1592,7 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
       const pp=posR[pn.rec.id];
       const isLong=(dc[pn.rec.id]-dc[consumer.rec.id])>1;
       const rate=(inp.amount/ct)*consumer.exact;
-      drawEdge(pp.x+NW,pp.y+NH/2,cp.x,cp.y+NH/2,`${fmt(rate,2)}/s ${rname(inp.resourceId)}`,isLong);
+      drawEdge(pp.x,pp.y+NH/2,cp.x+NW,cp.y+NH/2,`${fmt(rate,2)}/s ${rname(inp.resourceId)}`,isLong);
     });
   });
 
@@ -1595,7 +1609,7 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
         // Long if consumer is not in the deepest recipe column
         const isLong=dc[consumer.rec.id]<maxD;
         const rate=(inp.amount/ct)*consumer.exact;
-        drawEdge(rp.x+RW,rp.y+RH/2,cp.x,cp.y+NH/2,`${fmt(rate,2)}/s`,isLong);
+        drawEdge(rp.x,rp.y+RH/2,cp.x+NW,cp.y+NH/2,`${fmt(rate,2)}/s ${rname(rid)}`,isLong);
       });
     });
   });
@@ -1795,12 +1809,19 @@ function portAt(gx,gy,radius){
     const m=machines.find(m=>m.id===inst.machineId);
     if(!m||!m.ports)return;
     m.ports.forEach((port,pi)=>{
-      const{px,py}=machPortPos(m,port,inst.x,inst.y,inst.rotation);
+      const{px,py,side}=machPortPos(m,port,inst.x,inst.y,inst.rotation);
       const d=Math.hypot(gx+0.5-px,gy+0.5-py);
-      if(d<r&&d<bestD){bestD=d;best={instId:inst.id,portIdx:pi,port,px,py,type:port.type};}
+      if(d<r&&d<bestD){bestD=d;best={instId:inst.id,portIdx:pi,port,px,py,side,type:port.type};}
     });
   });
   return best;
+}
+// Grid cell directly outside a port (the cell a belt enters/exits through)
+function portExternalCell(p){
+  if(p.side==='right')  return{x:Math.round(p.px),     y:Math.floor(p.py)};
+  if(p.side==='left')   return{x:Math.round(p.px)-1,   y:Math.floor(p.py)};
+  if(p.side==='bottom') return{x:Math.floor(p.px),     y:Math.round(p.py)};
+  /* top */             return{x:Math.floor(p.px),     y:Math.round(p.py)-1};
 }
 
 // ── Rendering ──
@@ -1933,6 +1954,11 @@ function lyMouseDown(e){
   const sx=e.clientX-rect.left, sy=e.clientY-rect.top;
   const{gx,gy}=scrToGrid(sx,sy);
 
+  // Right-click cancels an in-progress belt route
+  if(e.button===2&&ly.tool==='belt'&&ly.beltStart){
+    ly.beltStart=null; ly.beltPath=[];
+    lyRender(); e.preventDefault(); return;
+  }
   // Middle or right button = pan
   if(e.button===1||e.button===2){_lyPan=true;_lyPanBtn=e.button;_lyPanSx=e.clientX;_lyPanSy=e.clientY;e.preventDefault();return;}
 
@@ -1958,16 +1984,18 @@ function lyMouseDown(e){
       // Start routing — must click an output port
       const p=portAt(gx,gy);
       if(p&&p.type==='output'){
-        ly.beltStart=p; ly.beltPath=[{x:gx,y:gy}];
+        ly.beltStart=p; ly.beltPath=[portExternalCell(p)];
       }
     } else {
       // Check if clicking an input port to finish
       const p=portAt(gx,gy);
       if(p&&p.type==='input'&&p.instId!==ly.beltStart.instId){
-        ly.beltPath.push({x:gx,y:gy});
+        const endCell=portExternalCell(p);
+        const last=ly.beltPath[ly.beltPath.length-1];
+        if(!last||last.x!==endCell.x||last.y!==endCell.y)ly.beltPath.push(endCell);
         ly.belts.push({id:uid(),from:{instId:ly.beltStart.instId,portIdx:ly.beltStart.portIdx},to:{instId:p.instId,portIdx:p.portIdx},path:[...ly.beltPath]});
         ly.beltStart=null; ly.beltPath=[];
-        saveLayout(); saveState();
+        saveLayout(); saveState(); updateLyCost();
       } else {
         // Add waypoint
         ly.beltPath.push({x:gx,y:gy});
@@ -1987,7 +2015,7 @@ function lyMouseDown(e){
     } else {
       // Check belt paths for click
       const bi=ly.belts.findIndex(b=>b.path.some(p=>p.x===gx&&p.y===gy));
-      if(bi>=0){ly.belts.splice(bi,1);saveLayout();saveState();}
+      if(bi>=0){ly.belts.splice(bi,1);saveLayout();saveState();updateLyCost();}
     }
     lyRender();
   }
