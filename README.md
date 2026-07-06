@@ -47,10 +47,14 @@ A profile file is what **Export Profile** produces:
   "machines": [
     {
       "id": "mach-x", "name": "Smelter",
-      "tiers": [ { "id": "tier-x", "name": "Mk1", "speedMult": 1 } ],
+      "tiers": [
+        {
+          "id": "tier-x", "name": "Mk1", "speedMult": 1,
+          "buildCost": [ { "resourceId": "res-x", "amount": 5 } ]   // per tier
+        }
+      ],
       "width": 2, "height": 3,                       // footprint in grid cells
-      "ports": [ { "type": "input", "side": "top", "offset": 0 } ],
-      "buildCost": [ { "resourceId": "res-x", "amount": 5 } ]
+      "ports": [ { "type": "input", "side": "top", "offset": 0 } ]
     }
   ],
   "resources": [

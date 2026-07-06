@@ -16,10 +16,9 @@ The tool is fully configurable — users define their own machines, resources, a
 ### Machines
 A machine is a building that processes resources. Machines have:
 - A **name**
-- One or more **tiers** — named variants with a speed multiplier relative to the base (e.g. Mk1 ×1.0, Mk2 ×2.5). Tier selection affects how many machines the planner recommends.
+- One or more **tiers** — named variants with a speed multiplier relative to the base (e.g. Mk1 ×1.0, Mk2 ×2.5). Tier selection affects how many machines the planner recommends. Each tier has its own optional **build cost** — resources and quantities required to construct one machine of that tier (higher tiers typically cost more). Used for the layout cost tracker.
 - A **footprint** — width and height in grid cells, for layout purposes
 - **I/O ports** — each port has a type (input or output), a side (top/right/bottom/left), and a position offset along that side. Used for visual belt routing in the layout editor.
-- A **build cost** — optional list of resources and quantities required to construct one machine. Used for the layout cost tracker.
 
 ### Resources
 A resource is anything that can be produced, consumed, or mined. Resources have:
@@ -78,7 +77,7 @@ Results are displayed as a visual graph alongside the machine list. The diagram 
 - One node per recipe stage, labelled with machine, recipe name, count, and actual output rate
 - Edges between nodes labelled with the resource name and flow rate
 - Raw input nodes at the far end of the graph
-- Nodes grouped left-to-right by dependency depth (target on the left, raw inputs on the right)
+- Nodes grouped left-to-right by dependency depth (raw inputs on the left, target on the right, following natural reading direction)
 - Nodes within each column sorted by category then name
 - Edges that skip columns (long-range dependencies) routed via horizontal highway lanes above or below the node area so they don't overlap node boxes
 - Category-based colour coding on node borders
@@ -113,7 +112,7 @@ A 2D grid-based canvas where users plan the physical placement of machines.
 - Belt paths store grid-cell waypoints; the first cell is the one adjacent to the output port, the last is the one adjacent to the input port
 
 ### Machine Palette
-The sidebar shows all defined machines with their footprint size. Clicking a machine selects it for placement. Clicking the same machine again deselects it.
+The sidebar shows one entry per machine tier (since tiers have different build costs) with the machine's footprint size. Clicking an entry selects it for placement. Clicking the same entry again deselects it.
 
 ### Build Cost Tracker
 The sidebar accumulates the total build cost of all placed machines. It shows:
@@ -121,7 +120,10 @@ The sidebar accumulates the total build cost of all placed machines. It shows:
 - A total belt segment count
 - Grand totals across all resource types
 
-The cost panel updates in real time as machines are placed, moved, or deleted.
+The cost panel updates in real time as machines are placed, moved, or deleted. Subtotals are per machine tier, since tiers can have different build costs.
+
+### Planner Hand-off
+Planner results include a **Build in Layout** action that places the calculated machine counts into the layout editor as a starting arrangement — one column per dependency stage, ordered raw-side-left to target-right like the flow diagram, using the tiers selected in the planner. New machines are placed beside any existing layout content, never over it. Belt routing and rearrangement remain manual.
 
 ---
 
@@ -131,7 +133,7 @@ The cost panel updates in real time as machines are placed, moved, or deleted.
 Four tabs: **Machines**, **Resources**, **Planner**, **Layout**. A profile selector and profile management panel are persistent in the nav bar.
 
 ### Machines Tab
-A form for defining and editing machines (name, tiers, footprint, ports, build cost) alongside a list of all defined machines with tier badges and port counts.
+A form for defining and editing machines (name, tiers with per-tier build costs, footprint, ports) alongside a list of all defined machines with tier badges and port counts.
 
 ### Resources Tab
 Two-column layout:
@@ -165,6 +167,6 @@ All data is stored locally in the browser across sessions. No account, server, o
 - **Game-agnostic** — no game-specific logic; all data is user-defined
 - **Single-page, no install** — opens directly in a browser, no build step or server
 - **Profiles as the top-level organiser** — switching profiles feels like switching games
-- **Planner and layout are independent** — the layout editor does not auto-generate from planner results (by design, for flexibility); users decide how to arrange machines
+- **Planner seeds, layout decides** — planner results can be pushed to the layout editor as a starting arrangement via Build in Layout, but the layout never auto-syncs afterwards; users arrange machines and route belts freely
 - **Visual but not simulation** — belts and ports are for planning/communication, not for running a simulation
 - **Snap-to-grid always** — fractional positions are not a design goal; factory games use grids

@@ -10,56 +10,111 @@
       "id": "mach-drill",
       "name": "Mining Drill",
       "tiers": [
-        { "id": "tier-drill-electric", "name": "Electric", "speedMult": 1 },
-        { "id": "tier-drill-burner", "name": "Burner", "speedMult": 0.5 }
+        {
+          "id": "tier-drill-electric",
+          "name": "Electric",
+          "speedMult": 1,
+          "buildCost": [
+            { "resourceId": "res-iron-plate", "amount": 10 },
+            { "resourceId": "res-gear", "amount": 5 },
+            { "resourceId": "res-circuit", "amount": 3 }
+          ]
+        },
+        {
+          "id": "tier-drill-burner",
+          "name": "Burner",
+          "speedMult": 0.5,
+          "buildCost": [
+            { "resourceId": "res-iron-plate", "amount": 3 },
+            { "resourceId": "res-gear", "amount": 3 }
+          ]
+        }
       ],
       "width": 3,
       "height": 3,
       "ports": [
         { "type": "output", "side": "bottom", "offset": 1 }
-      ],
-      "buildCost": [
-        { "resourceId": "res-iron-plate", "amount": 10 },
-        { "resourceId": "res-gear", "amount": 5 },
-        { "resourceId": "res-circuit", "amount": 3 }
       ]
     },
     {
       "id": "mach-furnace",
       "name": "Furnace",
       "tiers": [
-        { "id": "tier-furnace-stone", "name": "Stone", "speedMult": 1 },
-        { "id": "tier-furnace-steel", "name": "Steel", "speedMult": 2 },
-        { "id": "tier-furnace-electric", "name": "Electric", "speedMult": 2 }
+        {
+          "id": "tier-furnace-stone",
+          "name": "Stone",
+          "speedMult": 1,
+          "buildCost": [
+            { "resourceId": "res-stone", "amount": 5 }
+          ]
+        },
+        {
+          "id": "tier-furnace-steel",
+          "name": "Steel",
+          "speedMult": 2,
+          "buildCost": [
+            { "resourceId": "res-stone-brick", "amount": 10 },
+            { "resourceId": "res-iron-plate", "amount": 10 }
+          ]
+        },
+        {
+          "id": "tier-furnace-electric",
+          "name": "Electric",
+          "speedMult": 2,
+          "buildCost": [
+            { "resourceId": "res-stone-brick", "amount": 10 },
+            { "resourceId": "res-iron-plate", "amount": 10 },
+            { "resourceId": "res-circuit", "amount": 5 }
+          ]
+        }
       ],
       "width": 2,
       "height": 2,
       "ports": [
         { "type": "input", "side": "top", "offset": 0 },
         { "type": "output", "side": "bottom", "offset": 1 }
-      ],
-      "buildCost": [
-        { "resourceId": "res-stone", "amount": 5 }
       ]
     },
     {
       "id": "mach-assembler",
       "name": "Assembling Machine",
       "tiers": [
-        { "id": "tier-am1", "name": "AM1", "speedMult": 0.5 },
-        { "id": "tier-am2", "name": "AM2", "speedMult": 0.75 },
-        { "id": "tier-am3", "name": "AM3", "speedMult": 1.25 }
+        {
+          "id": "tier-am1",
+          "name": "AM1",
+          "speedMult": 0.5,
+          "buildCost": [
+            { "resourceId": "res-iron-plate", "amount": 9 },
+            { "resourceId": "res-gear", "amount": 5 },
+            { "resourceId": "res-circuit", "amount": 3 }
+          ]
+        },
+        {
+          "id": "tier-am2",
+          "name": "AM2",
+          "speedMult": 0.75,
+          "buildCost": [
+            { "resourceId": "res-iron-plate", "amount": 20 },
+            { "resourceId": "res-gear", "amount": 10 },
+            { "resourceId": "res-circuit", "amount": 5 }
+          ]
+        },
+        {
+          "id": "tier-am3",
+          "name": "AM3",
+          "speedMult": 1.25,
+          "buildCost": [
+            { "resourceId": "res-iron-plate", "amount": 30 },
+            { "resourceId": "res-gear", "amount": 15 },
+            { "resourceId": "res-circuit", "amount": 10 }
+          ]
+        }
       ],
       "width": 3,
       "height": 3,
       "ports": [
         { "type": "input", "side": "left", "offset": 1 },
         { "type": "output", "side": "right", "offset": 1 }
-      ],
-      "buildCost": [
-        { "resourceId": "res-iron-plate", "amount": 9 },
-        { "resourceId": "res-gear", "amount": 5 },
-        { "resourceId": "res-circuit", "amount": 3 }
       ]
     }
   ],

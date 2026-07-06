@@ -15,8 +15,8 @@ body{background:var(--bg);color:var(--tx);font-family:'Segoe UI',system-ui,sans-
 .nav-tab{padding:12px 13px;font-size:13px;color:var(--dim);cursor:pointer;border-bottom:2px solid transparent;transition:color .12s,border-color .12s;white-space:nowrap}
 .nav-tab:hover{color:var(--tx)}.nav-tab.active{color:var(--acc);border-bottom-color:var(--acc)}
 .tab{display:none;padding:16px}.tab.active{display:block}
-.two-col{display:grid;grid-template-columns:340px 1fr;gap:14px;max-width:1080px}
-.full-w{max-width:1080px}
+.two-col{display:grid;grid-template-columns:360px 1fr;gap:14px}
+.full-w{width:100%}
 @media(max-width:820px){.two-col{grid-template-columns:1fr}}
 .card{background:var(--surf);border:1px solid var(--b);border-radius:8px;padding:16px}
 .card+.card{margin-top:14px}
@@ -38,6 +38,10 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
 .io-row .io-res{flex:1!important;min-width:0}
 .tier-row{display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
 .tier-row input:first-child{flex:1;min-width:80px}.tier-row .spd{flex:0 0 68px!important}
+.tier-block{border:1px solid var(--b);border-radius:6px;padding:8px;margin-bottom:8px;background:var(--surf2)}
+.tier-block .tier-row{margin-bottom:4px}
+.tier-block .tier-costs{margin:4px 0}
+.tier-block .tc-lbl{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#555;margin:6px 0 4px}
 .litem{background:var(--surf2);border:1px solid var(--b);border-radius:6px;padding:10px 12px;margin-bottom:8px;min-width:0}
 .lh{display:flex;justify-content:space-between;align-items:flex-start;gap:6px;min-width:0}
 .lh>div:first-child{min-width:0;flex:1}
@@ -55,7 +59,7 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
 .mode-wrap{display:flex;gap:0;border:1px solid var(--b2);border-radius:6px;overflow:hidden;width:fit-content;margin-bottom:14px}
 .mode-btn{background:#272b2f;color:var(--dim);border:none;border-radius:0;padding:8px 18px;font-size:13px;cursor:pointer;transition:background .12s,color .12s}
 .mode-btn.active{background:var(--acc);color:#111;font-weight:700}
-.plan-panels{display:grid;grid-template-columns:300px 1fr;gap:14px;margin-top:14px}
+.plan-panels{display:grid;grid-template-columns:340px 1fr;gap:14px;margin-top:14px}
 @media(max-width:840px){.plan-panels{grid-template-columns:1fr}}
 .ri{display:flex;align-items:center;justify-content:space-between;background:var(--surf2);border:1px solid var(--b);border-radius:6px;padding:10px 13px;margin-bottom:7px}
 .ri.tgt{border-color:var(--acc2);background:#21190d}
@@ -169,7 +173,7 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
     <label>Machine name</label>
     <input id="mf-name" type="text" placeholder="e.g. Assembler">
     <hr>
-    <div class="sl">Tiers <span style="color:#555">(speed multiplier relative to base cycle time)</span></div>
+    <div class="sl">Tiers <span style="color:#555">(speed multiplier relative to base cycle time; each tier has its own optional build cost)</span></div>
     <div id="mf-tiers"></div>
     <button class="bb bsm" onclick="addTierRow()">+ Tier</button>
     <hr>
@@ -182,10 +186,6 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
     <div class="sl">I/O Ports</div>
     <div id="mf-ports"></div>
     <button class="bb bsm" onclick="addPortRow()">+ Port</button>
-    <hr>
-    <div class="sl">Build Cost <span style="color:#555">(per machine, optional)</span></div>
-    <div id="mf-costs"></div>
-    <button class="bb bsm" onclick="addCostRow()">+ Cost Item</button>
     <div id="mf-err"></div>
     <div class="act">
       <button class="ba" onclick="saveMachine()">Save</button>
@@ -395,6 +395,7 @@ let selTiers      = {};  // machineId → tierId
 let recOverrides  = {};  // resourceId → recipeId
 const catState    = {};  // catId → true=expanded (ephemeral)
 let planMode      = 'target';
+let lastPlan      = null;   // most recent planner result, for "Build in Layout"
 let editMachId    = null;
 let editResId     = null;
 let selResId      = null;
@@ -433,6 +434,18 @@ function loadActiveProfile(){
   categories  = p.categories   || [];
   selTiers    = p.selTiers     || {};
   recOverrides= p.recOverrides || {};
+  migrateTierCosts(machines);
+}
+
+// Migration: build costs used to live on the machine; they now live per tier.
+// Old data/imports get the machine-level cost copied onto every tier.
+function migrateTierCosts(machs){
+  (machs||[]).forEach(m=>{
+    (m.tiers||[]).forEach(t=>{
+      if(!t.buildCost)t.buildCost=m.buildCost?JSON.parse(JSON.stringify(m.buildCost)):[];
+    });
+    delete m.buildCost;
+  });
 }
 
 function saveActiveProfile(){
@@ -473,6 +486,7 @@ function reloadUI(){
   renderPlannerControls();
   cancelMachine(); cancelResource();
   if(selResId){selResId=null;document.getElementById('rec-editor').style.display='none';}
+  lastPlan=null;
   document.getElementById('pl-results').innerHTML='';
   document.getElementById('rec-inputs').innerHTML='';
   addIO('rec-inputs');
@@ -747,21 +761,43 @@ function closeEditor(){
 // ══════════════════════════════════════════════════════
 // MACHINES
 // ══════════════════════════════════════════════════════
-function addTierRow(name='',speedMult=''){
+function addTierRow(name='',speedMult='',buildCost=[],tierId=''){
+  const blk=document.createElement('div');
+  blk.className='tier-block';
+  blk.dataset.tid=tierId; // preserved on save so planner/layout tier references survive edits
+  blk.innerHTML=`<div class="tier-row">
+      <input type="text" placeholder="Tier name (e.g. Mk1)" value="${name}">
+      <span style="color:#555;flex-shrink:0">×</span>
+      <input type="number" class="spd" min="0.01" step="0.1" placeholder="Speed" value="${speedMult}">
+      <button class="bx" onclick="this.closest('.tier-block').remove()">✕</button>
+    </div>
+    <div class="tc-lbl">Build cost (optional)</div>
+    <div class="tier-costs"></div>
+    <button class="bb bsm" onclick="addTierCostRow(this.closest('.tier-block'))">+ Cost item</button>`;
+  document.getElementById('mf-tiers').appendChild(blk);
+  buildCost.forEach(c=>addTierCostRow(blk,c.resourceId,c.amount));
+}
+
+function addTierCostRow(blk,resourceId='',amount=''){
   const row=document.createElement('div');
-  row.className='tier-row';
-  row.innerHTML=`<input type="text" placeholder="Tier name (e.g. Mk1)" value="${name}">
-    <span style="color:#555;flex-shrink:0">×</span>
-    <input type="number" class="spd" min="0.01" step="0.1" placeholder="Speed" value="${speedMult}">
+  row.className='io-row';
+  row.innerHTML=`<input type="number" class="io-amt" min="0" step="any" placeholder="Qty" value="${amount}">
+    <select class="io-res" data-exclude="">${buildResOpts(resourceId,'')}</select>
     <button class="bx" onclick="this.parentElement.remove()">✕</button>`;
-  document.getElementById('mf-tiers').appendChild(row);
+  blk.querySelector('.tier-costs').appendChild(row);
 }
 
 function getTierRows(){
-  return[...document.querySelectorAll('#mf-tiers .tier-row')].flatMap(row=>{
-    const [nameI,spdI]=row.querySelectorAll('input');
+  return[...document.querySelectorAll('#mf-tiers .tier-block')].flatMap(blk=>{
+    const [nameI,spdI]=blk.querySelectorAll('.tier-row input');
     const n=nameI.value.trim(), s=parseFloat(spdI.value);
-    return(n&&!isNaN(s)&&s>0)?[{id:uid(),name:n,speedMult:s}]:[];
+    if(!n||isNaN(s)||s<=0)return[];
+    const buildCost=[...blk.querySelectorAll('.tier-costs .io-row')].flatMap(row=>{
+      const amt=parseFloat(row.querySelector('input').value);
+      const rid=row.querySelector('select').value;
+      return(rid&&!isNaN(amt)&&amt>0)?[{resourceId:rid,amount:amt}]:[];
+    });
+    return[{id:blk.dataset.tid||uid(),name:n,speedMult:s,buildCost}];
   });
 }
 
@@ -783,23 +819,6 @@ function getPortRows(){
   }));
 }
 
-function addCostRow(resourceId='',amount=''){
-  const row=document.createElement('div');
-  row.className='io-row';
-  row.innerHTML=`<input type="number" class="io-amt" min="0" step="any" placeholder="Qty" value="${amount}">
-    <select class="io-res" data-exclude="">${buildResOpts(resourceId,'')}</select>
-    <button class="bx" onclick="this.parentElement.remove()">✕</button>`;
-  document.getElementById('mf-costs').appendChild(row);
-}
-
-function getCostRows(){
-  return[...document.querySelectorAll('#mf-costs .io-row')].flatMap(row=>{
-    const amt=parseFloat(row.querySelector('input').value);
-    const rid=row.querySelector('select').value;
-    return(rid&&!isNaN(amt)&&amt>0)?[{resourceId:rid,amount:amt}]:[];
-  });
-}
-
 function saveMachine(){
   const name=document.getElementById('mf-name').value.trim();
   if(!name) return setErr('mf-err','Name required.');
@@ -809,12 +828,11 @@ function saveMachine(){
   const w=parseInt(document.getElementById('mf-w').value)||1;
   const h=parseInt(document.getElementById('mf-h').value)||1;
   const ports=getPortRows();
-  const buildCost=getCostRows();
   if(editMachId){
     const m=machines.find(x=>x.id===editMachId);
-    if(m){m.name=name;m.tiers=tiers;m.width=w;m.height=h;m.ports=ports;m.buildCost=buildCost;}
+    if(m){m.name=name;m.tiers=tiers;m.width=w;m.height=h;m.ports=ports;}
   } else {
-    machines.push({id:uid(),name,tiers,width:w,height:h,ports,buildCost});
+    machines.push({id:uid(),name,tiers,width:w,height:h,ports});
   }
   saveState(); cancelMachine(); renderMachines(); refreshMachSelects();
   if(typeof renderLyPalette==='function')renderLyPalette();
@@ -827,7 +845,6 @@ function cancelMachine(){
   document.getElementById('mf-w').value='1';
   document.getElementById('mf-h').value='1';
   document.getElementById('mf-ports').innerHTML='';
-  document.getElementById('mf-costs').innerHTML='';
   document.getElementById('mf-title').textContent='New Machine';
   setErr('mf-err','');
   addTierRow('Mk1',1);
@@ -840,13 +857,11 @@ function editMach(id){
   document.getElementById('mf-name').value=m.name;
   document.getElementById('mf-title').textContent='Edit Machine';
   document.getElementById('mf-tiers').innerHTML='';
-  m.tiers.forEach(t=>addTierRow(t.name,t.speedMult));
+  m.tiers.forEach(t=>addTierRow(t.name,t.speedMult,t.buildCost||[],t.id));
   document.getElementById('mf-w').value=m.width||1;
   document.getElementById('mf-h').value=m.height||1;
   document.getElementById('mf-ports').innerHTML='';
   (m.ports||[]).forEach(p=>addPortRow(p.type,p.side,p.offset));
-  document.getElementById('mf-costs').innerHTML='';
-  (m.buildCost||[]).forEach(c=>addCostRow(c.resourceId,c.amount));
 }
 
 function delMach(id){
@@ -869,13 +884,13 @@ function renderMachines(){
   document.getElementById('mach-ct').textContent=`(${machines.length})`;
   if(!machines.length){el.innerHTML='<div class="empty">No machines yet.</div>';return;}
   el.innerHTML=machines.map(m=>{
-    const tRows=m.tiers.map(t=>`<span class="badge bm">${t.name} ×${t.speedMult}</span>`).join('');
+    const tRows=m.tiers.map(t=>`<span class="badge bm">${t.name} ×${t.speedMult}${(t.buildCost||[]).length?' · '+t.buildCost.length+' costs':''}</span>`).join('');
     const sz=(m.width||1)+'×'+(m.height||1);
     const pCnt=(m.ports||[]).length;
     const pIn=(m.ports||[]).filter(p=>p.type==='input').length;
     const pOut=pCnt-pIn;
     const portStr=pCnt?` · ${pIn} in / ${pOut} out`:'';
-    const costStr=(m.buildCost||[]).length?` · ${(m.buildCost||[]).length} cost items`:'';
+    const costStr='';
     return`<div class="litem"><div class="lh">
       <div><div class="ln">${m.name}</div>
         <div class="ls">${sz} cells${portStr}${costStr}</div>
@@ -1413,6 +1428,7 @@ function runPlanner(){
     if(!rateNum||rateNum<=0)return resEl.innerHTML='<div class="alert ae">Enter a positive rate.</div>';
     const{nodes,rawNeeds}=computeChain(resId,rateNum/unit,new Set(),true);
     if(!nodes.length)return resEl.innerHTML=`<div class="alert ae">No recipe produces "${rname(resId)}". Add one in Resources.</div>`;
+    lastPlan={nodes};
     renderResults(resId,nodes,rawNeeds,`${rateNum} ${rname(resId)}/${unitLbl}`,null,resEl);
   } else {
     const targetId=document.getElementById('pl-inp-target').value;
@@ -1428,6 +1444,7 @@ function runPlanner(){
     if(!Object.keys(inputMap).length)return resEl.innerHTML='<div class="alert ae">No valid input rows.</div>';
     const res=computeFromInputs(targetId,inputMap);
     if(res.error)return resEl.innerHTML=`<div class="alert ae">${res.error}</div>`;
+    lastPlan={nodes:res.nodes};
     const achLabel=`${fmt(res.achievable*60,3)}/min`;
     renderResults(targetId,res.nodes,res.rawNeeds,`max ${achLabel} ${rname(targetId)}`,res,resEl);
   }
@@ -1436,6 +1453,9 @@ function runPlanner(){
 function renderResults(targetResId, nodes, rawNeeds, header, inputMeta, el){
   const fromInputs=!!inputMeta;
   let left=`<div class="card-title">${header}</div>`;
+  left+=`<div class="act" style="margin:0 0 12px">
+    <button class="bb bsm" onclick="planToLayout()" title="Place the calculated machines in the layout editor, one column per stage">Build in Layout →</button>
+  </div>`;
 
   if(inputMeta){
     const bName=inputMeta.bottleneckRes?rname(inputMeta.bottleneckRes):'?';
@@ -1491,13 +1511,9 @@ function renderResults(targetResId, nodes, rawNeeds, header, inputMeta, el){
 // ══════════════════════════════════════════════════════
 // FLOW DIAGRAM
 // ══════════════════════════════════════════════════════
-function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
-  if(!nodes.length)return'<div class="empty">Nothing to display.</div>';
-
-  const byOut={};
-  nodes.forEach(n=>{ byOut[n.resId]=n; });
-
-  // ── Depth assignment (0 = target, N = N hops upstream) ──
+// Depth assignment for plan stages (0 = target, N = N hops upstream).
+// Shared by the flow diagram and the planner → layout auto-placement.
+function stageDepths(nodes){
   const dc={};
   function nodeDepth(recId){
     if(dc[recId]!==undefined)return dc[recId];
@@ -1514,6 +1530,16 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
     return(dc[recId]=mx+1);
   }
   nodes.forEach(n=>nodeDepth(n.rec.id));
+  return dc;
+}
+
+function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
+  if(!nodes.length)return'<div class="empty">Nothing to display.</div>';
+
+  const byOut={};
+  nodes.forEach(n=>{ byOut[n.resId]=n; });
+
+  const dc=stageDepths(nodes);
   const maxD=Math.max(...nodes.map(n=>dc[n.rec.id]));
 
   // ── Group by depth; sort within each column by category then name ──
@@ -1535,9 +1561,10 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
   // LANE_H: vertical space reserved above and below the node area for highway routing
   const NW=196, NH=88, HGAP=112, VGAP=22, RW=150, RH=60, PAD=24, LANE_H=52, LANE_STEP=16;
   const rawEntries=Object.entries(rawNeeds);
+  const rawZone=rawEntries.length?RW+HGAP:0;
   const STEP=NW+HGAP;
-  const colX=d=>PAD+d*STEP;          // depth 0 (target) in the leftmost column
-  const rawX=PAD+(maxD+1)*STEP;      // raw inputs at the far right
+  // Reading direction: raw inputs on the far left, target output on the far right
+  const colX=d=>PAD+rawZone+(maxD-d)*STEP;
 
   const maxRows=Math.max(...Object.values(byD).map(a=>a.length),rawEntries.length,1);
   const totalH=maxRows*(NH+VGAP)-VGAP;
@@ -1554,9 +1581,9 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
   const rawColH=rawEntries.length*(RH+VGAP)-VGAP;
   const rawSY=nodeTop+Math.floor((totalH-rawColH)/2);
   const posRaw={};
-  rawEntries.forEach(([rid],i)=>{posRaw[rid]={x:rawX,y:rawSY+i*(RH+VGAP)};});
+  rawEntries.forEach(([rid],i)=>{posRaw[rid]={x:PAD,y:rawSY+i*(RH+VGAP)};});
 
-  const svgW=(rawEntries.length?rawX+RW:colX(maxD)+NW)+PAD;
+  const svgW=colX(0)+NW+PAD;
   const svgH=totalH+nodeTop+PAD+LANE_H;
 
   // Highway lane y-coordinates (above = small y, below = large y)
@@ -1628,7 +1655,7 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
       const pp=posR[pn.rec.id];
       const isLong=(dc[pn.rec.id]-dc[consumer.rec.id])>1;
       const rate=(inp.amount/ct)*consumer.exact;
-      drawEdge(pp.x,pp.y+NH/2,cp.x+NW,cp.y+NH/2,`${fmt(rate,2)}/s ${rname(inp.resourceId)}`,isLong);
+      drawEdge(pp.x+NW,pp.y+NH/2,cp.x,cp.y+NH/2,`${fmt(rate,2)}/s ${rname(inp.resourceId)}`,isLong);
     });
   });
 
@@ -1645,7 +1672,7 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
         // Long if consumer is not in the deepest recipe column
         const isLong=dc[consumer.rec.id]<maxD;
         const rate=(inp.amount/ct)*consumer.exact;
-        drawEdge(rp.x,rp.y+RH/2,cp.x+NW,cp.y+NH/2,`${fmt(rate,2)}/s ${rname(rid)}`,isLong);
+        drawEdge(rp.x+RW,rp.y+RH/2,cp.x,cp.y+NH/2,`${fmt(rate,2)}/s ${rname(rid)}`,isLong);
       });
     });
   });
@@ -1714,6 +1741,7 @@ function importData(e){
       if(d.machines)machines=d.machines;
       if(d.resources)resources=d.resources;
       if(d.categories)categories=d.categories;
+      migrateTierCosts(machines);
       saveState(); renderMachines(); renderResources(); renderPlannerControls(); refreshMachSelects(); refreshCatSelect();
     }catch{alert('Invalid JSON.');}
   };
@@ -1730,7 +1758,7 @@ let ly={
   belts:[],      // [{id,from:{instId,portIdx},to:{instId,portIdx},path:[{x,y}]}]
   // view (ephemeral)
   vx:0,vy:0,zoom:1,
-  tool:'select', placeMachId:null, rotation:0,
+  tool:'select', placeMachId:null, placeTierId:null, rotation:0,
   selId:null,       // selected instance id
   beltStart:null,   // {instId,portIdx,x,y} when routing a belt
   beltPath:[],      // [{x,y}] waypoints being drawn
@@ -1905,11 +1933,13 @@ function lyRender(){
     ctx.strokeStyle=isSel?'#5aaa5a':'#2a4a6a';
     ctx.lineWidth=isSel?2/ly.zoom:1.5/ly.zoom;
     ctx.beginPath();ctx.roundRect(x+1,y+1,pw-2,ph-2,3/ly.zoom);ctx.fill();ctx.stroke();
-    // Name
+    // Name (+ tier when the machine has several)
+    const t=instTier(inst,m);
+    const label=m.name+((m.tiers||[]).length>1&&t?` ${t.name}`:'');
     ctx.fillStyle=isSel?'#7aca7a':'#5a8ab0';
     ctx.font=`bold ${Math.min(11,cs*0.35)}px 'Segoe UI',sans-serif`;
     ctx.textAlign='center';ctx.textBaseline='top';
-    ctx.fillText(m.name,x+pw/2,y+3);
+    ctx.fillText(label,x+pw/2,y+3);
     // Ports
     if(m.ports)(m.ports).forEach((port,pi)=>{
       const{px,py}=machPortPos(m,port,inst.x,inst.y,inst.rotation);
@@ -2010,7 +2040,7 @@ function lyMouseDown(e){
   }
   if(ly.tool==='place'&&ly.placeMachId){
     if(canPlace(ly.placeMachId,gx,gy,ly.rotation)){
-      ly.instances.push({id:uid(),machineId:ly.placeMachId,x:gx,y:gy,rotation:ly.rotation});
+      ly.instances.push({id:uid(),machineId:ly.placeMachId,tierId:ly.placeTierId,x:gx,y:gy,rotation:ly.rotation});
       saveLayout(); saveState(); updateLyCost();
     }
     lyRender();
@@ -2148,20 +2178,32 @@ function renderLyPalette(){
   const el=document.getElementById('ly-mach-list');
   if(!el)return;
   if(!machines.length){el.innerHTML='<div class="empty" style="padding:8px">Define machines first</div>';return;}
-  el.innerHTML=machines.map(m=>{
+  // One palette entry per machine tier — tiers can differ in build cost
+  el.innerHTML=machines.flatMap(m=>{
     const sz=(m.width||1)+'×'+(m.height||1);
-    return`<div class="lmach${ly.placeMachId===m.id?' sel':''}" onclick="selectPlaceMach('${m.id}',this)">
-      <span>${m.name}</span><span class="lm-size">${sz}</span>
-    </div>`;
+    return(m.tiers||[]).map(t=>{
+      const sel=ly.placeMachId===m.id&&ly.placeTierId===t.id;
+      const label=m.tiers.length>1?`${m.name} <span style="color:var(--dim)">${t.name}</span>`:m.name;
+      return`<div class="lmach${sel?' sel':''}" onclick="selectPlaceMach('${m.id}','${t.id}',this)">
+        <span>${label}</span><span class="lm-size">${sz}</span>
+      </div>`;
+    });
   }).join('');
 }
 
-function selectPlaceMach(id,el){
-  ly.placeMachId=ly.placeMachId===id?null:id;
+function selectPlaceMach(id,tierId,el){
+  const same=ly.placeMachId===id&&ly.placeTierId===tierId;
+  ly.placeMachId=same?null:id;
+  ly.placeTierId=same?null:tierId;
   if(ly.placeMachId)setLTool('place',document.querySelector('.ltool[data-tool="place"]'));
   document.querySelectorAll('.lmach').forEach(e=>e.classList.remove('sel'));
   if(el&&ly.placeMachId)el.classList.add('sel');
   lyRender();
+}
+
+// Tier of a placed instance (older instances without tierId fall back to tier 1)
+function instTier(inst,m){
+  return(m.tiers||[]).find(t=>t.id===inst.tierId)||m.tiers?.[0]||null;
 }
 
 // ── Build cost ──
@@ -2170,26 +2212,31 @@ function updateLyCost(){
   if(!el)return;
   if(!ly.instances.length){el.innerHTML='<div class="empty" style="padding:8px">Place machines to see costs</div>';return;}
 
-  // Count machines by type
+  // Count machines by type + tier (tiers can have different build costs)
   const counts={};
   ly.instances.forEach(inst=>{
-    counts[inst.machineId]=(counts[inst.machineId]||0)+1;
+    const m=machines.find(m=>m.id===inst.machineId);
+    if(!m)return;
+    const t=instTier(inst,m);
+    const key=inst.machineId+'|'+(t?t.id:'');
+    counts[key]=(counts[key]||0)+1;
   });
 
-  // Build cost per type + totals
+  // Build cost per type/tier + totals
   const totalRes={};
   let html='';
-  Object.entries(counts).forEach(([machId,count])=>{
+  Object.entries(counts).forEach(([key,count])=>{
+    const [machId,tierId]=key.split('|');
     const m=machines.find(m=>m.id===machId);
     if(!m)return;
-    html+=`<div class="lcost-group"><div class="lcost-name">${m.name} ×${count}</div>`;
-    if(m.buildCost&&m.buildCost.length){
-      m.buildCost.forEach(c=>{
-        const total=c.amount*count;
-        html+=`<div class="lcost-row">${rname(c.resourceId)}: ${total}</div>`;
-        totalRes[c.resourceId]=(totalRes[c.resourceId]||0)+total;
-      });
-    }
+    const t=(m.tiers||[]).find(t=>t.id===tierId)||m.tiers?.[0];
+    const label=m.name+((m.tiers||[]).length>1&&t?` ${t.name}`:'');
+    html+=`<div class="lcost-group"><div class="lcost-name">${label} ×${count}</div>`;
+    (t?.buildCost||[]).forEach(c=>{
+      const total=c.amount*count;
+      html+=`<div class="lcost-row">${rname(c.resourceId)}: ${total}</div>`;
+      totalRes[c.resourceId]=(totalRes[c.resourceId]||0)+total;
+    });
     html+='</div>';
   });
 
@@ -2211,6 +2258,61 @@ function updateLyCost(){
   }
 
   el.innerHTML=html;
+}
+
+// ── Planner → Layout ──
+// Places the last calculated plan into the layout editor: one column per
+// dependency stage (raw side on the left → target on the right, matching the
+// flow diagram), using the tier selected in the planner for each machine.
+// Added to the right of any existing layout content so nothing is overwritten.
+function planToLayout(){
+  if(!lastPlan||!lastPlan.nodes?.length)return;
+  const nodes=lastPlan.nodes;
+  const dc=stageDepths(nodes);
+  const maxD=Math.max(...nodes.map(n=>dc[n.rec.id]));
+
+  // Start to the right of everything already placed
+  let startX=0;
+  ly.instances.forEach(inst=>{
+    const m=machines.find(m=>m.id===inst.machineId);
+    if(!m)return;
+    const{w}=machSize(m,inst.rotation);
+    startX=Math.max(startX,inst.x+w+4);
+  });
+
+  const GAPX=3, GAPY=2;
+  let x=startX, placed=0, maxColH=0;
+  for(let d=maxD;d>=0;d--){
+    const col=nodes.filter(n=>dc[n.rec.id]===d);
+    let colW=0, y=0;
+    col.forEach(n=>{
+      const m=n.rec.machineId?machines.find(m=>m.id===n.rec.machineId):null;
+      if(!m)return;
+      const count=Math.ceil(n.exact);
+      const tier=(m.tiers||[]).find(t=>t.id===selTiers[m.id])||m.tiers?.[0];
+      const w=m.width||1, h=m.height||1;
+      colW=Math.max(colW,w);
+      for(let i=0;i<count;i++){
+        ly.instances.push({id:uid(),machineId:m.id,tierId:tier?.id,x,y,rotation:0});
+        y+=h+GAPY; placed++;
+      }
+    });
+    maxColH=Math.max(maxColH,y);
+    if(colW)x+=colW+GAPX;
+  }
+  if(!placed)return alert('This plan has no machine stages to place.');
+
+  saveLayout(); saveState();
+  goTab('layout');            // also initialises the canvas + palette
+  updateLyCost();
+
+  // Fit the newly placed block into view
+  const bw=(x-startX)*CELL, bh=maxColH*CELL;
+  const cw=_lyCanvas?.width||800, ch=_lyCanvas?.height||600;
+  ly.zoom=Math.max(0.15,Math.min(1.2,Math.min(cw/(bw+120),ch/(bh+120))));
+  ly.vx=-startX*CELL*ly.zoom+40;
+  ly.vy=40;
+  lyRender();
 }
 
 // ══════════════════════════════════════════════════════

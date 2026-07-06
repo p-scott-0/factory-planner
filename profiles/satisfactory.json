@@ -11,42 +11,77 @@
       "id": "mach-miner",
       "name": "Miner",
       "tiers": [
-        { "id": "tier-miner-mk1", "name": "Mk1", "speedMult": 1 },
-        { "id": "tier-miner-mk2", "name": "Mk2", "speedMult": 2 },
-        { "id": "tier-miner-mk3", "name": "Mk3", "speedMult": 4 }
+        {
+          "id": "tier-miner-mk1",
+          "name": "Mk1",
+          "speedMult": 1,
+          "buildCost": [
+            { "resourceId": "res-iron-plate", "amount": 10 },
+            { "resourceId": "res-concrete", "amount": 10 }
+          ]
+        },
+        {
+          "id": "tier-miner-mk2",
+          "name": "Mk2",
+          "speedMult": 2,
+          "buildCost": [
+            { "resourceId": "res-steel-pipe", "amount": 20 },
+            { "resourceId": "res-modular-frame", "amount": 10 },
+            { "resourceId": "res-concrete", "amount": 20 }
+          ]
+        },
+        {
+          "id": "tier-miner-mk3",
+          "name": "Mk3",
+          "speedMult": 4,
+          "buildCost": [
+            { "resourceId": "res-steel-pipe", "amount": 40 },
+            { "resourceId": "res-modular-frame", "amount": 20 },
+            { "resourceId": "res-concrete", "amount": 50 }
+          ]
+        }
       ],
       "width": 6,
       "height": 14,
       "ports": [
         { "type": "output", "side": "bottom", "offset": 2 }
-      ],
-      "buildCost": [
-        { "resourceId": "res-iron-plate", "amount": 10 },
-        { "resourceId": "res-concrete", "amount": 10 }
       ]
     },
     {
       "id": "mach-smelter",
       "name": "Smelter",
       "tiers": [
-        { "id": "tier-smelter-base", "name": "Base", "speedMult": 1 }
+        {
+          "id": "tier-smelter-base",
+          "name": "Base",
+          "speedMult": 1,
+          "buildCost": [
+            { "resourceId": "res-iron-rod", "amount": 5 },
+            { "resourceId": "res-wire", "amount": 8 }
+          ]
+        }
       ],
       "width": 6,
       "height": 9,
       "ports": [
         { "type": "input", "side": "left", "offset": 4 },
         { "type": "output", "side": "right", "offset": 4 }
-      ],
-      "buildCost": [
-        { "resourceId": "res-iron-rod", "amount": 5 },
-        { "resourceId": "res-wire", "amount": 8 }
       ]
     },
     {
       "id": "mach-foundry",
       "name": "Foundry",
       "tiers": [
-        { "id": "tier-foundry-base", "name": "Base", "speedMult": 1 }
+        {
+          "id": "tier-foundry-base",
+          "name": "Base",
+          "speedMult": 1,
+          "buildCost": [
+            { "resourceId": "res-modular-frame", "amount": 10 },
+            { "resourceId": "res-rotor", "amount": 10 },
+            { "resourceId": "res-concrete", "amount": 20 }
+          ]
+        }
       ],
       "width": 10,
       "height": 9,
@@ -54,35 +89,43 @@
         { "type": "input", "side": "left", "offset": 2 },
         { "type": "input", "side": "left", "offset": 6 },
         { "type": "output", "side": "right", "offset": 4 }
-      ],
-      "buildCost": [
-        { "resourceId": "res-modular-frame", "amount": 10 },
-        { "resourceId": "res-rotor", "amount": 10 },
-        { "resourceId": "res-concrete", "amount": 20 }
       ]
     },
     {
       "id": "mach-constructor",
       "name": "Constructor",
       "tiers": [
-        { "id": "tier-constructor-base", "name": "Base", "speedMult": 1 }
+        {
+          "id": "tier-constructor-base",
+          "name": "Base",
+          "speedMult": 1,
+          "buildCost": [
+            { "resourceId": "res-reinforced-iron-plate", "amount": 2 },
+            { "resourceId": "res-cable", "amount": 8 }
+          ]
+        }
       ],
       "width": 8,
       "height": 10,
       "ports": [
         { "type": "input", "side": "left", "offset": 4 },
         { "type": "output", "side": "right", "offset": 4 }
-      ],
-      "buildCost": [
-        { "resourceId": "res-reinforced-iron-plate", "amount": 2 },
-        { "resourceId": "res-cable", "amount": 8 }
       ]
     },
     {
       "id": "mach-assembler",
       "name": "Assembler",
       "tiers": [
-        { "id": "tier-assembler-base", "name": "Base", "speedMult": 1 }
+        {
+          "id": "tier-assembler-base",
+          "name": "Base",
+          "speedMult": 1,
+          "buildCost": [
+            { "resourceId": "res-reinforced-iron-plate", "amount": 8 },
+            { "resourceId": "res-rotor", "amount": 4 },
+            { "resourceId": "res-cable", "amount": 10 }
+          ]
+        }
       ],
       "width": 10,
       "height": 15,
@@ -90,11 +133,6 @@
         { "type": "input", "side": "left", "offset": 5 },
         { "type": "input", "side": "left", "offset": 9 },
         { "type": "output", "side": "right", "offset": 7 }
-      ],
-      "buildCost": [
-        { "resourceId": "res-reinforced-iron-plate", "amount": 8 },
-        { "resourceId": "res-rotor", "amount": 4 },
-        { "resourceId": "res-cable", "amount": 10 }
       ]
     }
   ],
