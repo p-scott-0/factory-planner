@@ -19,6 +19,10 @@
     { "id": "belt-mk4", "name": "Belt Mk4", "speed": 8,   "researchTierId": "rt5" },
     { "id": "belt-mk5", "name": "Belt Mk5", "speed": 13,  "researchTierId": "rt7" }
   ],
+  "pipeTiers": [
+    { "id": "pipe-mk1", "name": "Pipe Mk1", "speed": 5,  "researchTierId": "rt3" },
+    { "id": "pipe-mk2", "name": "Pipe Mk2", "speed": 10, "researchTierId": "rt6" }
+  ],
   "recToggles": {
     "rec-cast-screw": false,
     "rec-steel-screw": false,
@@ -52,7 +56,7 @@
     {
       "id": "mach-smelter", "name": "Smelter", "researchTierId": "rt0",
       "width": 6, "height": 9,
-      "ports": [ { "type": "input", "side": "left", "offset": 4 }, { "type": "output", "side": "right", "offset": 4 } ],
+      "ports": [ { "type": "input", "side": "top", "offset": 2 }, { "type": "output", "side": "bottom", "offset": 2 } ],
       "tiers": [
         { "id": "tier-smelter-base", "name": "Base", "speedMult": 1, "researchTierId": "rt0",
           "buildCost": [ { "resourceId": "res-iron-rod", "amount": 5 }, { "resourceId": "res-wire", "amount": 8 } ] }
@@ -61,7 +65,7 @@
     {
       "id": "mach-constructor", "name": "Constructor", "researchTierId": "rt0",
       "width": 8, "height": 10,
-      "ports": [ { "type": "input", "side": "left", "offset": 4 }, { "type": "output", "side": "right", "offset": 4 } ],
+      "ports": [ { "type": "input", "side": "top", "offset": 3 }, { "type": "output", "side": "bottom", "offset": 3 } ],
       "tiers": [
         { "id": "tier-constructor-base", "name": "Base", "speedMult": 1, "researchTierId": "rt0",
           "buildCost": [ { "resourceId": "res-reinforced-iron-plate", "amount": 2 }, { "resourceId": "res-cable", "amount": 8 } ] }
@@ -70,7 +74,7 @@
     {
       "id": "mach-assembler", "name": "Assembler", "researchTierId": "rt2",
       "width": 10, "height": 15,
-      "ports": [ { "type": "input", "side": "left", "offset": 5 }, { "type": "input", "side": "left", "offset": 9 }, { "type": "output", "side": "right", "offset": 7 } ],
+      "ports": [ { "type": "input", "side": "top", "offset": 2 }, { "type": "input", "side": "top", "offset": 6 }, { "type": "output", "side": "bottom", "offset": 4 } ],
       "tiers": [
         { "id": "tier-assembler-base", "name": "Base", "speedMult": 1, "researchTierId": "rt2",
           "buildCost": [ { "resourceId": "res-reinforced-iron-plate", "amount": 8 }, { "resourceId": "res-rotor", "amount": 4 }, { "resourceId": "res-cable", "amount": 10 } ] }
@@ -88,7 +92,7 @@
     {
       "id": "mach-water-extractor", "name": "Water Extractor", "researchTierId": "rt3",
       "width": 8, "height": 8,
-      "ports": [ { "type": "output", "side": "right", "offset": 3 } ],
+      "ports": [ { "type": "output", "side": "right", "offset": 3, "flow": "fluid" } ],
       "tiers": [
         { "id": "tier-water-extractor-base", "name": "Base", "speedMult": 1, "researchTierId": "rt3",
           "buildCost": [ { "resourceId": "res-copper-sheet", "amount": 20 }, { "resourceId": "res-reinforced-iron-plate", "amount": 10 }, { "resourceId": "res-rotor", "amount": 10 } ] }
@@ -97,7 +101,7 @@
     {
       "id": "mach-oil-extractor", "name": "Oil Extractor", "researchTierId": "rt5",
       "width": 8, "height": 10,
-      "ports": [ { "type": "output", "side": "right", "offset": 4 } ],
+      "ports": [ { "type": "output", "side": "right", "offset": 4, "flow": "fluid" } ],
       "tiers": [
         { "id": "tier-oil-extractor-base", "name": "Base", "speedMult": 1, "researchTierId": "rt5",
           "buildCost": [ { "resourceId": "res-motor", "amount": 15 }, { "resourceId": "res-encased-industrial-beam", "amount": 20 }, { "resourceId": "res-cable", "amount": 60 } ] }
@@ -106,7 +110,7 @@
     {
       "id": "mach-refinery", "name": "Refinery", "researchTierId": "rt5",
       "width": 10, "height": 20,
-      "ports": [ { "type": "input", "side": "left", "offset": 4 }, { "type": "input", "side": "left", "offset": 14 }, { "type": "output", "side": "right", "offset": 9 } ],
+      "ports": [ { "type": "input", "side": "left", "offset": 4, "flow": "fluid" }, { "type": "input", "side": "left", "offset": 14 }, { "type": "output", "side": "right", "offset": 9 } ],
       "tiers": [
         { "id": "tier-refinery-base", "name": "Base", "speedMult": 1, "researchTierId": "rt5",
           "buildCost": [ { "resourceId": "res-motor", "amount": 10 }, { "resourceId": "res-encased-industrial-beam", "amount": 10 }, { "resourceId": "res-steel-pipe", "amount": 30 }, { "resourceId": "res-copper-sheet", "amount": 20 } ] }
@@ -139,10 +143,10 @@
       "recipes": [ { "id": "rec-caterium-ore", "name": "Mine Caterium Ore (normal node)", "machineId": "mach-miner", "cycleTime": 1, "outputAmount": 1, "inputs": [] } ],
       "defaultRecipeId": "rec-caterium-ore" },
 
-    { "id": "res-water", "name": "Water", "categoryId": "cat-fluids", "researchTierId": "rt3",
+    { "id": "res-water", "name": "Water", "categoryId": "cat-fluids", "researchTierId": "rt3", "isFluid": true,
       "recipes": [ { "id": "rec-water", "name": "Extract Water", "machineId": "mach-water-extractor", "cycleTime": 0.5, "outputAmount": 1, "inputs": [] } ],
       "defaultRecipeId": "rec-water" },
-    { "id": "res-crude-oil", "name": "Crude Oil", "categoryId": "cat-fluids", "researchTierId": "rt5",
+    { "id": "res-crude-oil", "name": "Crude Oil", "categoryId": "cat-fluids", "researchTierId": "rt5", "isFluid": true,
       "recipes": [ { "id": "rec-crude-oil", "name": "Extract Crude Oil (normal node)", "machineId": "mach-oil-extractor", "cycleTime": 0.5, "outputAmount": 1, "inputs": [] } ],
       "defaultRecipeId": "rec-crude-oil" },
 

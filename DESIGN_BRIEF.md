@@ -18,7 +18,7 @@ A machine is a building that processes resources. Machines have:
 - A **name**
 - One or more **tiers** — named variants with a speed multiplier relative to the base (e.g. Mk1 ×1.0, Mk2 ×2.5). Tier selection affects how many machines the planner recommends. Each tier has its own optional **build cost** — resources and quantities required to construct one machine of that tier (higher tiers typically cost more). Used for the layout cost tracker.
 - A **footprint** — width and height in grid cells, for layout purposes
-- **I/O ports** — each port has a type (input or output), a side (top/right/bottom/left), and a position offset along that side. Used for visual belt routing in the layout editor.
+- **I/O ports** — each port has a type (input or output), a side (top/right/bottom/left), a position offset along that side, and a flow kind (items or fluid). Used for belt/pipe routing in the layout editor and for the machine-output throughput cap.
 
 ### Resources
 A resource is anything that can be produced, consumed, or mined. Resources have:
@@ -42,8 +42,8 @@ Categories are user-defined labels for grouping resources. They affect visual or
 ### Research Tiers
 Research tiers are an ordered, user-defined progression ladder (e.g. Tier 0 … Tier 8). Machines, individual machine tiers, resources, and belt tiers can each be gated behind a research tier. A profile-wide **highest unlocked tier** selector (in the nav bar) hides everything gated above it — from lists, planner selects, the layout palette, everywhere — so shared profiles don't spoil later-game content. Items with no research tier are always available. Tiers and their contents are managed in the dedicated **Tiers tab** (see UI structure), which deliberately shows everything regardless of the unlock level.
 
-### Belt Tiers
-Belt tiers are named belt speeds (e.g. Belt Mk1 = 60/min), optionally research-gated. The planner labels every flow-diagram edge and raw input with the **lowest allowed belt tier that can carry the rate**, or "N× fastest" when even the fastest belt needs parallel lanes. A **max belt tier** setting in the planner further caps which belts are considered, below the research unlock. In the layout editor a belt-tier palette selects which tier new belts are drawn as; belts are colour-coded and the cost tracker counts segments per tier.
+### Belt Tiers & Pipe Tiers
+Belt tiers are named belt speeds (e.g. Belt Mk1 = 60/min), optionally research-gated. **Pipe tiers** are the same concept for fluids: resources marked as *fluid* flow through pipes instead of belts, and machine I/O ports declare whether they carry items or fluids (fluid ports render as squares, item ports as circles). The planner labels every flow-diagram edge and raw input with the **lowest allowed belt/pipe tier that can carry the rate**, or "N× fastest" when even the fastest tier needs parallel lanes. **Max belt tier** and **max pipe tier** settings in the planner further cap which tiers are considered, below the research unlock. In the layout editor a belts & pipes palette selects what new connections are drawn as; belts and pipes are colour-coded by kind and tier and the cost tracker counts segments per tier.
 
 Belt speeds also cap machine throughput: a machine cannot output more than (number of output ports × best allowed belt speed) — one output port can only feed one belt. Belt-capped stages run below full speed, need proportionally more machines, consume inputs at the reduced rate, and are flagged with a warning in the results and diagram. Machines with no output ports defined are never capped.
 
@@ -104,10 +104,16 @@ A 2D grid-based canvas where users plan the physical placement of machines.
 - A coordinate HUD shows the current grid position and zoom level
 
 ### Tools
-- **Select** — click to select a machine instance; drag to move it; R to rotate 90°; Delete/Backspace to remove
+- **Select** — click to select a machine instance (shift-click toggles); drag on empty space for box/marquee selection; drag any selected machine to move the whole selection; arrow keys nudge the selection by one cell; Ctrl+C / Ctrl+V copy and paste the selection (machines plus belts fully inside it) at the mouse position; R rotates a single selected machine; Delete/Backspace removes the selection. Dragged machines **soft-snap** into alignment with nearby machines when an edge is one cell off.
 - **Place** — choose a machine type from the palette, then click to place instances; ghost preview shows the machine footprint and whether the placement is valid; R to rotate before placing
 - **Belt** — click an output port to start routing; click cells to add waypoints; click an input port on a different machine to finish; right-click or Escape to cancel; belt endpoints snap to the external cell adjacent to the port
 - **Erase** — click a machine instance to delete it (and all belts connected to it); click a belt path cell to delete that belt
+
+### Belt behaviour
+Belts and pipes are always drawn as clean orthogonal runs with 90° corners (paths are rasterised through their waypoints). They are **attached to their endpoint ports**: moving or rotating a machine re-routes every connected belt so it stays plugged into the same input/output.
+
+### Machine rendering
+Machines are colour-coded with a stable per-machine colour that also appears next to machine names in the planner. Labels scale with the machine's footprint (name + tier, with the active recipe/product on a second line for machines placed from a plan) and hide when zoomed too far out. The canvas zooms out to 3% for very large factories.
 
 ### Placement Rules
 - Machines cannot overlap — placement is blocked if any cell in the footprint is occupied by another instance
@@ -132,7 +138,9 @@ The sidebar accumulates the total build cost of all placed machines. It shows:
 The cost panel updates in real time as machines are placed, moved, or deleted. Subtotals are per machine tier, since tiers can have different build costs.
 
 ### Planner Hand-off
-Planner results include a **Build in Layout** action that places the calculated machine counts into the layout editor as a starting arrangement — one column per dependency stage, ordered raw-side-left to target-right like the flow diagram, using the tiers selected in the planner. New machines are placed beside any existing layout content, never over it. Belt routing and rearrangement remain manual.
+Planner results include a **Build in Layout** action that places the calculated machine counts into the layout editor — one column per stage, ordered raw-side-left to target-right like the flow diagram, using the tiers selected in the planner, with machines rotated so outputs face right and inputs face left. New machines are placed beside any existing layout content, never over it.
+
+Belts are generated automatically in a **manifold style**: each producer's output stubs right into a vertical trunk that runs upward merging the column's outputs, peels off to the right along a dedicated corridor row above the factory, then drops down a feed line on the consumer column's left and taps into each machine's input. When the merged flow would exceed the fastest allowed belt/pipe tier, the manifold splits into parallel trunk/feed lanes, each tagged with the cheapest tier that carries its share. Fluid flows use pipes and prefer fluid-typed ports. Generated belts are normal attached belts and can be re-routed, erased, or redrawn manually afterwards.
 
 ---
 

@@ -49,6 +49,10 @@ A profile file is what **Export Profile** produces:
   "beltTiers": [
     { "id": "belt-x", "name": "Belt Mk1", "speed": 1, "researchTierId": "rt0" } // speed in items/sec
   ],
+  "pipeTiers": [
+    { "id": "pipe-x", "name": "Pipe Mk1", "speed": 5, "researchTierId": null } // belts for fluids
+  ],
+  "maxPipeTierId": null,
   "recToggles": { "rec-alt": false },                // recipe id → false when disabled
   "categories": [ { "id": "cat-x", "name": "Ores" } ],
   "machines": [
@@ -63,13 +67,14 @@ A profile file is what **Export Profile** produces:
         }
       ],
       "width": 2, "height": 3,                       // footprint in grid cells
-      "ports": [ { "type": "input", "side": "top", "offset": 0 } ]
+      "ports": [ { "type": "input", "side": "top", "offset": 0, "flow": "item" } ] // flow: item|fluid
     }
   ],
   "resources": [
     {
       "id": "res-x", "name": "Iron Plate", "categoryId": "cat-x",
       "researchTierId": "rt0",                       // optional gate (null = always)
+      "isFluid": false,                              // fluids flow through pipes
       "recipes": [
         {
           "id": "rec-x", "name": "Smelt iron",

@@ -228,6 +228,19 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
       <div id="bf-err"></div>
       <div class="act"><button class="ba bsm" onclick="addBeltTier()">Add Belt Tier</button></div>
     </div>
+    <div class="card">
+      <div class="card-title">Pipe Tiers <span id="pipe-ct" style="color:#444;font-size:11px"></span> <span style="color:#555;text-transform:none;letter-spacing:0">— belts for fluid resources</span></div>
+      <div id="pipe-list"><div class="empty">No pipe tiers defined.</div></div>
+      <hr>
+      <div class="r2">
+        <div><label>Name</label><input id="pf-name" type="text" placeholder="e.g. Pipe Mk1"></div>
+        <div><label>Speed (units/<span id="pf-unit">min</span>)</label><input id="pf-speed" type="number" min="0.001" step="any" placeholder="300"></div>
+      </div>
+      <label>Research tier</label>
+      <select id="pf-rt"><option value="">— always —</option></select>
+      <div id="pf-err"></div>
+      <div class="act"><button class="ba bsm" onclick="addPipeTier()">Add Pipe Tier</button></div>
+    </div>
   </div>
 </div>
 </div>
@@ -254,6 +267,9 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
       </div>
       <label>Research tier <span style="color:#555">(hidden until unlocked)</span></label>
       <select id="rf-rt"><option value="">— always —</option></select>
+      <label style="display:flex;align-items:center;gap:7px;cursor:pointer;margin-top:9px">
+        <input type="checkbox" id="rf-fluid" style="width:auto">Fluid resource <span style="color:#555">(flows through pipes, not belts)</span>
+      </label>
 
       <!-- Optional inline recipe — hidden when editing an existing resource -->
       <div id="rf-recipe-section">
@@ -418,9 +434,9 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
       <div id="ly-mach-list"><div class="empty" style="padding:8px">Define machines first</div></div>
     </div>
 
-    <!-- Belt tier palette -->
+    <!-- Belt / pipe tier palette -->
     <div class="card" id="ly-belt-card" style="display:none">
-      <div class="card-title">Belt Tier</div>
+      <div class="card-title">Belts &amp; Pipes</div>
       <div id="ly-belt-list"></div>
     </div>
 
@@ -448,9 +464,11 @@ let resources  = [];  // {id,name,categoryId,researchTierId,recipes:[…],defaul
 let categories = [];  // {id,name}
 let researchTiers = [];  // [{id,name}] ordered lowest → highest
 let beltTiers     = [];  // [{id,name,speed(items/sec),researchTierId}]
+let pipeTiers     = [];  // [{id,name,speed(units/sec),researchTierId}] — belts for fluids
 let recToggles    = {};  // recipeId → false when disabled
 let unlockedTierId= null; // highest unlocked research tier (null = everything)
 let maxBeltTierId = null; // planner cap on belt tier (null = fastest unlocked)
+let maxPipeTierId = null; // planner cap on pipe tier (null = fastest unlocked)
 let selTiers      = {};  // machineId → tierId
 let recOverrides  = {};  // legacy (planner now auto-selects recipes)
 let rateUnit      = localStorage.getItem('fp_rateunit')==='s'?'s':'m'; // global display unit
@@ -500,6 +518,8 @@ function loadActiveProfile(){
   recToggles    = p.recToggles    || {};
   unlockedTierId= p.unlockedTierId?? null;
   maxBeltTierId = p.maxBeltTierId ?? null;
+  pipeTiers     = p.pipeTiers     || [];
+  maxPipeTierId = p.maxPipeTierId ?? null;
   migrateTierCosts(machines);
 }
 
@@ -519,9 +539,9 @@ function saveActiveProfile(){
   if(!p)return;
   p.machines=machines; p.resources=resources; p.categories=categories;
   p.selTiers=selTiers; p.recOverrides=recOverrides;
-  p.researchTiers=researchTiers; p.beltTiers=beltTiers;
+  p.researchTiers=researchTiers; p.beltTiers=beltTiers; p.pipeTiers=pipeTiers;
   p.recToggles=recToggles; p.unlockedTierId=unlockedTierId;
-  p.maxBeltTierId=maxBeltTierId;
+  p.maxBeltTierId=maxBeltTierId; p.maxPipeTierId=maxPipeTierId;
   if(typeof saveLayout==='function')saveLayout();
 }
 
@@ -550,7 +570,7 @@ function switchProfile(id){
 
 function reloadUI(){
   renderProfileSelector();
-  renderUnlockSelector(); renderTierTab(); refreshTierSelects(); renderBeltTiers();
+  renderUnlockSelector(); renderTierTab(); refreshTierSelects(); renderBeltTiers(); renderPipeTiers();
   renderMachines(); renderResources();
   refreshMachSelects(); refreshCatSelect();
   renderPlannerControls();
@@ -642,6 +662,8 @@ function importProfile(e){
         recToggles:d.recToggles||{},
         unlockedTierId:d.unlockedTierId??null,
         maxBeltTierId:d.maxBeltTierId??null,
+        pipeTiers:d.pipeTiers||[],
+        maxPipeTierId:d.maxPipeTierId??null,
         layout:d.layout||{instances:[],belts:[]}
       };
       profiles.push(p);
@@ -679,6 +701,8 @@ async function loadSampleProfile(key){
       recToggles:d.recToggles||{},
       unlockedTierId:d.unlockedTierId??null,
       maxBeltTierId:d.maxBeltTierId??null,
+      pipeTiers:d.pipeTiers||[],
+      maxPipeTierId:d.maxPipeTierId??null,
       layout:d.layout||{instances:[],belts:[]}
     };
     profiles.push(p);
@@ -714,7 +738,8 @@ function renderTierTab(){
     machines:machines.filter(m=>norm(m.researchTierId)===tid),
     machTiers:machines.flatMap(m=>(m.tiers||[]).filter(t=>norm(t.researchTierId)===tid&&m.tiers.length>1).map(t=>({m,t}))),
     resources:resources.filter(r=>norm(r.researchTierId)===tid),
-    belts:beltTiers.filter(b=>norm(b.researchTierId)===tid)
+    belts:beltTiers.filter(b=>norm(b.researchTierId)===tid),
+    pipes:pipeTiers.filter(b=>norm(b.researchTierId)===tid)
   });
   const chip=(label,removeCall)=>`<span class="prof-item">${label}${removeCall?`<button onclick="${removeCall}" title="Clear tier assignment" style="color:var(--red)">✕</button>`:''}</span>`;
   const group=(title,items)=>items.length?`<div class="rt-group"><div class="sl">${title} (${items.length})</div>${items.join('')}</div>`:'';
@@ -722,26 +747,34 @@ function renderTierTab(){
     group('Machines',k.machines.map(m=>chip(m.name,removable?`assignTier('m:${m.id}','')`:'')))+
     group('Machine tiers',k.machTiers.map(({m,t})=>chip(`${m.name} · ${t.name}`,removable?`assignTier('mt:${m.id}:${t.id}','')`:'')))+
     group('Resources',k.resources.map(r=>chip(r.name,removable?`assignTier('r:${r.id}','')`:'')))+
-    group('Belts',k.belts.map(b=>chip(b.name,removable?`assignTier('b:${b.id}','')`:'')));
+    group('Belts',k.belts.map(b=>chip(b.name,removable?`assignTier('b:${b.id}','')`:'')))+
+    group('Pipes',k.pipes.map(b=>chip(b.name,removable?`assignTier('p:${b.id}','')`:'')));
 
   function assignOpts(){
+    const byName=(a,b)=>a.name.localeCompare(b.name);
     const opt=(v,label,curTid)=>{
       const cur=tierName(norm(curTid));
       return`<option value="${v}">${label}${cur?` (${cur})`:''}</option>`;
     };
     let h='<option value="">+ Assign an item to this tier…</option>';
-    if(machines.length)h+='<optgroup label="Machines">'+machines.map(m=>opt(`m:${m.id}`,m.name,m.researchTierId)).join('')+'</optgroup>';
+    if(machines.length)h+='<optgroup label="Machines">'+machines.slice().sort(byName).map(m=>opt(`m:${m.id}`,m.name,m.researchTierId)).join('')+'</optgroup>';
     const mts=machines.flatMap(m=>(m.tiers||[]).length>1?m.tiers.map(t=>({m,t})):[]);
     if(mts.length)h+='<optgroup label="Machine tiers">'+mts.map(({m,t})=>opt(`mt:${m.id}:${t.id}`,`${m.name} · ${t.name}`,t.researchTierId)).join('')+'</optgroup>';
-    if(resources.length)h+='<optgroup label="Resources">'+resources.map(r=>opt(`r:${r.id}`,r.name,r.researchTierId)).join('')+'</optgroup>';
-    if(beltTiers.length)h+='<optgroup label="Belts">'+beltTiers.map(b=>opt(`b:${b.id}`,b.name,b.researchTierId)).join('')+'</optgroup>';
+    // Resources get one subheader per category, alphabetical within each
+    const bucket=(items,label)=>{
+      if(items.length)h+=`<optgroup label="Resources · ${label}">`+items.sort(byName).map(r=>opt(`r:${r.id}`,r.name,r.researchTierId)).join('')+'</optgroup>';
+    };
+    categories.forEach(c=>bucket(resources.filter(r=>r.categoryId===c.id),c.name));
+    bucket(resources.filter(r=>!r.categoryId||!categories.some(c=>c.id===r.categoryId)),'Other');
+    if(beltTiers.length)h+='<optgroup label="Belts">'+beltTiers.slice().sort(byName).map(b=>opt(`b:${b.id}`,b.name,b.researchTierId)).join('')+'</optgroup>';
+    if(pipeTiers.length)h+='<optgroup label="Pipes">'+pipeTiers.slice().sort(byName).map(b=>opt(`p:${b.id}`,b.name,b.researchTierId)).join('')+'</optgroup>';
     return h;
   }
 
   const ui=unlockedIdx();
   let html=researchTiers.map((t,i)=>{
     const k=kindsOf(t.id);
-    const total=k.machines.length+k.machTiers.length+k.resources.length+k.belts.length;
+    const total=k.machines.length+k.machTiers.length+k.resources.length+k.belts.length+k.pipes.length;
     const locked=i>ui;
     return`<div class="card rt-card${locked?' rt-locked':''}">
       <div class="lh">
@@ -767,7 +800,7 @@ function renderTierTab(){
     html='<div class="card rt-card"><div class="empty">No research tiers yet — add one above. Without tiers, everything is always available.</div></div>';
   } else {
     const k0=kindsOf(null);
-    const t0=k0.machines.length+k0.machTiers.length+k0.resources.length+k0.belts.length;
+    const t0=k0.machines.length+k0.machTiers.length+k0.resources.length+k0.belts.length+k0.pipes.length;
     html+=`<div class="card rt-card">
       <div class="lh"><div><div class="ln">Always available</div>
       <div class="ls">${t0} item${t0!==1?'s':''} with no research gate — use a tier card's assign dropdown to gate them</div></div></div>
@@ -786,9 +819,10 @@ function assignTier(key,tierId){
   else if(parts[0]==='mt'){const m=machines.find(m=>m.id===parts[1]);const t=m?.tiers.find(t=>t.id===parts[2]);if(t)t.researchTierId=tid;}
   else if(parts[0]==='r'){const r=resources.find(r=>r.id===parts[1]);if(r)r.researchTierId=tid;}
   else if(parts[0]==='b'){const b=beltTiers.find(b=>b.id===parts[1]);if(b)b.researchTierId=tid;}
+  else if(parts[0]==='p'){const b=pipeTiers.find(b=>b.id===parts[1]);if(b)b.researchTierId=tid;}
   saveState();
   // Gating may change what's visible everywhere
-  renderTierTab(); renderMachines(); renderResources(); renderBeltTiers();
+  renderTierTab(); renderMachines(); renderResources(); renderBeltTiers(); renderPipeTiers();
   renderPlannerControls(); refreshMachSelects();
   if(typeof renderLyPalette==='function')renderLyPalette();
 }
@@ -823,13 +857,14 @@ function delResearchTier(id){
   });
   resources.forEach(r=>{if(r.researchTierId===id)r.researchTierId=null;});
   beltTiers.forEach(b=>{if(b.researchTierId===id)b.researchTierId=null;});
+  pipeTiers.forEach(b=>{if(b.researchTierId===id)b.researchTierId=null;});
   if(unlockedTierId===id)unlockedTierId=null;
   saveState(); reloadUI();
 }
 // Fill the research-tier selects in the machine/resource/belt forms
 function refreshTierSelects(){
   const opts='<option value="">— always —</option>'+researchTiers.map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
-  ['mf-rt','rf-rt','bf-rt'].forEach(id=>{
+  ['mf-rt','rf-rt','bf-rt','pf-rt'].forEach(id=>{
     const el=document.getElementById(id);
     if(el){const cur=el.value;el.innerHTML=opts;el.value=cur;}
   });
@@ -874,6 +909,42 @@ function delBeltTier(id){
   if(typeof renderLyPalette==='function'){renderLyPalette();updateLyCost();lyRender();}
 }
 
+function renderPipeTiers(){
+  const el=document.getElementById('pipe-list');
+  if(!el)return;
+  const u=document.getElementById('pf-unit');
+  if(u)u.textContent=rateUnit==='m'?'min':'sec';
+  const visible=pipeTiers.filter(b=>tierOk(b.researchTierId)).sort((a,b)=>a.speed-b.speed);
+  const hidden=pipeTiers.length-visible.length;
+  document.getElementById('pipe-ct').textContent=`(${visible.length}${hidden?` + ${hidden} locked`:''})`;
+  if(!pipeTiers.length){el.innerHTML='<div class="empty">No pipe tiers defined.</div>';return;}
+  el.innerHTML=visible.map(b=>{
+    const rt=tierName(b.researchTierId);
+    return`<div class="litem"><div class="lh">
+      <div><div class="ln">${b.name}</div><div class="ls">${rfmt(b.speed,2)}${rt?` · ${rt}`:''}</div></div>
+      <div class="la"><button class="bx" onclick="delPipeTier('${b.id}')">Del</button></div>
+    </div></div>`;
+  }).join('')+(hidden?`<div class="empty">🔒 ${hidden} pipe tier${hidden>1?'s':''} hidden above the unlocked research tier</div>`:'');
+}
+function addPipeTier(){
+  const name=document.getElementById('pf-name').value.trim();
+  const sp=parseFloat(document.getElementById('pf-speed').value);
+  if(!name)return setErr('pf-err','Name required.');
+  if(isNaN(sp)||sp<=0)return setErr('pf-err','Speed must be > 0.');
+  setErr('pf-err','');
+  pipeTiers.push({id:uid(),name,speed:rateUnit==='m'?sp/60:sp,researchTierId:document.getElementById('pf-rt').value||null});
+  document.getElementById('pf-name').value='';
+  document.getElementById('pf-speed').value='';
+  saveState(); renderPipeTiers();
+  if(typeof renderLyPalette==='function')renderLyPalette();
+}
+function delPipeTier(id){
+  pipeTiers=pipeTiers.filter(b=>b.id!==id);
+  if(typeof ly!=='undefined')ly.belts.forEach(b=>{if(b.beltTierId===id)b.beltTierId=null;});
+  saveState(); renderPipeTiers();
+  if(typeof renderLyPalette==='function'){renderLyPalette();updateLyCost();lyRender();}
+}
+
 // ══════════════════════════════════════════════════════
 // TABS
 // ══════════════════════════════════════════════════════
@@ -904,7 +975,7 @@ function toggleRateUnit(){
   rateUnit=rateUnit==='m'?'s':'m';
   localStorage.setItem('fp_rateunit',rateUnit);
   document.getElementById('unit-btn').textContent=rateUnit==='m'?'/min':'/s';
-  renderBeltTiers();
+  renderBeltTiers(); renderPipeTiers();
   if(selResId)renderRecipesForResource(selResId);
   if(document.querySelector('#pl-results .plan-panels'))runPlanner();
   if(typeof renderLyPalette==='function')renderLyPalette();
@@ -953,15 +1024,43 @@ function beltFor(ratePerSec){
   const top=bs[bs.length-1];
   return{belt:top,count:Math.ceil(ratePerSec/top.speed-1e-9)};
 }
-function beltLabel(ratePerSec){
-  const bf=beltFor(ratePerSec);
+// ── Pipe tiers (belts for fluids) ──
+function unlockedPipes(){return pipeTiers.filter(b=>tierOk(b.researchTierId)).slice().sort((a,b)=>a.speed-b.speed);}
+function plannerPipes(){
+  const bs=unlockedPipes();
+  if(!maxPipeTierId)return bs;
+  const i=bs.findIndex(b=>b.id===maxPipeTierId);
+  return i<0?bs:bs.slice(0,i+1);
+}
+function pipeFor(ratePerSec){
+  const bs=plannerPipes();
+  if(!bs.length||ratePerSec<=0)return null;
+  const b=bs.find(b=>b.speed>=ratePerSec-1e-9);
+  if(b)return{belt:b,count:1};
+  const top=bs[bs.length-1];
+  return{belt:top,count:Math.ceil(ratePerSec/top.speed-1e-9)};
+}
+// Flow-aware: fluids use pipes, everything else belts
+function flowFor(ratePerSec,isFluid){return isFluid?pipeFor(ratePerSec):beltFor(ratePerSec);}
+function beltLabel(ratePerSec,isFluid){
+  const bf=flowFor(ratePerSec,isFluid);
   return bf?`${bf.count>1?bf.count+'× ':''}${bf.belt.name}`:'';
+}
+function isFluidRes(resId){return !!resources.find(r=>r.id===resId)?.isFluid;}
+function flowTierById(id){return beltTiers.find(b=>b.id===id)||pipeTiers.find(b=>b.id===id)||null;}
+
+// Stable per-machine colour, used in both planner and layout
+function machColor(machId,sat=55,lum=55){
+  const i=machines.findIndex(m=>m.id===machId);
+  if(i<0)return`hsl(210 15% ${lum}%)`;
+  return`hsl(${Math.round(i*137.5)%360} ${sat}% ${lum}%)`;
 }
 
 function buildResOpts(selectedId='', exclude=''){
   const eligible = r => r.id !== exclude && resUnlocked(r);
+  const byName = (a,b) => a.name.localeCompare(b.name);
   const opt = r => `<option value="${r.id}"${r.id===selectedId?' selected':''}>${r.name}</option>`;
-  // Group into categories + uncategorized
+  // Group into categories + uncategorized, alphabetical within each group
   const catBuckets = {};
   categories.forEach(c => catBuckets[c.id] = []);
   const uncat = [];
@@ -972,11 +1071,12 @@ function buildResOpts(selectedId='', exclude=''){
   const hasCats = categories.some(c => catBuckets[c.id].length);
   let html = '';
   categories.forEach(c => {
-    const items = catBuckets[c.id];
+    const items = catBuckets[c.id].sort(byName);
     if(!items.length) return;
     html += `<optgroup label="${c.name}">${items.map(opt).join('')}</optgroup>`;
   });
   if(uncat.length){
+    uncat.sort(byName);
     html += hasCats
       ? `<optgroup label="Other">${uncat.map(opt).join('')}</optgroup>`
       : uncat.map(opt).join('');
@@ -1128,12 +1228,13 @@ function getTierRows(){
   });
 }
 
-function addPortRow(type='input',side='left',offset=0){
+function addPortRow(type='input',side='left',offset=0,flow='item'){
   const row=document.createElement('div');
   row.className='port-row';
   row.innerHTML=`<select class="port-type"><option value="input"${type==='input'?' selected':''}>In</option><option value="output"${type==='output'?' selected':''}>Out</option></select>
     <select class="port-side"><option value="top"${side==='top'?' selected':''}>Top</option><option value="right"${side==='right'?' selected':''}>Right</option><option value="bottom"${side==='bottom'?' selected':''}>Bottom</option><option value="left"${side==='left'?' selected':''}>Left</option></select>
     <input type="number" class="port-off" min="0" step="1" placeholder="Pos" value="${offset}" title="Position along side (0 = first cell)">
+    <select class="port-flow" title="What this port carries"><option value="item"${flow!=='fluid'?' selected':''}>Items</option><option value="fluid"${flow==='fluid'?' selected':''}>Fluid</option></select>
     <button class="bx" onclick="this.parentElement.remove()">✕</button>`;
   document.getElementById('mf-ports').appendChild(row);
 }
@@ -1142,7 +1243,8 @@ function getPortRows(){
   return[...document.querySelectorAll('#mf-ports .port-row')].map(row=>({
     type:row.querySelector('.port-type').value,
     side:row.querySelector('.port-side').value,
-    offset:parseInt(row.querySelector('.port-off').value)||0
+    offset:parseInt(row.querySelector('.port-off').value)||0,
+    flow:row.querySelector('.port-flow').value
   }));
 }
 
@@ -1191,7 +1293,7 @@ function editMach(id){
   document.getElementById('mf-w').value=m.width||1;
   document.getElementById('mf-h').value=m.height||1;
   document.getElementById('mf-ports').innerHTML='';
-  (m.ports||[]).forEach(p=>addPortRow(p.type,p.side,p.offset));
+  (m.ports||[]).forEach(p=>addPortRow(p.type,p.side,p.offset,p.flow||'item'));
 }
 
 function delMach(id){
@@ -1202,7 +1304,7 @@ function delMach(id){
   if(gone.size){
     ly.instances=ly.instances.filter(i=>i.machineId!==id);
     ly.belts=ly.belts.filter(b=>!gone.has(b.from.instId)&&!gone.has(b.to.instId));
-    if(gone.has(ly.selId))ly.selId=null;
+    gone.forEach(gid=>ly.selIds.delete(gid));
     saveLayout(); updateLyCost();
   }
   if(ly.placeMachId===id)ly.placeMachId=null;
@@ -1244,13 +1346,14 @@ function saveResource(){
   const name=document.getElementById('rf-name').value.trim();
   const categoryId=document.getElementById('rf-cat').value||null;
   const researchTierId=document.getElementById('rf-rt').value||null;
+  const isFluid=document.getElementById('rf-fluid').checked;
   if(!name)return setErr('rf-err','Name required.');
   setErr('rf-err','');
   if(editResId){
     const r=resources.find(x=>x.id===editResId);
-    if(r){r.name=name;r.categoryId=categoryId;r.researchTierId=researchTierId;}
+    if(r){r.name=name;r.categoryId=categoryId;r.researchTierId=researchTierId;r.isFluid=isFluid;}
   } else {
-    const newRes={id:uid(),name,categoryId,researchTierId,recipes:[],defaultRecipeId:null};
+    const newRes={id:uid(),name,categoryId,researchTierId,isFluid,recipes:[],defaultRecipeId:null};
     const machId=document.getElementById('rf-mach').value;
     const ct=parseFloat(document.getElementById('rf-time').value);
     const outAmt=parseFloat(document.getElementById('rf-outamt').value)||1;
@@ -1270,6 +1373,7 @@ function cancelResource(){
   document.getElementById('rf-name').value='';
   document.getElementById('rf-cat').value='';
   document.getElementById('rf-rt').value='';
+  document.getElementById('rf-fluid').checked=false;
   document.getElementById('rf-title').textContent='New Resource';
   document.getElementById('rf-mach').value='';
   document.getElementById('rf-time').value='';
@@ -1286,6 +1390,7 @@ function editRes(id){
   document.getElementById('rf-name').value=r.name;
   document.getElementById('rf-cat').value=r.categoryId||'';
   document.getElementById('rf-rt').value=r.researchTierId||'';
+  document.getElementById('rf-fluid').checked=!!r.isFluid;
   document.getElementById('rf-title').textContent='Edit Resource';
   document.getElementById('rf-recipe-section').style.display='none';
 }
@@ -1407,7 +1512,7 @@ function resItemHTML(r){
   const hasRec=recCount>0;
   return`<div class="litem" style="${selResId===r.id?'border-color:var(--acc2)':''}">
     <div class="lh">
-      <div><div class="ln">${r.name}</div><div style="margin-top:2px">${sub}</div></div>
+      <div><div class="ln">${r.name}${r.isFluid?' <span class="badge bm" title="Fluid — flows through pipes">💧 fluid</span>':''}</div><div style="margin-top:2px">${sub}</div></div>
       <div class="la">
         ${hasRec?`<button class="btree bsm" id="treebtn-${r.id}" onclick="toggleResTree('${r.id}',this)">▸ Tree</button>`:''}
         <button class="bb bsm" onclick="editRes('${r.id}')">Edit</button>
@@ -1588,8 +1693,8 @@ function setPlanMode(mode){
 }
 
 function renderPlannerControls(){
-  // Populate target selects (research-locked resources are hidden)
-  const opts='<option value="">— select —</option>'+resources.filter(resUnlocked).map(r=>`<option value="${r.id}">${r.name}</option>`).join('');
+  // Populate target selects (grouped by category, alphabetical, unlock-filtered)
+  const opts='<option value="">— select —</option>'+buildResOpts('');
   ['pl-res','pl-inp-target'].forEach(id=>{
     const el=document.getElementById(id);
     if(!el)return;
@@ -1604,7 +1709,8 @@ function renderPlannerControls(){
   const tierRows=document.getElementById('pl-tier-rows');
   const multiTier=machines.filter(m=>machUnlocked(m)&&unlockedMachTiers(m).length>1);
   const ub=unlockedBelts();
-  if(!multiTier.length&&ub.length<2){tierCard.style.display='none';}
+  const up=unlockedPipes();
+  if(!multiTier.length&&ub.length<2&&up.length<2){tierCard.style.display='none';}
   else {
     tierCard.style.display='';
     let rows=multiTier.map(m=>{
@@ -1625,6 +1731,15 @@ function renderPlannerControls(){
         <select onchange="maxBeltTierId=this.value||null;saveState()">
           <option value=""${cur?'':' selected'}>fastest unlocked</option>
           ${ub.map(b=>`<option value="${b.id}"${cur===b.id?' selected':''}>≤ ${b.name} (${rfmt(b.speed,0)})</option>`).join('')}
+        </select></div>`;
+    }
+    if(up.length>1){
+      const cur=up.some(b=>b.id===maxPipeTierId)?maxPipeTierId:'';
+      rows+=`<div class="tier-sel-row">
+        <span>Pipes</span>
+        <select onchange="maxPipeTierId=this.value||null;saveState()">
+          <option value=""${cur?'':' selected'}>fastest unlocked</option>
+          ${up.map(b=>`<option value="${b.id}"${cur===b.id?' selected':''}>≤ ${b.name} (${rfmt(b.speed,0)})</option>`).join('')}
         </select></div>`;
     }
     tierRows.innerHTML=rows;
@@ -1662,7 +1777,7 @@ function toggleRecipe(recId,on){
 function addInputRow(){
   const row=document.createElement('div');
   row.className='inp-row';
-  const opts=resources.map(r=>`<option value="${r.id}">${r.name}</option>`).join('');
+  const opts=buildResOpts('');
   row.innerHTML=`<select>${opts}</select>
     <input type="number" min="0" step="any" placeholder="Rate" value="60">
     <select class="inp-unit">
@@ -1788,8 +1903,9 @@ function computeChain(targetResId, targetRatePerSec, inputSet=new Set(), useCeil
     // port. Machines with no output ports defined are not capped.
     let perMach=fullPerMach, beltCapped=false;
     const bm=rec.machineId?machines.find(m=>m.id===rec.machineId):null;
-    const outPorts=bm?(bm.ports||[]).filter(p=>p.type==='output').length:0;
-    const pb=plannerBelts();
+    const fluidOut=isFluidRes(resId);
+    const outPorts=bm?(bm.ports||[]).filter(p=>p.type==='output'&&((p.flow||'item')===(fluidOut?'fluid':'item'))).length:0;
+    const pb=fluidOut?plannerPipes():plannerBelts();
     if(outPorts>0&&pb.length){
       const cap=outPorts*pb[pb.length-1].speed;
       if(cap<fullPerMach-1e-9){perMach=cap;beltCapped=true;}
@@ -1909,7 +2025,7 @@ function renderResults(targetResId, nodes, rawNeeds, header, inputMeta, el){
 
     left+=`<div class="ri${isTgt?' tgt':''}">
       <div class="ri-l">
-        <div class="rm">${m?m.name:'(no machine)'}${tier?` <span style="color:#6a8090;font-size:11px">${tier}</span>`:''}</div>
+        <div class="rm"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${m?machColor(m.id):'#555'};margin-right:6px"></span>${m?m.name:'(no machine)'}${tier?` <span style="color:#6a8090;font-size:11px">${tier}</span>`:''}</div>
         <div class="rr">${rec.name}</div>
         <div class="ro">${rfmt(actualRate,3)} ${rname(resId)}${fromInputs&&!atCapacity?` <span style="color:#c07030">(${effPct}% capacity · max ${rfmt(fullRate,3)})</span>`:''}</div>
         ${n.beltCapped?`<div class="rr" style="color:#c07030">⚠ output belt-limited to ${rfmt(n.perMach,2)} per machine (would be ${rfmt(n.fullPerMach,2)})</div>`:''}
@@ -1923,7 +2039,7 @@ function renderResults(targetResId, nodes, rawNeeds, header, inputMeta, el){
   if(Object.keys(rawNeeds).length){
     left+=`<div class="sl" style="margin-top:12px">Raw inputs</div>`;
     Object.entries(rawNeeds).forEach(([rid,rate])=>{
-      const bf=beltFor(rate);
+      const bf=flowFor(rate,isFluidRes(rid));
       const beltStr=bf?`${bf.count>1?bf.count+'× ':''}${bf.belt.name}`:'';
       left+=`<div class="raw-i">
         <span class="raw-n">${rname(rid)}</span>
@@ -2096,7 +2212,7 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
       const pp=posR[pn.rec.id];
       const isLong=(dc[pn.rec.id]-dc[consumer.rec.id])>1;
       const rate=(inp.amount/ct)*consumer.exact*(consumer.capF??1);
-      drawEdge(pp.x+NW,pp.y+NH/2,cp.x,cp.y+NH/2,{rate:rfmt(rate,2),name:rname(inp.resourceId),belt:beltLabel(rate)},isLong);
+      drawEdge(pp.x+NW,pp.y+NH/2,cp.x,cp.y+NH/2,{rate:rfmt(rate,2),name:rname(inp.resourceId),belt:beltLabel(rate,isFluidRes(inp.resourceId))},isLong);
     });
   });
 
@@ -2113,7 +2229,7 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
         // Long if consumer is not in the deepest recipe column
         const isLong=dc[consumer.rec.id]<maxD;
         const rate=(inp.amount/ct)*consumer.exact*(consumer.capF??1);
-        drawEdge(rp.x+RW,rp.y+RH/2,cp.x,cp.y+NH/2,{rate:rfmt(rate,2),name:rname(rid),belt:beltLabel(rate)},isLong);
+        drawEdge(rp.x+RW,rp.y+RH/2,cp.x,cp.y+NH/2,{rate:rfmt(rate,2),name:rname(rid),belt:beltLabel(rate,isFluidRes(rid))},isLong);
       });
     });
   });
@@ -2121,7 +2237,7 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
   // ── Raw material boxes ──
   rawEntries.forEach(([rid,rate])=>{
     const p=posRaw[rid];
-    const rawBelt=beltLabel(rate);
+    const rawBelt=beltLabel(rate,isFluidRes(rid));
     raws+=`<rect x="${p.x}" y="${p.y}" width="${RW}" height="${RH}" rx="6" fill="#111a11" stroke="#2a4a2a" stroke-width="1.5" stroke-dasharray="5 3"/>
       <text x="${p.x+RW/2}" y="${p.y+18}" text-anchor="middle" font-size="12" font-weight="600" fill="#5aaa6a">${rname(rid)}</text>
       <line x1="${p.x+8}" y1="${p.y+24}" x2="${p.x+RW-8}" y2="${p.y+24}" stroke="#2a4a2a" stroke-width="1"/>
@@ -2195,12 +2311,12 @@ function importData(e){
 
 // ── Layout state (per profile, persisted) ──
 let ly={
-  instances:[],  // [{id,machineId,x,y,rotation}]
-  belts:[],      // [{id,from:{instId,portIdx},to:{instId,portIdx},path:[{x,y}]}]
+  instances:[],  // [{id,machineId,tierId,x,y,rotation,label?}]
+  belts:[],      // [{id,kind:'belt'|'pipe',beltTierId,from:{instId,portIdx},to:{instId,portIdx},waypoints:[{x,y}],path:[{x,y}]}]
   // view (ephemeral)
   vx:0,vy:0,zoom:1,
-  tool:'select', placeMachId:null, placeTierId:null, beltTierId:null, rotation:0,
-  selId:null,       // selected instance id
+  tool:'select', placeMachId:null, placeTierId:null, beltTierId:null, flowKind:'belt', rotation:0,
+  selIds:new Set(), // selected instance ids
   beltStart:null,   // {instId,portIdx,x,y} when routing a belt
   beltPath:[],      // [{x,y}] waypoints being drawn
   mouseGx:0,mouseGy:0,
@@ -2212,6 +2328,49 @@ function loadLayout(){
   const p=profiles.find(p=>p.id===activeProfileId);
   ly.instances=(p?.layout?.instances)||[];
   ly.belts=(p?.layout?.belts)||[];
+  ly.selIds=new Set();
+  // Heal legacy belts: derive waypoints from the stored path, tag kind, and
+  // re-route from the current port positions so they track their machines.
+  ly.belts.forEach(b=>{
+    if(!b.kind)b.kind=pipeTiers.some(t=>t.id===b.beltTierId)?'pipe':'belt';
+    if(!b.waypoints)b.waypoints=(b.path||[]).slice(1,-1).map(c=>({x:c.x,y:c.y}));
+    rerouteBelt(b);
+  });
+}
+
+// ── Belt path helpers ──
+// Orthogonal rasterisation: walks horizontally then vertically between
+// consecutive waypoints, so belts are straight lines with 90° corners.
+function rasterize(wps){
+  if(!wps.length)return[];
+  const cells=[{x:wps[0].x,y:wps[0].y}];
+  for(let i=1;i<wps.length;i++){
+    let{x,y}=cells[cells.length-1];
+    const tx=wps[i].x, ty=wps[i].y;
+    while(x!==tx){x+=Math.sign(tx-x);cells.push({x,y});}
+    while(y!==ty){y+=Math.sign(ty-y);cells.push({x,y});}
+  }
+  return cells;
+}
+function portCellOf(instId,portIdx){
+  const inst=ly.instances.find(i=>i.id===instId);
+  if(!inst)return null;
+  const m=machines.find(m=>m.id===inst.machineId);
+  if(!m||!m.ports||!m.ports[portIdx])return null;
+  return portExternalCell(machPortPos(m,m.ports[portIdx],inst.x,inst.y,inst.rotation));
+}
+// Belts stay attached: whenever an endpoint machine moves or rotates, the
+// path is recomputed from the port cells through the belt's waypoints.
+function rerouteBelt(b){
+  const a=b.from?portCellOf(b.from.instId,b.from.portIdx):null;
+  const z=b.to?portCellOf(b.to.instId,b.to.portIdx):null;
+  if(!a||!z)return;
+  b.path=rasterize([a,...(b.waypoints||[]),z]);
+}
+function rerouteBeltsFor(ids){
+  ly.belts.forEach(b=>{
+    if((b.from&&ids.has(b.from.instId))||(b.to&&ids.has(b.to.instId)))rerouteBelt(b);
+  });
 }
 function saveLayout(){
   const p=profiles.find(p=>p.id===activeProfileId);
@@ -2279,21 +2438,22 @@ function machPortPos(m,port,instX,instY,rot){
 }
 
 // ── Collision ──
-function cellOccupied(gx,gy,excludeId){
+// exclude: an instance id, or a Set of ids, to ignore (e.g. the group being moved)
+function cellOccupied(gx,gy,exclude){
   return ly.instances.some(inst=>{
-    if(inst.id===excludeId)return false;
+    if(exclude&&(exclude===inst.id||(exclude instanceof Set&&exclude.has(inst.id))))return false;
     const m=machines.find(m=>m.id===inst.machineId);
     if(!m)return false;
     const{w,h}=machSize(m,inst.rotation);
     return gx>=inst.x&&gx<inst.x+w&&gy>=inst.y&&gy<inst.y+h;
   });
 }
-function canPlace(machId,gx,gy,rot,excludeId){
+function canPlace(machId,gx,gy,rot,exclude){
   const m=machines.find(m=>m.id===machId);
   if(!m)return false;
   const{w,h}=machSize(m,rot);
   for(let dx=0;dx<w;dx++)for(let dy=0;dy<h;dy++)
-    if(cellOccupied(gx+dx,gy+dy,excludeId))return false;
+    if(cellOccupied(gx+dx,gy+dy,exclude))return false;
   return true;
 }
 function instAt(gx,gy){
@@ -2339,28 +2499,34 @@ function lyRender(){
   ctx.translate(ly.vx,ly.vy);
   ctx.scale(ly.zoom,ly.zoom);
 
-  // Grid
-  const cs=CELL;
-  const gx0=Math.floor(-ly.vx/(cs*ly.zoom))-1;
-  const gy0=Math.floor(-ly.vy/(cs*ly.zoom))-1;
-  const gx1=gx0+Math.ceil(cw/(cs*ly.zoom))+2;
-  const gy1=gy0+Math.ceil(ch/(cs*ly.zoom))+2;
-  ctx.strokeStyle='#1e2024';
+  // Grid — adaptive: skip minor lines when zoomed far out
+  const cs=CELL, cpx=cs*ly.zoom;
+  const gx0=Math.floor(-ly.vx/cpx)-1;
+  const gy0=Math.floor(-ly.vy/cpx)-1;
+  const gx1=gx0+Math.ceil(cw/cpx)+2;
+  const gy1=gy0+Math.ceil(ch/cpx)+2;
   ctx.lineWidth=1/ly.zoom;
-  for(let x=gx0;x<=gx1;x++){ctx.beginPath();ctx.moveTo(x*cs,gy0*cs);ctx.lineTo(x*cs,gy1*cs);ctx.stroke();}
-  for(let y=gy0;y<=gy1;y++){ctx.beginPath();ctx.moveTo(gx0*cs,y*cs);ctx.lineTo(gx1*cs,y*cs);ctx.stroke();}
+  if(cpx>=7){
+    ctx.strokeStyle='#1e2024';
+    for(let x=gx0;x<=gx1;x++){ctx.beginPath();ctx.moveTo(x*cs,gy0*cs);ctx.lineTo(x*cs,gy1*cs);ctx.stroke();}
+    for(let y=gy0;y<=gy1;y++){ctx.beginPath();ctx.moveTo(gx0*cs,y*cs);ctx.lineTo(gx1*cs,y*cs);ctx.stroke();}
+  } else if(cpx>=1){
+    ctx.strokeStyle='#1b1e22';
+    for(let x=Math.ceil(gx0/8)*8;x<=gx1;x+=8){ctx.beginPath();ctx.moveTo(x*cs,gy0*cs);ctx.lineTo(x*cs,gy1*cs);ctx.stroke();}
+    for(let y=Math.ceil(gy0/8)*8;y<=gy1;y+=8){ctx.beginPath();ctx.moveTo(gx0*cs,y*cs);ctx.lineTo(gx1*cs,y*cs);ctx.stroke();}
+  }
   // Origin crosshair
   ctx.strokeStyle='#2a3040';ctx.lineWidth=2/ly.zoom;
   ctx.beginPath();ctx.moveTo(gx0*cs,0);ctx.lineTo(gx1*cs,0);ctx.stroke();
   ctx.beginPath();ctx.moveTo(0,gy0*cs);ctx.lineTo(0,gy1*cs);ctx.stroke();
 
-  // Belts (coloured by belt tier)
-  ly.belts.forEach(belt=>drawBeltPath(ctx,belt.path,beltColor(belt.beltTierId)));
+  // Belts & pipes (coloured by kind + tier)
+  ly.belts.forEach(belt=>drawBeltPath(ctx,belt.path,beltColor(belt)));
 
-  // Belt preview
+  // Belt preview (orthogonalised like the final path will be)
   if(ly.beltStart&&ly.beltPath.length){
-    const preview=[...ly.beltPath,{x:ly.mouseGx,y:ly.mouseGy}];
-    drawBeltPath(ctx,preview,'#6a9a5a');
+    const preview=rasterize([...ly.beltPath,{x:ly.mouseGx,y:ly.mouseGy}]);
+    drawBeltPath(ctx,preview,ly.flowKind==='pipe'?'#4a8ab8':'#6a9a5a');
   }
 
   // Machine instances
@@ -2369,26 +2535,45 @@ function lyRender(){
     if(!m)return;
     const{w,h}=machSize(m,inst.rotation);
     const x=inst.x*cs,y=inst.y*cs,pw=w*cs,ph=h*cs;
-    const isSel=inst.id===ly.selId;
-    ctx.fillStyle=isSel?'#1a2a1a':'#1a2030';
-    ctx.strokeStyle=isSel?'#5aaa5a':'#2a4a6a';
-    ctx.lineWidth=isSel?2/ly.zoom:1.5/ly.zoom;
-    ctx.beginPath();ctx.roundRect(x+1,y+1,pw-2,ph-2,3/ly.zoom);ctx.fill();ctx.stroke();
-    // Name (+ tier when the machine has several)
-    const t=instTier(inst,m);
-    const label=m.name+((m.tiers||[]).length>1&&t?` ${t.name}`:'');
-    ctx.fillStyle=isSel?'#7aca7a':'#5a8ab0';
-    ctx.font=`bold ${Math.min(11,cs*0.35)}px 'Segoe UI',sans-serif`;
-    ctx.textAlign='center';ctx.textBaseline='top';
-    ctx.fillText(label,x+pw/2,y+3);
-    // Ports
-    if(m.ports)(m.ports).forEach((port,pi)=>{
+    const isSel=ly.selIds.has(inst.id);
+    ctx.fillStyle=machColor(m.id,40,14);
+    ctx.strokeStyle=isSel?'#e8b84a':machColor(m.id,50,42);
+    ctx.lineWidth=(isSel?2.5:1.5)/ly.zoom;
+    ctx.beginPath();ctx.roundRect(x+1,y+1,pw-2,ph-2,Math.min(4,cs*0.1));ctx.fill();ctx.stroke();
+    // Labels — sized to the footprint; second line shows the active recipe/product
+    if(Math.min(pw,ph)*ly.zoom>=22){
+      const t=instTier(inst,m);
+      const name=m.name+((m.tiers||[]).length>1&&t?` ${t.name}`:'');
+      let f=Math.max(4,Math.min(ph*0.2, pw/(name.length*0.62), cs*1.5));
+      ctx.fillStyle=machColor(m.id,45,74);
+      ctx.font=`bold ${f}px 'Segoe UI',sans-serif`;
+      ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText(name,x+pw/2,y+ph/2-(inst.label?f*0.55:0));
+      if(inst.label){
+        const f2=Math.max(4,Math.min(f*0.75, pw/(inst.label.length*0.6)));
+        ctx.fillStyle='#93a0ae';
+        ctx.font=`${f2}px 'Segoe UI',sans-serif`;
+        ctx.fillText(inst.label,x+pw/2,y+ph/2+f*0.6);
+      }
+    }
+    // Ports — circles carry items, squares carry fluids
+    if(m.ports)(m.ports).forEach(port=>{
       const{px,py}=machPortPos(m,port,inst.x,inst.y,inst.rotation);
-      const sx=px*cs, sy=py*cs;
+      const sx=px*cs, sy=py*cs, r=Math.max(2.5/ly.zoom,cs*0.13);
       ctx.fillStyle=port.type==='input'?'#cc7070':'#5aaa6a';
-      ctx.beginPath();ctx.arc(sx,sy,3/ly.zoom,0,Math.PI*2);ctx.fill();
+      if((port.flow||'item')==='fluid')ctx.fillRect(sx-r,sy-r,r*2,r*2);
+      else{ctx.beginPath();ctx.arc(sx,sy,r,0,Math.PI*2);ctx.fill();}
     });
   });
+
+  // Marquee selection rectangle
+  if(_lyMarquee){
+    ctx.strokeStyle='#e8b84a';ctx.lineWidth=1/ly.zoom;
+    ctx.setLineDash([6/ly.zoom,4/ly.zoom]);
+    ctx.strokeRect(Math.min(_lyMarquee.x0,_lyMarquee.x1)*cs,Math.min(_lyMarquee.y0,_lyMarquee.y1)*cs,
+      Math.abs(_lyMarquee.x1-_lyMarquee.x0)*cs,Math.abs(_lyMarquee.y1-_lyMarquee.y0)*cs);
+    ctx.setLineDash([]);
+  }
 
   // Placement ghost
   if(ly.tool==='place'&&ly.placeMachId){
@@ -2403,14 +2588,15 @@ function lyRender(){
       const gx=ly.mouseGx*cs,gy=ly.mouseGy*cs;
       ctx.beginPath();ctx.roundRect(gx+1,gy+1,w*cs-2,h*cs-2,3/ly.zoom);ctx.fill();ctx.stroke();
       ctx.fillStyle=ok?'#5aaa5a':'#aa5a5a';
-      ctx.font=`bold ${Math.min(10,cs*0.3)}px 'Segoe UI',sans-serif`;
+      ctx.font=`bold ${Math.max(6,Math.min(h*cs*0.2,w*cs/(m.name.length*0.62)))}px 'Segoe UI',sans-serif`;
       ctx.textAlign='center';ctx.textBaseline='middle';
       ctx.fillText(m.name,gx+w*cs/2,gy+h*cs/2);
-      // Ghost ports
       if(m.ports)m.ports.forEach(port=>{
         const{px,py}=machPortPos(m,port,ly.mouseGx,ly.mouseGy,ly.rotation);
+        const r=Math.max(2.5/ly.zoom,cs*0.13);
         ctx.fillStyle=port.type==='input'?'#cc7070':'#5aaa6a';
-        ctx.beginPath();ctx.arc(px*cs,py*cs,3/ly.zoom,0,Math.PI*2);ctx.fill();
+        if((port.flow||'item')==='fluid')ctx.fillRect(px*cs-r,py*cs-r,r*2,r*2);
+        else{ctx.beginPath();ctx.arc(px*cs,py*cs,r,0,Math.PI*2);ctx.fill();}
       });
       ctx.globalAlpha=1;
     }
@@ -2422,8 +2608,11 @@ function lyRender(){
   const hud=document.getElementById('ly-hud');
   if(hud){
     let txt=`${ly.mouseGx}, ${ly.mouseGy} · ${Math.round(ly.zoom*100)}%`;
+    if(ly.selIds.size)txt+=` · ${ly.selIds.size} selected`;
     if(ly.tool==='place'&&ly.placeMachId){const m=machines.find(m=>m.id===ly.placeMachId);txt+=` · Placing: ${m?.name||'?'} · R to rotate`;}
-    if(ly.tool==='select'&&ly.selId)txt+=' · DEL to remove · R to rotate';
+    else if(ly.tool==='select'){
+      txt+=ly.selIds.size?' · drag/arrows to move · R rotate · DEL remove · Ctrl+C/V copy/paste':' · drag empty space to box-select';
+    }
     if(ly.tool==='belt'){txt+=ly.beltStart?' · Click cells for path · Right-click to cancel':' · Click an output port to start';}
     hud.textContent=txt;
   }
@@ -2454,12 +2643,50 @@ function drawBeltPath(ctx,path,color){
 }
 
 // ── Input handling ──
-let _lyPan=false, _lyPanBtn=-1, _lyPanSx=0, _lyPanSy=0, _lyDrag=false, _lyDragInst=null, _lyDragOx=0, _lyDragOy=0;
+let _lyPan=false, _lyPanBtn=-1, _lyPanSx=0, _lyPanSy=0;
+let _lyDrag=null;    // {grabX,grabY,anchorId,orig:Map,moved}
+let _lyMarquee=null; // {x0,y0,x1,y1,add} in fractional grid coords
+let _lyClip=null;    // copy/paste buffer
+
+// Soft snap: pull the dragged machine into line with a nearby machine when
+// its edge is exactly one cell off (left/right/top/bottom edge alignment).
+function softSnap(inst,nx,ny){
+  const m=machines.find(m=>m.id===inst.machineId);
+  if(!m)return{x:nx,y:ny};
+  const{w,h}=machSize(m,inst.rotation);
+  let bx=nx,by=ny;
+  for(const o of ly.instances){
+    if(ly.selIds.has(o.id))continue;
+    const om=machines.find(m=>m.id===o.machineId);
+    if(!om)continue;
+    const{w:ow,h:oh}=machSize(om,o.rotation);
+    if(bx===nx){
+      if(Math.abs(nx-o.x)===1)bx=o.x;
+      else if(Math.abs((nx+w)-(o.x+ow))===1)bx=o.x+ow-w;
+    }
+    if(by===ny){
+      if(Math.abs(ny-o.y)===1)by=o.y;
+      else if(Math.abs((ny+h)-(o.y+oh))===1)by=o.y+oh-h;
+    }
+  }
+  return{x:bx,y:by};
+}
+
+function groupCanMove(dx,dy){
+  return[...ly.selIds].every(id=>{
+    const i=ly.instances.find(x=>x.id===id);
+    if(!i)return true;
+    const o=_lyDrag.orig.get(id);
+    if(!o)return true;
+    return canPlace(i.machineId,o.x+dx,o.y+dy,i.rotation,ly.selIds);
+  });
+}
 
 function lyMouseDown(e){
   const rect=_lyCanvas.getBoundingClientRect();
   const sx=e.clientX-rect.left, sy=e.clientY-rect.top;
   const{gx,gy}=scrToGrid(sx,sy);
+  const fx=(sx-ly.vx)/(CELL*ly.zoom), fy=(sy-ly.vy)/(CELL*ly.zoom);
 
   // Right-click cancels an in-progress belt route
   if(e.button===2&&ly.tool==='belt'&&ly.beltStart){
@@ -2472,10 +2699,19 @@ function lyMouseDown(e){
   if(ly.tool==='select'){
     const inst=instAt(gx,gy);
     if(inst){
-      ly.selId=inst.id;
-      _lyDrag=true;_lyDragInst=inst;_lyDragOx=gx-inst.x;_lyDragOy=gy-inst.y;
+      if(e.shiftKey){
+        if(ly.selIds.has(inst.id))ly.selIds.delete(inst.id);
+        else ly.selIds.add(inst.id);
+      } else if(!ly.selIds.has(inst.id)){
+        ly.selIds=new Set([inst.id]);
+      }
+      if(ly.selIds.has(inst.id)){
+        _lyDrag={grabX:gx,grabY:gy,anchorId:inst.id,moved:false,
+          orig:new Map([...ly.selIds].map(id=>{const i=ly.instances.find(x=>x.id===id);return[id,i?{x:i.x,y:i.y}:null];}))};
+      }
     } else {
-      ly.selId=null;
+      if(!e.shiftKey)ly.selIds.clear();
+      _lyMarquee={x0:fx,y0:fy,x1:fx,y1:fy,add:e.shiftKey};
     }
     lyRender();
   }
@@ -2498,29 +2734,30 @@ function lyMouseDown(e){
       const p=portAt(gx,gy);
       if(p&&p.type==='input'&&p.instId!==ly.beltStart.instId){
         const endCell=portExternalCell(p);
-        const last=ly.beltPath[ly.beltPath.length-1];
-        if(!last||last.x!==endCell.x||last.y!==endCell.y)ly.beltPath.push(endCell);
-        ly.belts.push({id:uid(),from:{instId:ly.beltStart.instId,portIdx:ly.beltStart.portIdx},to:{instId:p.instId,portIdx:p.portIdx},beltTierId:ly.beltTierId||null,path:[...ly.beltPath]});
+        const waypoints=ly.beltPath.slice(1).map(c=>({x:c.x,y:c.y}));
+        ly.belts.push({
+          id:uid(),kind:ly.flowKind||'belt',beltTierId:ly.beltTierId||null,
+          from:{instId:ly.beltStart.instId,portIdx:ly.beltStart.portIdx},
+          to:{instId:p.instId,portIdx:p.portIdx},
+          waypoints,
+          path:rasterize([ly.beltPath[0],...waypoints,endCell])
+        });
         ly.beltStart=null; ly.beltPath=[];
         saveLayout(); saveState(); updateLyCost();
       } else {
-        // Add waypoint
         ly.beltPath.push({x:gx,y:gy});
       }
     }
     lyRender();
   }
   if(ly.tool==='delete'){
-    // Delete instance or belt segment at cursor
     const inst=instAt(gx,gy);
     if(inst){
       ly.instances=ly.instances.filter(i=>i.id!==inst.id);
-      // Remove belts connected to this instance
       ly.belts=ly.belts.filter(b=>b.from.instId!==inst.id&&b.to.instId!==inst.id);
-      if(ly.selId===inst.id)ly.selId=null;
+      ly.selIds.delete(inst.id);
       saveLayout(); saveState(); updateLyCost();
     } else {
-      // Check belt paths for click
       const bi=ly.belts.findIndex(b=>b.path.some(p=>p.x===gx&&p.y===gy));
       if(bi>=0){ly.belts.splice(bi,1);saveLayout();saveState();updateLyCost();}
     }
@@ -2538,13 +2775,27 @@ function lyMouseMove(e){
     ly.vx+=e.clientX-_lyPanSx; ly.vy+=e.clientY-_lyPanSy;
     _lyPanSx=e.clientX; _lyPanSy=e.clientY;
   }
-  if(_lyDrag&&_lyDragInst){
-    const nx=gx-_lyDragOx, ny=gy-_lyDragOy;
-    if(nx!==_lyDragInst.x||ny!==_lyDragInst.y){
-      if(canPlace(_lyDragInst.machineId,nx,ny,_lyDragInst.rotation,_lyDragInst.id)){
-        _lyDragInst.x=nx; _lyDragInst.y=ny;
-        saveLayout(); saveState();
+  if(_lyMarquee){
+    _lyMarquee.x1=(sx-ly.vx)/(CELL*ly.zoom);
+    _lyMarquee.y1=(sy-ly.vy)/(CELL*ly.zoom);
+  }
+  if(_lyDrag){
+    let dx=gx-_lyDrag.grabX, dy=gy-_lyDrag.grabY;
+    const anchor=ly.instances.find(i=>i.id===_lyDrag.anchorId);
+    if(anchor&&(dx||dy)){
+      const o=_lyDrag.orig.get(anchor.id);
+      if(o){
+        const s=softSnap(anchor,o.x+dx,o.y+dy);
+        dx=s.x-o.x; dy=s.y-o.y;
       }
+    }
+    if(groupCanMove(dx,dy)){
+      ly.selIds.forEach(id=>{
+        const i=ly.instances.find(x=>x.id===id);
+        const o=_lyDrag.orig.get(id);
+        if(i&&o&&(i.x!==o.x+dx||i.y!==o.y+dy)){i.x=o.x+dx;i.y=o.y+dy;_lyDrag.moved=true;}
+      });
+      rerouteBeltsFor(ly.selIds);
     }
   }
   lyRender();
@@ -2552,7 +2803,23 @@ function lyMouseMove(e){
 
 function lyMouseUp(e){
   if(_lyPan&&e.button===_lyPanBtn){_lyPan=false;}
-  if(_lyDrag){_lyDrag=false;_lyDragInst=null;}
+  if(_lyMarquee){
+    const x0=Math.min(_lyMarquee.x0,_lyMarquee.x1), x1=Math.max(_lyMarquee.x0,_lyMarquee.x1);
+    const y0=Math.min(_lyMarquee.y0,_lyMarquee.y1), y1=Math.max(_lyMarquee.y0,_lyMarquee.y1);
+    if(x1-x0>0.3||y1-y0>0.3){
+      ly.instances.forEach(inst=>{
+        const m=machines.find(m=>m.id===inst.machineId);
+        if(!m)return;
+        const{w,h}=machSize(m,inst.rotation);
+        if(inst.x<x1&&inst.x+w>x0&&inst.y<y1&&inst.y+h>y0)ly.selIds.add(inst.id);
+      });
+    }
+    _lyMarquee=null; lyRender();
+  }
+  if(_lyDrag){
+    if(_lyDrag.moved){saveLayout();saveState();updateLyCost();}
+    _lyDrag=null;
+  }
 }
 
 function lyWheel(e){
@@ -2561,24 +2828,83 @@ function lyWheel(e){
   const mx=e.clientX-rect.left, my=e.clientY-rect.top;
   const oldZ=ly.zoom;
   ly.zoom*=e.deltaY<0?1.15:1/1.15;
-  ly.zoom=Math.max(0.15,Math.min(5,ly.zoom));
+  ly.zoom=Math.max(0.03,Math.min(6,ly.zoom));
   // Zoom toward cursor
   ly.vx=mx-(mx-ly.vx)*ly.zoom/oldZ;
   ly.vy=my-(my-ly.vy)*ly.zoom/oldZ;
   lyRender();
 }
 
+function nudgeSelection(dx,dy){
+  if(!ly.selIds.size)return;
+  const ok=[...ly.selIds].every(id=>{
+    const i=ly.instances.find(x=>x.id===id);
+    if(!i)return true;
+    return canPlace(i.machineId,i.x+dx,i.y+dy,i.rotation,ly.selIds);
+  });
+  if(!ok)return;
+  ly.selIds.forEach(id=>{
+    const i=ly.instances.find(x=>x.id===id);
+    if(i){i.x+=dx;i.y+=dy;}
+  });
+  rerouteBeltsFor(ly.selIds);
+  saveLayout(); saveState(); lyRender();
+}
+
+function copySelection(){
+  const insts=[...ly.selIds].map(id=>ly.instances.find(i=>i.id===id)).filter(Boolean);
+  if(!insts.length)return;
+  const minX=Math.min(...insts.map(i=>i.x)), minY=Math.min(...insts.map(i=>i.y));
+  const idx=new Map(insts.map((i,n)=>[i.id,n]));
+  _lyClip={
+    instances:insts.map(i=>({machineId:i.machineId,tierId:i.tierId,rotation:i.rotation,label:i.label,dx:i.x-minX,dy:i.y-minY})),
+    belts:ly.belts.filter(b=>b.from&&b.to&&idx.has(b.from.instId)&&idx.has(b.to.instId)).map(b=>({
+      kind:b.kind,beltTierId:b.beltTierId,
+      f:idx.get(b.from.instId),fp:b.from.portIdx,
+      t:idx.get(b.to.instId),tp:b.to.portIdx,
+      waypoints:(b.waypoints||[]).map(c=>({x:c.x-minX,y:c.y-minY}))
+    }))
+  };
+}
+
+function pasteClipboard(){
+  if(!_lyClip||!_lyClip.instances.length)return;
+  const bx=ly.mouseGx, by=ly.mouseGy;
+  let shift=-1;
+  for(let s=0;s<200&&shift<0;s++){
+    if(_lyClip.instances.every(ci=>canPlace(ci.machineId,bx+s+ci.dx,by+ci.dy,ci.rotation)))shift=s;
+  }
+  if(shift<0)return;
+  const newIds=_lyClip.instances.map(()=>uid());
+  _lyClip.instances.forEach((ci,n)=>{
+    ly.instances.push({id:newIds[n],machineId:ci.machineId,tierId:ci.tierId,rotation:ci.rotation,label:ci.label,x:bx+shift+ci.dx,y:by+ci.dy});
+  });
+  _lyClip.belts.forEach(cb=>{
+    const b={id:uid(),kind:cb.kind,beltTierId:cb.beltTierId,
+      from:{instId:newIds[cb.f],portIdx:cb.fp},to:{instId:newIds[cb.t],portIdx:cb.tp},
+      waypoints:cb.waypoints.map(c=>({x:c.x+bx+shift,y:c.y+by})),path:[]};
+    rerouteBelt(b);
+    ly.belts.push(b);
+  });
+  ly.selIds=new Set(newIds);
+  saveLayout(); saveState(); updateLyCost(); lyRender();
+}
+
 function lyKeyDown(e){
   if(document.activeElement.tagName==='INPUT'||document.activeElement.tagName==='SELECT'||document.activeElement.tagName==='TEXTAREA')return;
   if(!document.getElementById('tab-layout')?.classList.contains('active'))return;
 
+  if((e.ctrlKey||e.metaKey)&&(e.key==='c'||e.key==='C')){copySelection();e.preventDefault();return;}
+  if((e.ctrlKey||e.metaKey)&&(e.key==='v'||e.key==='V')){pasteClipboard();e.preventDefault();return;}
+
   if(e.key==='r'||e.key==='R'){
-    if(ly.tool==='select'&&ly.selId){
-      const inst=ly.instances.find(i=>i.id===ly.selId);
+    if(ly.tool==='select'&&ly.selIds.size===1){
+      const inst=ly.instances.find(i=>ly.selIds.has(i.id));
       if(inst){
         const newRot=(inst.rotation+90)%360;
         if(canPlace(inst.machineId,inst.x,inst.y,newRot,inst.id)){
           inst.rotation=newRot;
+          rerouteBeltsFor(new Set([inst.id]));
           saveLayout(); saveState(); lyRender();
         }
       }
@@ -2588,22 +2914,28 @@ function lyKeyDown(e){
       lyRender();
     }
   }
-  if((e.key==='Delete'||e.key==='Backspace')&&ly.tool==='select'&&ly.selId){
-    ly.instances=ly.instances.filter(i=>i.id!==ly.selId);
-    ly.belts=ly.belts.filter(b=>b.from.instId!==ly.selId&&b.to.instId!==ly.selId);
-    ly.selId=null;
+  if((e.key==='Delete'||e.key==='Backspace')&&ly.selIds.size){
+    ly.instances=ly.instances.filter(i=>!ly.selIds.has(i.id));
+    ly.belts=ly.belts.filter(b=>!(b.from&&ly.selIds.has(b.from.instId))&&!(b.to&&ly.selIds.has(b.to.instId)));
+    ly.selIds.clear();
     saveLayout(); saveState(); updateLyCost(); lyRender();
   }
   if(e.key==='Escape'){
     if(ly.beltStart){ly.beltStart=null;ly.beltPath=[];lyRender();}
-    else if(ly.selId){ly.selId=null;lyRender();}
+    else if(_lyMarquee){_lyMarquee=null;lyRender();}
+    else if(ly.selIds.size){ly.selIds.clear();lyRender();}
+  }
+  const arrows={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]};
+  if(arrows[e.key]&&ly.selIds.size&&ly.tool==='select'){
+    e.preventDefault();
+    nudgeSelection(...arrows[e.key]);
   }
 }
 
 // ── Tools & palette ──
 function setLTool(tool,btn){
   ly.tool=tool;
-  ly.selId=null; ly.beltStart=null; ly.beltPath=[];
+  ly.selIds.clear(); ly.beltStart=null; ly.beltPath=[];
   document.querySelectorAll('.ltool').forEach(b=>b.classList.remove('active'));
   if(btn)btn.classList.add('active');
   lyRender();
@@ -2628,34 +2960,42 @@ function renderLyPalette(){
         const sel=ly.placeMachId===m.id&&ly.placeTierId===t.id;
         const label=m.tiers.length>1?`${m.name} <span style="color:var(--dim)">${t.name}</span>`:m.name;
         return`<div class="lmach${sel?' sel':''}" onclick="selectPlaceMach('${m.id}','${t.id}',this)">
-          <span>${label}</span><span class="lm-size">${sz}</span>
+          <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${machColor(m.id)};margin-right:5px"></span>${label}</span><span class="lm-size">${sz}</span>
         </div>`;
       });
     }).join('');
   }
-  // Belt tier palette
+  // Belt & pipe tier palette
   const bc=document.getElementById('ly-belt-card'), bl=document.getElementById('ly-belt-list');
   if(bc&&bl){
-    const ub=unlockedBelts();
-    if(!ub.length){bc.style.display='none';ly.beltTierId=null;}
+    const ub=unlockedBelts(), up=unlockedPipes();
+    if(!ub.length&&!up.length){bc.style.display='none';ly.beltTierId=null;}
     else{
       bc.style.display='';
-      if(!ub.find(b=>b.id===ly.beltTierId))ly.beltTierId=ub[0].id;
-      bl.innerHTML=ub.map(b=>`<div class="lmach${ly.beltTierId===b.id?' sel':''}" onclick="selectBeltTier('${b.id}')">
+      const all=[...ub.map(b=>({b,kind:'belt'})),...up.map(b=>({b,kind:'pipe'}))];
+      const cur=all.find(x=>x.b.id===ly.beltTierId);
+      if(!cur){ly.beltTierId=all[0].b.id;ly.flowKind=all[0].kind;}
+      else ly.flowKind=cur.kind;
+      const entry=(b,kind)=>`<div class="lmach${ly.beltTierId===b.id?' sel':''}" onclick="selectBeltTier('${b.id}','${kind}')">
         <span>${b.name}</span><span class="lm-size">${rfmt(b.speed,0)}</span>
-      </div>`).join('');
+      </div>`;
+      bl.innerHTML=(ub.length?'<div class="sl" style="margin:2px 0 4px">Belts</div>'+ub.map(b=>entry(b,'belt')).join(''):'')+
+        (up.length?'<div class="sl" style="margin:8px 0 4px">Pipes</div>'+up.map(b=>entry(b,'pipe')).join(''):'');
     }
   }
 }
 
-function selectBeltTier(id){ly.beltTierId=id;renderLyPalette();}
+function selectBeltTier(id,kind){ly.beltTierId=id;ly.flowKind=kind||'belt';renderLyPalette();}
 
-// Belt render colour by tier position (slowest → fastest)
-function beltColor(beltTierId){
-  const sorted=beltTiers.slice().sort((a,b)=>a.speed-b.speed);
-  const i=sorted.findIndex(b=>b.id===beltTierId);
-  const cols=['#3a5a3a','#4a7a52','#3a6a8a','#8a7a3a','#8a4a7a','#5a5aaa'];
-  return i<0?'#3a5a3a':cols[i%cols.length];
+// Belt/pipe render colour: greens/warm for belts, blues for pipes, by speed rank
+function beltColor(belt){
+  const kind=(belt&&belt.kind)||'belt';
+  const list=(kind==='pipe'?pipeTiers:beltTiers).slice().sort((a,b)=>a.speed-b.speed);
+  const i=list.findIndex(b=>b.id===(belt&&belt.beltTierId));
+  const cols=kind==='pipe'
+    ?['#3a5a8a','#3a7a9a','#5a5ab8','#7a4ab8']
+    :['#3a5a3a','#4a7a52','#8a7a3a','#8a5a3a','#8a4a7a','#aa5a5a'];
+  return i<0?cols[0]:cols[i%cols.length];
 }
 
 function selectPlaceMach(id,tierId,el){
@@ -2716,7 +3056,7 @@ function updateLyCost(){
       bg[k].n++; bg[k].seg+=b.path.length;
     });
     Object.entries(bg).forEach(([k,v])=>{
-      const bt=beltTiers.find(b=>b.id===k);
+      const bt=flowTierById(k);
       html+=`<div class="lcost-group"><div class="lcost-name">${bt?bt.name:'Belts'} ×${v.n}</div>
         <div class="lcost-row">${v.seg} segments total</div></div>`;
     });
@@ -2736,9 +3076,15 @@ function updateLyCost(){
 }
 
 // ── Planner → Layout ──
-// Places the last calculated plan into the layout editor: one column per
-// dependency stage (raw side on the left → target on the right, matching the
-// flow diagram), using the tier selected in the planner for each machine.
+// Places the last calculated plan into the layout editor and routes belts:
+// - one column per stage, raw side left → target right
+// - machines rotated so outputs face right and inputs face left
+// - manifold-style belt routing: each producer's output stubs right into a
+//   vertical trunk that runs UP, peels off right along a dedicated corridor
+//   row above the factory, then drops DOWN a feed line on the consumer
+//   column's left and taps into each machine's input
+// - flows are split into parallel manifold lanes whenever the merged rate
+//   would exceed the fastest allowed belt/pipe tier
 // Added to the right of any existing layout content so nothing is overwritten.
 function planToLayout(){
   if(!lastPlan||!lastPlan.nodes?.length)return;
@@ -2746,47 +3092,132 @@ function planToLayout(){
   const dc=stageDepths(nodes);
   const maxD=Math.max(...nodes.map(n=>dc[n.rec.id]));
 
-  // Start to the right of everything already placed
+  // Stage list (one column per stage), raw side first
+  const stages=[];
+  for(let d=maxD;d>=0;d--)nodes.filter(n=>dc[n.rec.id]===d).forEach(n=>{
+    const m=n.rec.machineId?machines.find(m=>m.id===n.rec.machineId):null;
+    if(m)stages.push({n,m,count:Math.ceil(n.exact)});
+  });
+  if(!stages.length)return alert('This plan has no machine stages to place.');
+  const byRes={}; stages.forEach(s=>{byRes[s.n.resId]=s;});
+
+  // Rotate each stage so outputs face right / inputs face left
+  stages.forEach(s=>{
+    let best=0,bestScore=-1;
+    for(const rot of[0,90,180,270]){
+      let sc=0;
+      (s.m.ports||[]).forEach(p=>{
+        const side=machPortPos(s.m,p,0,0,rot).side;
+        if(p.type==='output'&&side==='right')sc+=2;
+        if(p.type==='input'&&side==='left')sc+=1;
+      });
+      if(sc>bestScore){bestScore=sc;best=rot;}
+    }
+    s.rot=best;
+    const dm=machSize(s.m,best);
+    s.w=dm.w; s.h=dm.h;
+    s.trunks=0; s.feeds=0;
+  });
+
+  // Edge groups: (producer stage → consumer stage, one input resource),
+  // partitioned into parallel manifold lanes by belt/pipe capacity
+  const groups=[]; let corridorCount=0;
+  stages.forEach(cons=>{
+    const ct=effectiveCycleTime(cons.n.rec);
+    cons.n.rec.inputs.forEach((inp,ri)=>{
+      const prod=byRes[inp.resourceId];
+      if(!prod||prod===cons)return;
+      const fluid=isFluidRes(inp.resourceId);
+      const tiers=fluid?plannerPipes():plannerBelts();
+      const cap=tiers.length?tiers[tiers.length-1].speed:Infinity;
+      const perCons=(inp.amount/ct)*(cons.n.capF??1);
+      const totalRate=perCons*cons.count;
+      const consPer=isFinite(cap)?Math.max(1,Math.floor(cap/Math.max(perCons,1e-9))):cons.count;
+      const g=Math.max(Math.ceil(cons.count/consPer)||1,isFinite(cap)?Math.ceil(totalRate/cap-1e-9)||1:1);
+      for(let k=0;k<g;k++){
+        const c0=Math.round(k*cons.count/g), c1=Math.round((k+1)*cons.count/g);
+        if(c1<=c0)continue;
+        const p0=Math.min(Math.round(k*prod.count/g),prod.count-1);
+        const p1=Math.max(p0+1,Math.min(Math.round((k+1)*prod.count/g),prod.count));
+        const ft=flowFor(perCons*(c1-c0),fluid);
+        groups.push({prod,cons,ri,fluid,
+          pIdx:[p0,p1],cIdx:[c0,c1],
+          trunkLane:prod.trunks++,feedLane:cons.feeds++,
+          corridor:corridorCount++,
+          tierId:ft?ft.belt.id:null});
+      }
+    });
+  });
+
+  // Column x positions, leaving room for feed lanes (left) and trunks (right)
   let startX=0;
   ly.instances.forEach(inst=>{
     const m=machines.find(m=>m.id===inst.machineId);
     if(!m)return;
     const{w}=machSize(m,inst.rotation);
-    startX=Math.max(startX,inst.x+w+4);
+    startX=Math.max(startX,inst.x+w+6);
+  });
+  const GAPY=2;
+  let cursor=startX, maxColH=0;
+  stages.forEach(s=>{
+    s.x=cursor+s.feeds+2;
+    cursor=s.x+s.w+s.trunks+3;
+    s.insts=[];
+    for(let i=0;i<s.count;i++){
+      const inst={id:uid(),machineId:s.m.id,tierId:activeTier(s.m.id)?.id,x:s.x,y:i*(s.h+GAPY),rotation:s.rot,label:rname(s.n.resId)};
+      ly.instances.push(inst);
+      s.insts.push(inst);
+    }
+    maxColH=Math.max(maxColH,s.count*(s.h+GAPY));
   });
 
-  const GAPX=3, GAPY=2;
-  let x=startX, placed=0, maxColH=0;
-  for(let d=maxD;d>=0;d--){
-    const col=nodes.filter(n=>dc[n.rec.id]===d);
-    let colW=0, y=0;
-    col.forEach(n=>{
-      const m=n.rec.machineId?machines.find(m=>m.id===n.rec.machineId):null;
-      if(!m)return;
-      const count=Math.ceil(n.exact);
-      const tier=activeTier(m.id);
-      const w=m.width||1, h=m.height||1;
-      colW=Math.max(colW,w);
-      for(let i=0;i<count;i++){
-        ly.instances.push({id:uid(),machineId:m.id,tierId:tier?.id,x,y,rotation:0});
-        y+=h+GAPY; placed++;
-      }
-    });
-    maxColH=Math.max(maxColH,y);
-    if(colW)x+=colW+GAPX;
+  // Ports of a stage by type, preferring right-facing outputs / left-facing inputs
+  function portsOf(s,type){
+    const pref=type==='output'?'right':'left';
+    return(s.m.ports||[]).map((p,idx)=>({p,idx,side:machPortPos(s.m,p,0,0,s.rot).side}))
+      .filter(x=>x.p.type===type)
+      .sort((a,b)=>(a.side===pref?0:1)-(b.side===pref?0:1));
   }
-  if(!placed)return alert('This plan has no machine stages to place.');
+
+  // Manifold belts
+  groups.forEach(g=>{
+    const outs=portsOf(g.prod,'output');
+    const ins=portsOf(g.cons,'input');
+    if(!outs.length||!ins.length)return;
+    const want=g.fluid?'fluid':'item';
+    const outPort=outs.find(x=>(x.p.flow||'item')===want)||outs[0];
+    const matchIns=ins.filter(x=>(x.p.flow||'item')===want);
+    const inPool=matchIns.length?matchIns:ins;
+    const inPort=inPool[g.ri%inPool.length];
+    const trunkX=g.prod.x+g.prod.w+1+g.trunkLane;
+    const feedX=g.cons.x-2-g.feedLane;
+    const cy=-3-g.corridor;
+    const prods=g.prod.insts.slice(g.pIdx[0],g.pIdx[1]);
+    const conss=g.cons.insts.slice(g.cIdx[0],g.cIdx[1]);
+    if(!prods.length||!conss.length)return;
+    const nB=Math.max(prods.length,conss.length);
+    for(let j=0;j<nB;j++){
+      const from={instId:prods[j%prods.length].id,portIdx:outPort.idx};
+      const to={instId:conss[j%conss.length].id,portIdx:inPort.idx};
+      const a=portCellOf(from.instId,from.portIdx);
+      const z=portCellOf(to.instId,to.portIdx);
+      if(!a||!z)continue;
+      const waypoints=[{x:trunkX,y:a.y},{x:trunkX,y:cy},{x:feedX,y:cy},{x:feedX,y:z.y}];
+      ly.belts.push({id:uid(),kind:g.fluid?'pipe':'belt',beltTierId:g.tierId,from,to,waypoints,path:rasterize([a,...waypoints,z])});
+    }
+  });
 
   saveLayout(); saveState();
   goTab('layout');            // also initialises the canvas + palette
   updateLyCost();
 
-  // Fit the newly placed block into view
-  const bw=(x-startX)*CELL, bh=maxColH*CELL;
+  // Fit the newly placed block (including corridor rows) into view
+  const topY=-(3+corridorCount);
+  const bw=(cursor-startX)*CELL, bh=(maxColH-topY+4)*CELL;
   const cw=_lyCanvas?.width||800, ch=_lyCanvas?.height||600;
-  ly.zoom=Math.max(0.15,Math.min(1.2,Math.min(cw/(bw+120),ch/(bh+120))));
+  ly.zoom=Math.max(0.03,Math.min(1.2,Math.min(cw/(bw+120),ch/(bh+120))));
   ly.vx=-startX*CELL*ly.zoom+40;
-  ly.vy=40;
+  ly.vy=-topY*CELL*ly.zoom+20;
   lyRender();
 }
 
@@ -2801,6 +3232,7 @@ renderUnlockSelector();
 renderTierTab();
 refreshTierSelects();
 renderBeltTiers();
+renderPipeTiers();
 renderMachines();
 renderResources();
 refreshMachSelects();
