@@ -84,7 +84,10 @@ Key behaviours:
 ### Flow Diagram
 Results are displayed as a visual graph alongside the machine list. The diagram shows:
 - One node per recipe stage, labelled with machine, recipe name, count, and actual output rate
-- Edges between nodes labelled with the flow rate, required belt tier, and resource name — two-line labels centred in the gap between columns so they don't overlap node boxes; highway edges carry a single-line label on their lane
+- Columns aligned to the top of the diagram (matching the results list beside it)
+- Each flow into or out of a node gets its own entry/exit point spread along the node's edge, so multiple flows never converge on one midpoint
+- Every edge ends in a straight horizontal run so the line enters the back of its arrowhead
+- Edges labelled with the flow rate, required belt tier, and resource name — labels float just above the line's approach into the consumer (never covering the line), one label block per entry point; highway edges carry a single-line label on their lane
 - Raw input nodes at the far end of the graph
 - Nodes grouped left-to-right by dependency depth (raw inputs on the left, target on the right, following natural reading direction)
 - Nodes within each column sorted by category then name
@@ -141,6 +144,16 @@ The cost panel updates in real time as machines are placed, moved, or deleted. S
 Planner results include a **Build in Layout** action that places the calculated machine counts into the layout editor — one column per stage, ordered raw-side-left to target-right like the flow diagram, using the tiers selected in the planner, with machines rotated so outputs face right and inputs face left. New machines are placed beside any existing layout content, never over it.
 
 Belts are generated automatically in a **manifold style**: each producer's output stubs right into a vertical trunk that runs upward merging the column's outputs, peels off to the right along a dedicated corridor row above the factory, then drops down a feed line on the consumer column's left and taps into each machine's input. When the merged flow would exceed the fastest allowed belt/pipe tier, the manifold splits into parallel trunk/feed lanes, each tagged with the cheapest tier that carries its share. Fluid flows use pipes and prefer fluid-typed ports. Generated belts are normal attached belts and can be re-routed, erased, or redrawn manually afterwards.
+
+If the layout already has content, Build in Layout asks whether to **append beside** it, **overwrite** the whole layout, or cancel (so the current layout can be saved as a blueprint first). It always switches to the Layout tab.
+
+### Blueprints
+The layout sidebar can save the current layout as a named **blueprint**, optionally under a user-defined category. Saving under an existing name overwrites it (load → edit → resave round-trips cleanly; loading pre-fills the save form). Blueprints can be **loaded** (replacing the layout) or **placed** — stamped into the current layout as a normal copy of machines and belts, arriving selected so it can be dragged into position (sub-blueprints by composition). Placement is non-associative: the copy does not track later edits to the blueprint.
+
+A configurable **blueprint bounds box** (width × height in cells, e.g. Satisfactory's in-game blueprint designer limits) can be shown as a dashed rectangle at the origin to check what fits inside a buildable blueprint.
+
+### Rendering performance
+The canvas renders at most once per animation frame, culls machines and belts outside the viewport, and draws belts corner-to-corner rather than cell-by-cell, so factories with hundreds of machines and over a thousand belts pan smoothly.
 
 ---
 
