@@ -39,6 +39,12 @@ A resource with no recipe is treated as a raw input — something that must be s
 ### Categories
 Categories are user-defined labels for grouping resources. They affect visual organisation in the resource list and the flow diagram colour-coding. Categories have no mechanical effect.
 
+### Research Tiers
+Research tiers are an ordered, user-defined progression ladder (e.g. Tier 0 … Tier 8). Machines, individual machine tiers, resources, and belt tiers can each be gated behind a research tier. A profile-wide **highest unlocked tier** selector (in the nav bar) hides everything gated above it — from lists, planner selects, the layout palette, everywhere — so shared profiles don't spoil later-game content. Items with no research tier are always available. To author gated content, temporarily raise the unlock level.
+
+### Belt Tiers
+Belt tiers are named belt speeds (e.g. Belt Mk1 = 60/min), optionally research-gated. The planner labels every flow-diagram edge and raw input with the **lowest unlocked belt tier that can carry the rate**, or "N× fastest" when even the fastest belt needs parallel lanes. In the layout editor a belt-tier palette selects which tier new belts are drawn as; belts are colour-coded and the cost tracker counts segments per tier.
+
 ---
 
 ## Game Profiles
@@ -62,7 +68,7 @@ Key behaviours:
 - Accounts for the selected tier's speed multiplier when calculating machine counts.
 - **Machine count is always ceiled** to a whole number. Input provisioning is then based on that ceiled count so every built machine is fully fed and runs at 100% capacity.
 - Diamond dependencies (same resource demanded by multiple downstream stages) accumulate correctly — the tool does not double-count machines.
-- The user can override which recipe is used for any resource that has multiple alternatives.
+- Recipes are toggled **enabled/disabled** rather than manually assigned: the planner automatically picks, per resource, the cheapest enabled and unlocked recipe chain, measured in raw-equivalent inputs per unit of output (raw resources and mining recipes count 1 per unit; ties go to the default recipe).
 
 ### From-Inputs Mode
 The user specifies a set of input resources and rates, and a target resource. The planner finds the maximum achievable output rate given the supply constraint, identifies the bottleneck resource, and shows each machine stage's efficiency (what fraction of full capacity it runs at).
@@ -70,6 +76,7 @@ The user specifies a set of input resources and rates, and a target resource. Th
 Key behaviours:
 - Machine counts are fractional/exact — machines are not ceiled because the constraint is the input supply, not a round-number target.
 - Efficiency is displayed per stage so the user can see which machines are underutilised.
+- Recipe selection considers only chains that terminate at the supplied inputs — nothing may be mined or conjured from outside the supply, and the planner automatically falls back to alternate recipes that work with what's available.
 - All stages that can't be satisfied by the given inputs are surfaced as an error.
 
 ### Flow Diagram
@@ -130,10 +137,10 @@ Planner results include a **Build in Layout** action that places the calculated 
 ## User Interface Structure
 
 ### Navigation
-Four tabs: **Machines**, **Resources**, **Planner**, **Layout**. A profile selector and profile management panel are persistent in the nav bar.
+Four tabs: **Machines**, **Resources**, **Planner**, **Layout**. A profile selector, profile management panel (including the research-tier editor), the highest-unlocked-research-tier selector, and a global **items/min ↔ items/sec** display toggle are persistent in the nav bar. The rate-unit toggle affects every rate shown in the app.
 
 ### Machines Tab
-A form for defining and editing machines (name, tiers with per-tier build costs, footprint, ports) alongside a list of all defined machines with tier badges and port counts.
+A form for defining and editing machines (name, research tier, tiers with per-tier build costs and research gates, footprint, ports) alongside a list of all defined machines with tier badges and port counts. The belt tier editor (name, speed, research tier) also lives here.
 
 ### Resources Tab
 Two-column layout:
@@ -148,7 +155,7 @@ Each resource item can show a collapsible **dependency tree diagram** — a visu
 
 ### Planner Tab
 Two sub-panels:
-- Left: mode switcher (target / from-inputs), inputs for the chosen mode, tier selectors per machine, recipe override selectors for resources with multiple recipes, and the machine result list
+- Left: mode switcher (target / from-inputs), inputs for the chosen mode, tier selectors per machine (unlocked tiers only), enable/disable checkboxes for resources with multiple recipes, and the machine result list
 - Right: the flow diagram
 
 ### Layout Tab

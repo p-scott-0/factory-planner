@@ -29,8 +29,8 @@ Existing data from before profiles were added is automatically migrated into a "
 
 The [`profiles/`](profiles/) folder ships two ready-made profiles that double as reference examples for building your own:
 
-- [`satisfactory.json`](profiles/satisfactory.json) — Satisfactory starter tiers: miners with Mk1/Mk2/Mk3 speed tiers, Smelter/Foundry/Constructor/Assembler chains up to Smart Plating, including two alternate recipes (Cast Screw, Iron Wire) that demonstrate recipe overrides.
-- [`factorio.json`](profiles/factorio.json) — Factorio early game: burner/electric drills, stone/steel/electric furnaces, assembling machines 1–3, up to Automation Science Packs.
+- [`satisfactory.json`](profiles/satisfactory.json) — Satisfactory Tiers 0–8: nine machines (Miner Mk1–3, Smelter, Constructor, Assembler, Foundry, Water/Oil Extractors, Refinery, Manufacturer), 41 resources up to Space Elevator Phase 3 parts (Assembly Director System), belt tiers Mk1–Mk5, research-tier gating throughout, and four alternate recipes shipped toggled off (Cast Screw, Steel Screw, Iron Wire, Caterium Wire).
+- [`factorio.json`](profiles/factorio.json) — Factorio early game: burner/electric drills, stone/steel/electric furnaces, assembling machines 1–3, yellow/red/blue belts, up to Automation Science Packs.
 
 On the hosted version (or any local server) load them with the **Samples** buttons in the Profiles panel. When opening `index.html` directly from disk, use **Import Profile** and pick the JSON file instead (browsers block `fetch` on `file://`).
 
@@ -43,13 +43,21 @@ A profile file is what **Export Profile** produces:
 ```jsonc
 {
   "name": "My Game",
+  "researchTiers": [ { "id": "rt0", "name": "Tier 0" } ],  // ordered progression ladder
+  "unlockedTierId": null,                            // highest unlocked tier (null = all)
+  "beltTiers": [
+    { "id": "belt-x", "name": "Belt Mk1", "speed": 1, "researchTierId": "rt0" } // speed in items/sec
+  ],
+  "recToggles": { "rec-alt": false },                // recipe id → false when disabled
   "categories": [ { "id": "cat-x", "name": "Ores" } ],
   "machines": [
     {
       "id": "mach-x", "name": "Smelter",
+      "researchTierId": "rt0",                       // optional gate (null = always)
       "tiers": [
         {
           "id": "tier-x", "name": "Mk1", "speedMult": 1,
+          "researchTierId": "rt0",                   // tiers can be gated individually
           "buildCost": [ { "resourceId": "res-x", "amount": 5 } ]   // per tier
         }
       ],
@@ -60,6 +68,7 @@ A profile file is what **Export Profile** produces:
   "resources": [
     {
       "id": "res-x", "name": "Iron Plate", "categoryId": "cat-x",
+      "researchTierId": "rt0",                       // optional gate (null = always)
       "recipes": [
         {
           "id": "rec-x", "name": "Smelt iron",
@@ -69,14 +78,15 @@ A profile file is what **Export Profile** produces:
           "inputs": [ { "resourceId": "res-y", "amount": 1 } ]
         }
       ],
-      "defaultRecipeId": "rec-x"
+      "defaultRecipeId": "rec-x"                     // preferred on cost ties
     }
   ],
   "selTiers": {},                                    // machineId → selected tier id
-  "recOverrides": {},                                // resourceId → recipe id override
   "layout": { "instances": [], "belts": [] }         // layout editor contents
 }
 ```
+
+The planner picks recipes automatically: for each resource it uses the cheapest enabled + unlocked recipe chain, measured in raw inputs per unit of output. Disable recipes you haven't found (e.g. alternates) via `recToggles` or the checkboxes in the Planner tab.
 
 IDs just need to be unique strings within the profile — the readable slugs in the samples are a convention, not a requirement. A resource with no recipes (or whose recipe has no machine) is treated as a raw input.
 

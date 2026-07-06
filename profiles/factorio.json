@@ -1,5 +1,13 @@
 {
   "name": "Factorio (starter)",
+  "researchTiers": [],
+  "unlockedTierId": null,
+  "beltTiers": [
+    { "id": "belt-yellow", "name": "Transport Belt", "speed": 15, "researchTierId": null },
+    { "id": "belt-red", "name": "Fast Belt", "speed": 30, "researchTierId": null },
+    { "id": "belt-blue", "name": "Express Belt", "speed": 45, "researchTierId": null }
+  ],
+  "recToggles": {},
   "categories": [
     { "id": "cat-raw", "name": "Raw" },
     { "id": "cat-intermediates", "name": "Intermediates" },

@@ -1,501 +1,266 @@
 {
-  "name": "Satisfactory (starter)",
+  "name": "Satisfactory",
+  "researchTiers": [
+    { "id": "rt0", "name": "Tier 0" },
+    { "id": "rt1", "name": "Tier 1" },
+    { "id": "rt2", "name": "Tier 2" },
+    { "id": "rt3", "name": "Tier 3" },
+    { "id": "rt4", "name": "Tier 4" },
+    { "id": "rt5", "name": "Tier 5" },
+    { "id": "rt6", "name": "Tier 6" },
+    { "id": "rt7", "name": "Tier 7" },
+    { "id": "rt8", "name": "Tier 8" }
+  ],
+  "unlockedTierId": null,
+  "beltTiers": [
+    { "id": "belt-mk1", "name": "Belt Mk1", "speed": 1,   "researchTierId": "rt0" },
+    { "id": "belt-mk2", "name": "Belt Mk2", "speed": 2,   "researchTierId": "rt2" },
+    { "id": "belt-mk3", "name": "Belt Mk3", "speed": 4.5, "researchTierId": "rt4" },
+    { "id": "belt-mk4", "name": "Belt Mk4", "speed": 8,   "researchTierId": "rt5" },
+    { "id": "belt-mk5", "name": "Belt Mk5", "speed": 13,  "researchTierId": "rt7" }
+  ],
+  "recToggles": {
+    "rec-cast-screw": false,
+    "rec-steel-screw": false,
+    "rec-iron-wire": false,
+    "rec-caterium-wire": false
+  },
   "categories": [
     { "id": "cat-ores", "name": "Ores" },
+    { "id": "cat-fluids", "name": "Fluids" },
     { "id": "cat-ingots", "name": "Ingots" },
     { "id": "cat-basic", "name": "Basic Parts" },
-    { "id": "cat-industrial", "name": "Industrial Parts" }
+    { "id": "cat-oil", "name": "Oil Products" },
+    { "id": "cat-industrial", "name": "Industrial Parts" },
+    { "id": "cat-electronics", "name": "Electronics" },
+    { "id": "cat-elevator", "name": "Space Elevator" }
   ],
   "machines": [
     {
-      "id": "mach-miner",
-      "name": "Miner",
+      "id": "mach-miner", "name": "Miner", "researchTierId": "rt0",
+      "width": 6, "height": 14,
+      "ports": [ { "type": "output", "side": "bottom", "offset": 2 } ],
       "tiers": [
-        {
-          "id": "tier-miner-mk1",
-          "name": "Mk1",
-          "speedMult": 1,
-          "buildCost": [
-            { "resourceId": "res-iron-plate", "amount": 10 },
-            { "resourceId": "res-concrete", "amount": 10 }
-          ]
-        },
-        {
-          "id": "tier-miner-mk2",
-          "name": "Mk2",
-          "speedMult": 2,
-          "buildCost": [
-            { "resourceId": "res-steel-pipe", "amount": 20 },
-            { "resourceId": "res-modular-frame", "amount": 10 },
-            { "resourceId": "res-concrete", "amount": 20 }
-          ]
-        },
-        {
-          "id": "tier-miner-mk3",
-          "name": "Mk3",
-          "speedMult": 4,
-          "buildCost": [
-            { "resourceId": "res-steel-pipe", "amount": 40 },
-            { "resourceId": "res-modular-frame", "amount": 20 },
-            { "resourceId": "res-concrete", "amount": 50 }
-          ]
-        }
-      ],
-      "width": 6,
-      "height": 14,
-      "ports": [
-        { "type": "output", "side": "bottom", "offset": 2 }
+        { "id": "tier-miner-mk1", "name": "Mk1", "speedMult": 1, "researchTierId": "rt0",
+          "buildCost": [ { "resourceId": "res-iron-plate", "amount": 10 }, { "resourceId": "res-concrete", "amount": 10 } ] },
+        { "id": "tier-miner-mk2", "name": "Mk2", "speedMult": 2, "researchTierId": "rt4",
+          "buildCost": [ { "resourceId": "res-steel-pipe", "amount": 20 }, { "resourceId": "res-modular-frame", "amount": 10 }, { "resourceId": "res-concrete", "amount": 20 } ] },
+        { "id": "tier-miner-mk3", "name": "Mk3", "speedMult": 4, "researchTierId": "rt7",
+          "buildCost": [ { "resourceId": "res-steel-pipe", "amount": 40 }, { "resourceId": "res-heavy-modular-frame", "amount": 10 }, { "resourceId": "res-supercomputer", "amount": 3 } ] }
       ]
     },
     {
-      "id": "mach-smelter",
-      "name": "Smelter",
+      "id": "mach-smelter", "name": "Smelter", "researchTierId": "rt0",
+      "width": 6, "height": 9,
+      "ports": [ { "type": "input", "side": "left", "offset": 4 }, { "type": "output", "side": "right", "offset": 4 } ],
       "tiers": [
-        {
-          "id": "tier-smelter-base",
-          "name": "Base",
-          "speedMult": 1,
-          "buildCost": [
-            { "resourceId": "res-iron-rod", "amount": 5 },
-            { "resourceId": "res-wire", "amount": 8 }
-          ]
-        }
-      ],
-      "width": 6,
-      "height": 9,
-      "ports": [
-        { "type": "input", "side": "left", "offset": 4 },
-        { "type": "output", "side": "right", "offset": 4 }
+        { "id": "tier-smelter-base", "name": "Base", "speedMult": 1, "researchTierId": "rt0",
+          "buildCost": [ { "resourceId": "res-iron-rod", "amount": 5 }, { "resourceId": "res-wire", "amount": 8 } ] }
       ]
     },
     {
-      "id": "mach-foundry",
-      "name": "Foundry",
+      "id": "mach-constructor", "name": "Constructor", "researchTierId": "rt0",
+      "width": 8, "height": 10,
+      "ports": [ { "type": "input", "side": "left", "offset": 4 }, { "type": "output", "side": "right", "offset": 4 } ],
       "tiers": [
-        {
-          "id": "tier-foundry-base",
-          "name": "Base",
-          "speedMult": 1,
-          "buildCost": [
-            { "resourceId": "res-modular-frame", "amount": 10 },
-            { "resourceId": "res-rotor", "amount": 10 },
-            { "resourceId": "res-concrete", "amount": 20 }
-          ]
-        }
-      ],
-      "width": 10,
-      "height": 9,
-      "ports": [
-        { "type": "input", "side": "left", "offset": 2 },
-        { "type": "input", "side": "left", "offset": 6 },
-        { "type": "output", "side": "right", "offset": 4 }
+        { "id": "tier-constructor-base", "name": "Base", "speedMult": 1, "researchTierId": "rt0",
+          "buildCost": [ { "resourceId": "res-reinforced-iron-plate", "amount": 2 }, { "resourceId": "res-cable", "amount": 8 } ] }
       ]
     },
     {
-      "id": "mach-constructor",
-      "name": "Constructor",
+      "id": "mach-assembler", "name": "Assembler", "researchTierId": "rt2",
+      "width": 10, "height": 15,
+      "ports": [ { "type": "input", "side": "left", "offset": 5 }, { "type": "input", "side": "left", "offset": 9 }, { "type": "output", "side": "right", "offset": 7 } ],
       "tiers": [
-        {
-          "id": "tier-constructor-base",
-          "name": "Base",
-          "speedMult": 1,
-          "buildCost": [
-            { "resourceId": "res-reinforced-iron-plate", "amount": 2 },
-            { "resourceId": "res-cable", "amount": 8 }
-          ]
-        }
-      ],
-      "width": 8,
-      "height": 10,
-      "ports": [
-        { "type": "input", "side": "left", "offset": 4 },
-        { "type": "output", "side": "right", "offset": 4 }
+        { "id": "tier-assembler-base", "name": "Base", "speedMult": 1, "researchTierId": "rt2",
+          "buildCost": [ { "resourceId": "res-reinforced-iron-plate", "amount": 8 }, { "resourceId": "res-rotor", "amount": 4 }, { "resourceId": "res-cable", "amount": 10 } ] }
       ]
     },
     {
-      "id": "mach-assembler",
-      "name": "Assembler",
+      "id": "mach-foundry", "name": "Foundry", "researchTierId": "rt3",
+      "width": 10, "height": 9,
+      "ports": [ { "type": "input", "side": "left", "offset": 2 }, { "type": "input", "side": "left", "offset": 6 }, { "type": "output", "side": "right", "offset": 4 } ],
       "tiers": [
-        {
-          "id": "tier-assembler-base",
-          "name": "Base",
-          "speedMult": 1,
-          "buildCost": [
-            { "resourceId": "res-reinforced-iron-plate", "amount": 8 },
-            { "resourceId": "res-rotor", "amount": 4 },
-            { "resourceId": "res-cable", "amount": 10 }
-          ]
-        }
-      ],
-      "width": 10,
-      "height": 15,
-      "ports": [
-        { "type": "input", "side": "left", "offset": 5 },
-        { "type": "input", "side": "left", "offset": 9 },
-        { "type": "output", "side": "right", "offset": 7 }
+        { "id": "tier-foundry-base", "name": "Base", "speedMult": 1, "researchTierId": "rt3",
+          "buildCost": [ { "resourceId": "res-modular-frame", "amount": 10 }, { "resourceId": "res-rotor", "amount": 10 }, { "resourceId": "res-concrete", "amount": 20 } ] }
+      ]
+    },
+    {
+      "id": "mach-water-extractor", "name": "Water Extractor", "researchTierId": "rt3",
+      "width": 8, "height": 8,
+      "ports": [ { "type": "output", "side": "right", "offset": 3 } ],
+      "tiers": [
+        { "id": "tier-water-extractor-base", "name": "Base", "speedMult": 1, "researchTierId": "rt3",
+          "buildCost": [ { "resourceId": "res-copper-sheet", "amount": 20 }, { "resourceId": "res-reinforced-iron-plate", "amount": 10 }, { "resourceId": "res-rotor", "amount": 10 } ] }
+      ]
+    },
+    {
+      "id": "mach-oil-extractor", "name": "Oil Extractor", "researchTierId": "rt5",
+      "width": 8, "height": 10,
+      "ports": [ { "type": "output", "side": "right", "offset": 4 } ],
+      "tiers": [
+        { "id": "tier-oil-extractor-base", "name": "Base", "speedMult": 1, "researchTierId": "rt5",
+          "buildCost": [ { "resourceId": "res-motor", "amount": 15 }, { "resourceId": "res-encased-industrial-beam", "amount": 20 }, { "resourceId": "res-cable", "amount": 60 } ] }
+      ]
+    },
+    {
+      "id": "mach-refinery", "name": "Refinery", "researchTierId": "rt5",
+      "width": 10, "height": 20,
+      "ports": [ { "type": "input", "side": "left", "offset": 4 }, { "type": "input", "side": "left", "offset": 14 }, { "type": "output", "side": "right", "offset": 9 } ],
+      "tiers": [
+        { "id": "tier-refinery-base", "name": "Base", "speedMult": 1, "researchTierId": "rt5",
+          "buildCost": [ { "resourceId": "res-motor", "amount": 10 }, { "resourceId": "res-encased-industrial-beam", "amount": 10 }, { "resourceId": "res-steel-pipe", "amount": 30 }, { "resourceId": "res-copper-sheet", "amount": 20 } ] }
+      ]
+    },
+    {
+      "id": "mach-manufacturer", "name": "Manufacturer", "researchTierId": "rt5",
+      "width": 18, "height": 20,
+      "ports": [ { "type": "input", "side": "left", "offset": 2 }, { "type": "input", "side": "left", "offset": 7 }, { "type": "input", "side": "left", "offset": 12 }, { "type": "input", "side": "left", "offset": 17 }, { "type": "output", "side": "right", "offset": 9 } ],
+      "tiers": [
+        { "id": "tier-manufacturer-base", "name": "Base", "speedMult": 1, "researchTierId": "rt5",
+          "buildCost": [ { "resourceId": "res-motor", "amount": 10 }, { "resourceId": "res-heavy-modular-frame", "amount": 5 }, { "resourceId": "res-cable", "amount": 50 }, { "resourceId": "res-plastic", "amount": 50 } ] }
       ]
     }
   ],
   "resources": [
-    {
-      "id": "res-iron-ore",
-      "name": "Iron Ore",
-      "categoryId": "cat-ores",
+    { "id": "res-iron-ore", "name": "Iron Ore", "categoryId": "cat-ores", "researchTierId": "rt0",
+      "recipes": [ { "id": "rec-iron-ore", "name": "Mine Iron Ore (normal node)", "machineId": "mach-miner", "cycleTime": 1, "outputAmount": 1, "inputs": [] } ],
+      "defaultRecipeId": "rec-iron-ore" },
+    { "id": "res-copper-ore", "name": "Copper Ore", "categoryId": "cat-ores", "researchTierId": "rt0",
+      "recipes": [ { "id": "rec-copper-ore", "name": "Mine Copper Ore (normal node)", "machineId": "mach-miner", "cycleTime": 1, "outputAmount": 1, "inputs": [] } ],
+      "defaultRecipeId": "rec-copper-ore" },
+    { "id": "res-limestone", "name": "Limestone", "categoryId": "cat-ores", "researchTierId": "rt0",
+      "recipes": [ { "id": "rec-limestone", "name": "Mine Limestone (normal node)", "machineId": "mach-miner", "cycleTime": 1, "outputAmount": 1, "inputs": [] } ],
+      "defaultRecipeId": "rec-limestone" },
+    { "id": "res-coal", "name": "Coal", "categoryId": "cat-ores", "researchTierId": "rt3",
+      "recipes": [ { "id": "rec-coal", "name": "Mine Coal (normal node)", "machineId": "mach-miner", "cycleTime": 1, "outputAmount": 1, "inputs": [] } ],
+      "defaultRecipeId": "rec-coal" },
+    { "id": "res-caterium-ore", "name": "Caterium Ore", "categoryId": "cat-ores", "researchTierId": "rt5",
+      "recipes": [ { "id": "rec-caterium-ore", "name": "Mine Caterium Ore (normal node)", "machineId": "mach-miner", "cycleTime": 1, "outputAmount": 1, "inputs": [] } ],
+      "defaultRecipeId": "rec-caterium-ore" },
+
+    { "id": "res-water", "name": "Water", "categoryId": "cat-fluids", "researchTierId": "rt3",
+      "recipes": [ { "id": "rec-water", "name": "Extract Water", "machineId": "mach-water-extractor", "cycleTime": 0.5, "outputAmount": 1, "inputs": [] } ],
+      "defaultRecipeId": "rec-water" },
+    { "id": "res-crude-oil", "name": "Crude Oil", "categoryId": "cat-fluids", "researchTierId": "rt5",
+      "recipes": [ { "id": "rec-crude-oil", "name": "Extract Crude Oil (normal node)", "machineId": "mach-oil-extractor", "cycleTime": 0.5, "outputAmount": 1, "inputs": [] } ],
+      "defaultRecipeId": "rec-crude-oil" },
+
+    { "id": "res-iron-ingot", "name": "Iron Ingot", "categoryId": "cat-ingots", "researchTierId": "rt0",
+      "recipes": [ { "id": "rec-iron-ingot", "name": "Iron Ingot", "machineId": "mach-smelter", "cycleTime": 2, "outputAmount": 1, "inputs": [ { "resourceId": "res-iron-ore", "amount": 1 } ] } ],
+      "defaultRecipeId": "rec-iron-ingot" },
+    { "id": "res-copper-ingot", "name": "Copper Ingot", "categoryId": "cat-ingots", "researchTierId": "rt0",
+      "recipes": [ { "id": "rec-copper-ingot", "name": "Copper Ingot", "machineId": "mach-smelter", "cycleTime": 2, "outputAmount": 1, "inputs": [ { "resourceId": "res-copper-ore", "amount": 1 } ] } ],
+      "defaultRecipeId": "rec-copper-ingot" },
+    { "id": "res-steel-ingot", "name": "Steel Ingot", "categoryId": "cat-ingots", "researchTierId": "rt3",
+      "recipes": [ { "id": "rec-steel-ingot", "name": "Steel Ingot", "machineId": "mach-foundry", "cycleTime": 4, "outputAmount": 3, "inputs": [ { "resourceId": "res-iron-ore", "amount": 3 }, { "resourceId": "res-coal", "amount": 3 } ] } ],
+      "defaultRecipeId": "rec-steel-ingot" },
+    { "id": "res-caterium-ingot", "name": "Caterium Ingot", "categoryId": "cat-ingots", "researchTierId": "rt5",
+      "recipes": [ { "id": "rec-caterium-ingot", "name": "Caterium Ingot", "machineId": "mach-smelter", "cycleTime": 4, "outputAmount": 1, "inputs": [ { "resourceId": "res-caterium-ore", "amount": 3 } ] } ],
+      "defaultRecipeId": "rec-caterium-ingot" },
+
+    { "id": "res-concrete", "name": "Concrete", "categoryId": "cat-basic", "researchTierId": "rt0",
+      "recipes": [ { "id": "rec-concrete", "name": "Concrete", "machineId": "mach-constructor", "cycleTime": 4, "outputAmount": 1, "inputs": [ { "resourceId": "res-limestone", "amount": 3 } ] } ],
+      "defaultRecipeId": "rec-concrete" },
+    { "id": "res-iron-plate", "name": "Iron Plate", "categoryId": "cat-basic", "researchTierId": "rt0",
+      "recipes": [ { "id": "rec-iron-plate", "name": "Iron Plate", "machineId": "mach-constructor", "cycleTime": 6, "outputAmount": 2, "inputs": [ { "resourceId": "res-iron-ingot", "amount": 3 } ] } ],
+      "defaultRecipeId": "rec-iron-plate" },
+    { "id": "res-iron-rod", "name": "Iron Rod", "categoryId": "cat-basic", "researchTierId": "rt0",
+      "recipes": [ { "id": "rec-iron-rod", "name": "Iron Rod", "machineId": "mach-constructor", "cycleTime": 4, "outputAmount": 1, "inputs": [ { "resourceId": "res-iron-ingot", "amount": 1 } ] } ],
+      "defaultRecipeId": "rec-iron-rod" },
+    { "id": "res-screw", "name": "Screw", "categoryId": "cat-basic", "researchTierId": "rt0",
       "recipes": [
-        {
-          "id": "rec-iron-ore",
-          "name": "Mine Iron Ore (normal node)",
-          "machineId": "mach-miner",
-          "cycleTime": 1,
-          "outputAmount": 1,
-          "inputs": []
-        }
+        { "id": "rec-screw", "name": "Screw", "machineId": "mach-constructor", "cycleTime": 6, "outputAmount": 4, "inputs": [ { "resourceId": "res-iron-rod", "amount": 1 } ] },
+        { "id": "rec-cast-screw", "name": "Alternate: Cast Screw", "machineId": "mach-constructor", "cycleTime": 24, "outputAmount": 20, "inputs": [ { "resourceId": "res-iron-ingot", "amount": 5 } ] },
+        { "id": "rec-steel-screw", "name": "Alternate: Steel Screw", "machineId": "mach-constructor", "cycleTime": 12, "outputAmount": 52, "inputs": [ { "resourceId": "res-steel-beam", "amount": 1 } ] }
       ],
-      "defaultRecipeId": "rec-iron-ore"
-    },
-    {
-      "id": "res-copper-ore",
-      "name": "Copper Ore",
-      "categoryId": "cat-ores",
+      "defaultRecipeId": "rec-screw" },
+    { "id": "res-wire", "name": "Wire", "categoryId": "cat-basic", "researchTierId": "rt0",
       "recipes": [
-        {
-          "id": "rec-copper-ore",
-          "name": "Mine Copper Ore (normal node)",
-          "machineId": "mach-miner",
-          "cycleTime": 1,
-          "outputAmount": 1,
-          "inputs": []
-        }
+        { "id": "rec-wire", "name": "Wire", "machineId": "mach-constructor", "cycleTime": 4, "outputAmount": 2, "inputs": [ { "resourceId": "res-copper-ingot", "amount": 1 } ] },
+        { "id": "rec-iron-wire", "name": "Alternate: Iron Wire", "machineId": "mach-constructor", "cycleTime": 24, "outputAmount": 9, "inputs": [ { "resourceId": "res-iron-ingot", "amount": 5 } ] },
+        { "id": "rec-caterium-wire", "name": "Alternate: Caterium Wire", "machineId": "mach-constructor", "cycleTime": 5, "outputAmount": 8, "inputs": [ { "resourceId": "res-caterium-ingot", "amount": 1 } ] }
       ],
-      "defaultRecipeId": "rec-copper-ore"
-    },
-    {
-      "id": "res-limestone",
-      "name": "Limestone",
-      "categoryId": "cat-ores",
-      "recipes": [
-        {
-          "id": "rec-limestone",
-          "name": "Mine Limestone (normal node)",
-          "machineId": "mach-miner",
-          "cycleTime": 1,
-          "outputAmount": 1,
-          "inputs": []
-        }
-      ],
-      "defaultRecipeId": "rec-limestone"
-    },
-    {
-      "id": "res-coal",
-      "name": "Coal",
-      "categoryId": "cat-ores",
-      "recipes": [
-        {
-          "id": "rec-coal",
-          "name": "Mine Coal (normal node)",
-          "machineId": "mach-miner",
-          "cycleTime": 1,
-          "outputAmount": 1,
-          "inputs": []
-        }
-      ],
-      "defaultRecipeId": "rec-coal"
-    },
-    {
-      "id": "res-iron-ingot",
-      "name": "Iron Ingot",
-      "categoryId": "cat-ingots",
-      "recipes": [
-        {
-          "id": "rec-iron-ingot",
-          "name": "Iron Ingot",
-          "machineId": "mach-smelter",
-          "cycleTime": 2,
-          "outputAmount": 1,
-          "inputs": [
-            { "resourceId": "res-iron-ore", "amount": 1 }
-          ]
-        }
-      ],
-      "defaultRecipeId": "rec-iron-ingot"
-    },
-    {
-      "id": "res-copper-ingot",
-      "name": "Copper Ingot",
-      "categoryId": "cat-ingots",
-      "recipes": [
-        {
-          "id": "rec-copper-ingot",
-          "name": "Copper Ingot",
-          "machineId": "mach-smelter",
-          "cycleTime": 2,
-          "outputAmount": 1,
-          "inputs": [
-            { "resourceId": "res-copper-ore", "amount": 1 }
-          ]
-        }
-      ],
-      "defaultRecipeId": "rec-copper-ingot"
-    },
-    {
-      "id": "res-steel-ingot",
-      "name": "Steel Ingot",
-      "categoryId": "cat-ingots",
-      "recipes": [
-        {
-          "id": "rec-steel-ingot",
-          "name": "Steel Ingot",
-          "machineId": "mach-foundry",
-          "cycleTime": 4,
-          "outputAmount": 3,
-          "inputs": [
-            { "resourceId": "res-iron-ore", "amount": 3 },
-            { "resourceId": "res-coal", "amount": 3 }
-          ]
-        }
-      ],
-      "defaultRecipeId": "rec-steel-ingot"
-    },
-    {
-      "id": "res-concrete",
-      "name": "Concrete",
-      "categoryId": "cat-basic",
-      "recipes": [
-        {
-          "id": "rec-concrete",
-          "name": "Concrete",
-          "machineId": "mach-constructor",
-          "cycleTime": 4,
-          "outputAmount": 1,
-          "inputs": [
-            { "resourceId": "res-limestone", "amount": 3 }
-          ]
-        }
-      ],
-      "defaultRecipeId": "rec-concrete"
-    },
-    {
-      "id": "res-iron-plate",
-      "name": "Iron Plate",
-      "categoryId": "cat-basic",
-      "recipes": [
-        {
-          "id": "rec-iron-plate",
-          "name": "Iron Plate",
-          "machineId": "mach-constructor",
-          "cycleTime": 6,
-          "outputAmount": 2,
-          "inputs": [
-            { "resourceId": "res-iron-ingot", "amount": 3 }
-          ]
-        }
-      ],
-      "defaultRecipeId": "rec-iron-plate"
-    },
-    {
-      "id": "res-iron-rod",
-      "name": "Iron Rod",
-      "categoryId": "cat-basic",
-      "recipes": [
-        {
-          "id": "rec-iron-rod",
-          "name": "Iron Rod",
-          "machineId": "mach-constructor",
-          "cycleTime": 4,
-          "outputAmount": 1,
-          "inputs": [
-            { "resourceId": "res-iron-ingot", "amount": 1 }
-          ]
-        }
-      ],
-      "defaultRecipeId": "rec-iron-rod"
-    },
-    {
-      "id": "res-screw",
-      "name": "Screw",
-      "categoryId": "cat-basic",
-      "recipes": [
-        {
-          "id": "rec-screw",
-          "name": "Screw",
-          "machineId": "mach-constructor",
-          "cycleTime": 6,
-          "outputAmount": 4,
-          "inputs": [
-            { "resourceId": "res-iron-rod", "amount": 1 }
-          ]
-        },
-        {
-          "id": "rec-cast-screw",
-          "name": "Alternate: Cast Screw",
-          "machineId": "mach-constructor",
-          "cycleTime": 24,
-          "outputAmount": 20,
-          "inputs": [
-            { "resourceId": "res-iron-ingot", "amount": 5 }
-          ]
-        }
-      ],
-      "defaultRecipeId": "rec-screw"
-    },
-    {
-      "id": "res-wire",
-      "name": "Wire",
-      "categoryId": "cat-basic",
-      "recipes": [
-        {
-          "id": "rec-wire",
-          "name": "Wire",
-          "machineId": "mach-constructor",
-          "cycleTime": 4,
-          "outputAmount": 2,
-          "inputs": [
-            { "resourceId": "res-copper-ingot", "amount": 1 }
-          ]
-        },
-        {
-          "id": "rec-iron-wire",
-          "name": "Alternate: Iron Wire",
-          "machineId": "mach-constructor",
-          "cycleTime": 24,
-          "outputAmount": 9,
-          "inputs": [
-            { "resourceId": "res-iron-ingot", "amount": 5 }
-          ]
-        }
-      ],
-      "defaultRecipeId": "rec-wire"
-    },
-    {
-      "id": "res-cable",
-      "name": "Cable",
-      "categoryId": "cat-basic",
-      "recipes": [
-        {
-          "id": "rec-cable",
-          "name": "Cable",
-          "machineId": "mach-constructor",
-          "cycleTime": 2,
-          "outputAmount": 1,
-          "inputs": [
-            { "resourceId": "res-wire", "amount": 2 }
-          ]
-        }
-      ],
-      "defaultRecipeId": "rec-cable"
-    },
-    {
-      "id": "res-steel-beam",
-      "name": "Steel Beam",
-      "categoryId": "cat-basic",
-      "recipes": [
-        {
-          "id": "rec-steel-beam",
-          "name": "Steel Beam",
-          "machineId": "mach-constructor",
-          "cycleTime": 4,
-          "outputAmount": 1,
-          "inputs": [
-            { "resourceId": "res-steel-ingot", "amount": 4 }
-          ]
-        }
-      ],
-      "defaultRecipeId": "rec-steel-beam"
-    },
-    {
-      "id": "res-steel-pipe",
-      "name": "Steel Pipe",
-      "categoryId": "cat-basic",
-      "recipes": [
-        {
-          "id": "rec-steel-pipe",
-          "name": "Steel Pipe",
-          "machineId": "mach-constructor",
-          "cycleTime": 6,
-          "outputAmount": 2,
-          "inputs": [
-            { "resourceId": "res-steel-ingot", "amount": 3 }
-          ]
-        }
-      ],
-      "defaultRecipeId": "rec-steel-pipe"
-    },
-    {
-      "id": "res-reinforced-iron-plate",
-      "name": "Reinforced Iron Plate",
-      "categoryId": "cat-industrial",
-      "recipes": [
-        {
-          "id": "rec-reinforced-iron-plate",
-          "name": "Reinforced Iron Plate",
-          "machineId": "mach-assembler",
-          "cycleTime": 12,
-          "outputAmount": 1,
-          "inputs": [
-            { "resourceId": "res-iron-plate", "amount": 6 },
-            { "resourceId": "res-screw", "amount": 12 }
-          ]
-        }
-      ],
-      "defaultRecipeId": "rec-reinforced-iron-plate"
-    },
-    {
-      "id": "res-rotor",
-      "name": "Rotor",
-      "categoryId": "cat-industrial",
-      "recipes": [
-        {
-          "id": "rec-rotor",
-          "name": "Rotor",
-          "machineId": "mach-assembler",
-          "cycleTime": 15,
-          "outputAmount": 1,
-          "inputs": [
-            { "resourceId": "res-iron-rod", "amount": 5 },
-            { "resourceId": "res-screw", "amount": 25 }
-          ]
-        }
-      ],
-      "defaultRecipeId": "rec-rotor"
-    },
-    {
-      "id": "res-modular-frame",
-      "name": "Modular Frame",
-      "categoryId": "cat-industrial",
-      "recipes": [
-        {
-          "id": "rec-modular-frame",
-          "name": "Modular Frame",
-          "machineId": "mach-assembler",
-          "cycleTime": 60,
-          "outputAmount": 2,
-          "inputs": [
-            { "resourceId": "res-reinforced-iron-plate", "amount": 3 },
-            { "resourceId": "res-iron-rod", "amount": 12 }
-          ]
-        }
-      ],
-      "defaultRecipeId": "rec-modular-frame"
-    },
-    {
-      "id": "res-smart-plating",
-      "name": "Smart Plating",
-      "categoryId": "cat-industrial",
-      "recipes": [
-        {
-          "id": "rec-smart-plating",
-          "name": "Smart Plating",
-          "machineId": "mach-assembler",
-          "cycleTime": 30,
-          "outputAmount": 1,
-          "inputs": [
-            { "resourceId": "res-reinforced-iron-plate", "amount": 1 },
-            { "resourceId": "res-rotor", "amount": 1 }
-          ]
-        }
-      ],
-      "defaultRecipeId": "rec-smart-plating"
-    }
+      "defaultRecipeId": "rec-wire" },
+    { "id": "res-cable", "name": "Cable", "categoryId": "cat-basic", "researchTierId": "rt0",
+      "recipes": [ { "id": "rec-cable", "name": "Cable", "machineId": "mach-constructor", "cycleTime": 2, "outputAmount": 1, "inputs": [ { "resourceId": "res-wire", "amount": 2 } ] } ],
+      "defaultRecipeId": "rec-cable" },
+    { "id": "res-copper-sheet", "name": "Copper Sheet", "categoryId": "cat-basic", "researchTierId": "rt2",
+      "recipes": [ { "id": "rec-copper-sheet", "name": "Copper Sheet", "machineId": "mach-constructor", "cycleTime": 6, "outputAmount": 1, "inputs": [ { "resourceId": "res-copper-ingot", "amount": 2 } ] } ],
+      "defaultRecipeId": "rec-copper-sheet" },
+    { "id": "res-steel-beam", "name": "Steel Beam", "categoryId": "cat-basic", "researchTierId": "rt3",
+      "recipes": [ { "id": "rec-steel-beam", "name": "Steel Beam", "machineId": "mach-constructor", "cycleTime": 4, "outputAmount": 1, "inputs": [ { "resourceId": "res-steel-ingot", "amount": 4 } ] } ],
+      "defaultRecipeId": "rec-steel-beam" },
+    { "id": "res-steel-pipe", "name": "Steel Pipe", "categoryId": "cat-basic", "researchTierId": "rt3",
+      "recipes": [ { "id": "rec-steel-pipe", "name": "Steel Pipe", "machineId": "mach-constructor", "cycleTime": 6, "outputAmount": 2, "inputs": [ { "resourceId": "res-steel-ingot", "amount": 3 } ] } ],
+      "defaultRecipeId": "rec-steel-pipe" },
+    { "id": "res-quickwire", "name": "Quickwire", "categoryId": "cat-basic", "researchTierId": "rt5",
+      "recipes": [ { "id": "rec-quickwire", "name": "Quickwire", "machineId": "mach-constructor", "cycleTime": 5, "outputAmount": 5, "inputs": [ { "resourceId": "res-caterium-ingot", "amount": 1 } ] } ],
+      "defaultRecipeId": "rec-quickwire" },
+
+    { "id": "res-plastic", "name": "Plastic", "categoryId": "cat-oil", "researchTierId": "rt5",
+      "recipes": [ { "id": "rec-plastic", "name": "Plastic", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 2, "inputs": [ { "resourceId": "res-crude-oil", "amount": 3 } ] } ],
+      "defaultRecipeId": "rec-plastic" },
+    { "id": "res-rubber", "name": "Rubber", "categoryId": "cat-oil", "researchTierId": "rt5",
+      "recipes": [ { "id": "rec-rubber", "name": "Rubber", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 2, "inputs": [ { "resourceId": "res-crude-oil", "amount": 3 } ] } ],
+      "defaultRecipeId": "rec-rubber" },
+
+    { "id": "res-reinforced-iron-plate", "name": "Reinforced Iron Plate", "categoryId": "cat-industrial", "researchTierId": "rt2",
+      "recipes": [ { "id": "rec-reinforced-iron-plate", "name": "Reinforced Iron Plate", "machineId": "mach-assembler", "cycleTime": 12, "outputAmount": 1, "inputs": [ { "resourceId": "res-iron-plate", "amount": 6 }, { "resourceId": "res-screw", "amount": 12 } ] } ],
+      "defaultRecipeId": "rec-reinforced-iron-plate" },
+    { "id": "res-rotor", "name": "Rotor", "categoryId": "cat-industrial", "researchTierId": "rt2",
+      "recipes": [ { "id": "rec-rotor", "name": "Rotor", "machineId": "mach-assembler", "cycleTime": 15, "outputAmount": 1, "inputs": [ { "resourceId": "res-iron-rod", "amount": 5 }, { "resourceId": "res-screw", "amount": 25 } ] } ],
+      "defaultRecipeId": "rec-rotor" },
+    { "id": "res-modular-frame", "name": "Modular Frame", "categoryId": "cat-industrial", "researchTierId": "rt2",
+      "recipes": [ { "id": "rec-modular-frame", "name": "Modular Frame", "machineId": "mach-assembler", "cycleTime": 60, "outputAmount": 2, "inputs": [ { "resourceId": "res-reinforced-iron-plate", "amount": 3 }, { "resourceId": "res-iron-rod", "amount": 12 } ] } ],
+      "defaultRecipeId": "rec-modular-frame" },
+    { "id": "res-encased-industrial-beam", "name": "Encased Industrial Beam", "categoryId": "cat-industrial", "researchTierId": "rt4",
+      "recipes": [ { "id": "rec-encased-industrial-beam", "name": "Encased Industrial Beam", "machineId": "mach-assembler", "cycleTime": 10, "outputAmount": 1, "inputs": [ { "resourceId": "res-steel-beam", "amount": 3 }, { "resourceId": "res-concrete", "amount": 6 } ] } ],
+      "defaultRecipeId": "rec-encased-industrial-beam" },
+    { "id": "res-stator", "name": "Stator", "categoryId": "cat-industrial", "researchTierId": "rt4",
+      "recipes": [ { "id": "rec-stator", "name": "Stator", "machineId": "mach-assembler", "cycleTime": 12, "outputAmount": 1, "inputs": [ { "resourceId": "res-steel-pipe", "amount": 3 }, { "resourceId": "res-wire", "amount": 8 } ] } ],
+      "defaultRecipeId": "rec-stator" },
+    { "id": "res-motor", "name": "Motor", "categoryId": "cat-industrial", "researchTierId": "rt4",
+      "recipes": [ { "id": "rec-motor", "name": "Motor", "machineId": "mach-assembler", "cycleTime": 12, "outputAmount": 1, "inputs": [ { "resourceId": "res-rotor", "amount": 2 }, { "resourceId": "res-stator", "amount": 2 } ] } ],
+      "defaultRecipeId": "rec-motor" },
+    { "id": "res-heavy-modular-frame", "name": "Heavy Modular Frame", "categoryId": "cat-industrial", "researchTierId": "rt5",
+      "recipes": [ { "id": "rec-heavy-modular-frame", "name": "Heavy Modular Frame", "machineId": "mach-manufacturer", "cycleTime": 30, "outputAmount": 1, "inputs": [ { "resourceId": "res-modular-frame", "amount": 5 }, { "resourceId": "res-steel-pipe", "amount": 15 }, { "resourceId": "res-encased-industrial-beam", "amount": 5 }, { "resourceId": "res-screw", "amount": 100 } ] } ],
+      "defaultRecipeId": "rec-heavy-modular-frame" },
+
+    { "id": "res-circuit-board", "name": "Circuit Board", "categoryId": "cat-electronics", "researchTierId": "rt5",
+      "recipes": [ { "id": "rec-circuit-board", "name": "Circuit Board", "machineId": "mach-assembler", "cycleTime": 8, "outputAmount": 1, "inputs": [ { "resourceId": "res-copper-sheet", "amount": 2 }, { "resourceId": "res-plastic", "amount": 4 } ] } ],
+      "defaultRecipeId": "rec-circuit-board" },
+    { "id": "res-computer", "name": "Computer", "categoryId": "cat-electronics", "researchTierId": "rt5",
+      "recipes": [ { "id": "rec-computer", "name": "Computer", "machineId": "mach-manufacturer", "cycleTime": 24, "outputAmount": 1, "inputs": [ { "resourceId": "res-circuit-board", "amount": 4 }, { "resourceId": "res-cable", "amount": 8 }, { "resourceId": "res-plastic", "amount": 16 } ] } ],
+      "defaultRecipeId": "rec-computer" },
+    { "id": "res-ai-limiter", "name": "AI Limiter", "categoryId": "cat-electronics", "researchTierId": "rt5",
+      "recipes": [ { "id": "rec-ai-limiter", "name": "AI Limiter", "machineId": "mach-assembler", "cycleTime": 12, "outputAmount": 1, "inputs": [ { "resourceId": "res-copper-sheet", "amount": 5 }, { "resourceId": "res-quickwire", "amount": 20 } ] } ],
+      "defaultRecipeId": "rec-ai-limiter" },
+    { "id": "res-high-speed-connector", "name": "High-Speed Connector", "categoryId": "cat-electronics", "researchTierId": "rt7",
+      "recipes": [ { "id": "rec-high-speed-connector", "name": "High-Speed Connector", "machineId": "mach-manufacturer", "cycleTime": 16, "outputAmount": 1, "inputs": [ { "resourceId": "res-quickwire", "amount": 56 }, { "resourceId": "res-cable", "amount": 10 }, { "resourceId": "res-circuit-board", "amount": 1 } ] } ],
+      "defaultRecipeId": "rec-high-speed-connector" },
+    { "id": "res-supercomputer", "name": "Supercomputer", "categoryId": "cat-electronics", "researchTierId": "rt7",
+      "recipes": [ { "id": "rec-supercomputer", "name": "Supercomputer", "machineId": "mach-manufacturer", "cycleTime": 32, "outputAmount": 1, "inputs": [ { "resourceId": "res-computer", "amount": 4 }, { "resourceId": "res-ai-limiter", "amount": 2 }, { "resourceId": "res-high-speed-connector", "amount": 3 }, { "resourceId": "res-plastic", "amount": 28 } ] } ],
+      "defaultRecipeId": "rec-supercomputer" },
+
+    { "id": "res-smart-plating", "name": "Smart Plating", "categoryId": "cat-elevator", "researchTierId": "rt2",
+      "recipes": [ { "id": "rec-smart-plating", "name": "Smart Plating", "machineId": "mach-assembler", "cycleTime": 30, "outputAmount": 1, "inputs": [ { "resourceId": "res-reinforced-iron-plate", "amount": 1 }, { "resourceId": "res-rotor", "amount": 1 } ] } ],
+      "defaultRecipeId": "rec-smart-plating" },
+    { "id": "res-versatile-framework", "name": "Versatile Framework", "categoryId": "cat-elevator", "researchTierId": "rt3",
+      "recipes": [ { "id": "rec-versatile-framework", "name": "Versatile Framework", "machineId": "mach-assembler", "cycleTime": 24, "outputAmount": 2, "inputs": [ { "resourceId": "res-modular-frame", "amount": 1 }, { "resourceId": "res-steel-beam", "amount": 12 } ] } ],
+      "defaultRecipeId": "rec-versatile-framework" },
+    { "id": "res-automated-wiring", "name": "Automated Wiring", "categoryId": "cat-elevator", "researchTierId": "rt4",
+      "recipes": [ { "id": "rec-automated-wiring", "name": "Automated Wiring", "machineId": "mach-assembler", "cycleTime": 24, "outputAmount": 1, "inputs": [ { "resourceId": "res-stator", "amount": 1 }, { "resourceId": "res-cable", "amount": 20 } ] } ],
+      "defaultRecipeId": "rec-automated-wiring" },
+    { "id": "res-modular-engine", "name": "Modular Engine", "categoryId": "cat-elevator", "researchTierId": "rt5",
+      "recipes": [ { "id": "rec-modular-engine", "name": "Modular Engine", "machineId": "mach-manufacturer", "cycleTime": 60, "outputAmount": 1, "inputs": [ { "resourceId": "res-motor", "amount": 2 }, { "resourceId": "res-rubber", "amount": 15 }, { "resourceId": "res-smart-plating", "amount": 2 } ] } ],
+      "defaultRecipeId": "rec-modular-engine" },
+    { "id": "res-adaptive-control-unit", "name": "Adaptive Control Unit", "categoryId": "cat-elevator", "researchTierId": "rt5",
+      "recipes": [ { "id": "rec-adaptive-control-unit", "name": "Adaptive Control Unit", "machineId": "mach-manufacturer", "cycleTime": 120, "outputAmount": 2, "inputs": [ { "resourceId": "res-automated-wiring", "amount": 15 }, { "resourceId": "res-circuit-board", "amount": 10 }, { "resourceId": "res-heavy-modular-frame", "amount": 2 }, { "resourceId": "res-computer", "amount": 2 } ] } ],
+      "defaultRecipeId": "rec-adaptive-control-unit" },
+    { "id": "res-assembly-director-system", "name": "Assembly Director System", "categoryId": "cat-elevator", "researchTierId": "rt7",
+      "recipes": [ { "id": "rec-assembly-director-system", "name": "Assembly Director System", "machineId": "mach-assembler", "cycleTime": 80, "outputAmount": 1, "inputs": [ { "resourceId": "res-adaptive-control-unit", "amount": 2 }, { "resourceId": "res-supercomputer", "amount": 1 } ] } ],
+      "defaultRecipeId": "rec-assembly-director-system" }
   ],
   "selTiers": {},
   "recOverrides": {},
