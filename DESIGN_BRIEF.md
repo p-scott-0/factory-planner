@@ -87,7 +87,8 @@ Results are displayed as a visual graph alongside the machine list. The diagram 
 - Columns aligned to the top of the diagram (matching the results list beside it)
 - Each flow into or out of a node gets its own entry/exit point spread along the node's edge, so multiple flows never converge on one midpoint
 - Every edge ends in a straight horizontal run so the line enters the back of its arrowhead
-- Edges labelled with the flow rate, required belt tier, and resource name — labels float just above the line's approach into the consumer (never covering the line), one label block per entry point; highway edges carry a single-line label on their lane
+- Edges are **colour-coded per resource** (the same material keeps one colour across the whole diagram, including its raw-input box) so flows can be traced at a glance
+- Each edge carries only a **compact rate pill** at its arrowhead (e.g. "360/min"); hovering the edge shows the full details — resource, exact rate, required belt/pipe tier, and producer → consumer — and thickens the line for tracing
 - Raw input nodes at the far end of the graph
 - Nodes grouped left-to-right by dependency depth (raw inputs on the left, target on the right, following natural reading direction)
 - Nodes within each column sorted by category then name
@@ -113,7 +114,10 @@ A 2D grid-based canvas where users plan the physical placement of machines.
 - **Erase** — click a machine instance to delete it (and all belts connected to it); click a belt path cell to delete that belt
 
 ### Belt behaviour
-Belts and pipes are always drawn as clean orthogonal runs with 90° corners (paths are rasterised through their waypoints). They are **attached to their endpoint ports**: moving or rotating a machine re-routes every connected belt so it stays plugged into the same input/output.
+Belts and pipes are always drawn as clean orthogonal runs with 90° corners (paths are rasterised through their waypoints). They are **attached to their endpoint ports** by stable port ids: moving or rotating a machine re-routes every connected belt, and editing/reordering a machine's port list can't re-target belts (belts whose ports are deleted are removed with a warning). Belt paths are derived data and are never persisted — they're recomputed on load.
+
+### Undo / feedback
+The layout editor keeps a 50-step undo/redo history (Ctrl+Z / Ctrl+Y) covering placement, moves, rotation, deletion, belts, paste, blueprint load/place, and plan builds; the history survives tab switches and resets on profile switch. Actions that can't proceed (paste with no space, placing a blueprint whose machines were deleted) show a brief HUD message instead of failing silently. Holding Alt while dragging disables soft-snap.
 
 ### Machine rendering
 Machines are colour-coded with a stable per-machine colour that also appears next to machine names in the planner. Labels scale with the machine's footprint (name + tier, with the active recipe/product on a second line for machines placed from a plan) and hide when zoomed too far out. The canvas zooms out to 3% for very large factories.
@@ -191,7 +195,7 @@ Full-height canvas with a sidebar on the left containing the tool buttons, rotat
 
 ## Data Persistence
 
-All data is stored locally in the browser across sessions. No account, server, or network connection is required. Data is never sent anywhere.
+All data is stored locally in the browser across sessions. No account, server, or network connection is required. Data is never sent anywhere. If browser storage fills up, the app warns loudly instead of silently dropping changes. The planner's last query (mode, target, rate, inputs) is saved per profile and restored — with results recalculated — on the next visit, and results auto-recalculate when tiers, recipe toggles, or belt/pipe caps change. All user-entered names are HTML-escaped wherever they are displayed.
 
 ---
 

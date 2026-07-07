@@ -87,6 +87,9 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
 .rec-override-row select{flex:1;min-width:120px}
 .flow-card{overflow-x:auto}
 .flow-card svg text{font-family:'Segoe UI',system-ui,sans-serif}
+.flow-card svg g.fe .vis{transition:stroke-width .1s,stroke-opacity .1s}
+.flow-card svg g.fe:hover .vis{stroke-width:3.5;stroke-opacity:1}
+.flow-card svg g.fe:hover text{font-weight:700}
 .ach-banner{background:#182818;border:1px solid #2a5a2a;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#5aaa6a}
 .rtree{overflow-x:auto;margin-top:10px;border-top:1px solid var(--b);padding-top:10px}
 .rtree svg{display:block;font-family:'Segoe UI',system-ui,sans-serif}
@@ -514,7 +517,6 @@ let maxBeltTierId = null; // planner cap on belt tier (null = fastest unlocked)
 let maxPipeTierId = null; // planner cap on pipe tier (null = fastest unlocked)
 let blueprints    = [];  // saved layouts: [{id,name,category,instances,belts}]
 let selTiers      = {};  // machineId → tierId
-let recOverrides  = {};  // legacy (planner now auto-selects recipes)
 let rateUnit      = localStorage.getItem('fp_rateunit')==='s'?'s':'m'; // global display unit
 const catState    = {};  // catId → true=expanded (ephemeral)
 let planMode      = 'target';
@@ -556,7 +558,6 @@ function loadActiveProfile(){
   resources   = p.resources    || [];
   categories  = p.categories   || [];
   selTiers    = p.selTiers     || {};
-  recOverrides= p.recOverrides || {};
   researchTiers = p.researchTiers || [];
   beltTiers     = p.beltTiers     || [];
   recToggles    = p.recToggles    || {};
@@ -566,6 +567,20 @@ function loadActiveProfile(){
   maxPipeTierId = p.maxPipeTierId ?? null;
   blueprints    = p.blueprints    || [];
   migrateTierCosts(machines);
+  migrateData();
+}
+
+// Assign stable hues, port ids, and repair machines with no tiers (only
+// possible via imported data — a tierless machine used to vanish as "locked").
+function migrateData(){
+  machines.forEach((m,i)=>{
+    if(m.hue===undefined)m.hue=Math.round(i*137.5)%360;
+    if(!(m.tiers||[]).length)m.tiers=[{id:uid(),name:'Base',speedMult:1,buildCost:[]}];
+    (m.ports||[]).forEach(p=>{if(!p.id)p.id=uid();});
+  });
+  resources.forEach((r,i)=>{
+    if(r.hue===undefined)r.hue=Math.round(i*137.5+60)%360;
+  });
 }
 
 // Migration: build costs used to live on the machine; they now live per tier.
@@ -583,7 +598,7 @@ function saveActiveProfile(){
   const p=profiles.find(p=>p.id===activeProfileId);
   if(!p)return;
   p.machines=machines; p.resources=resources; p.categories=categories;
-  p.selTiers=selTiers; p.recOverrides=recOverrides;
+  p.selTiers=selTiers;
   p.researchTiers=researchTiers; p.beltTiers=beltTiers; p.pipeTiers=pipeTiers;
   p.recToggles=recToggles; p.unlockedTierId=unlockedTierId;
   p.maxBeltTierId=maxBeltTierId; p.maxPipeTierId=maxPipeTierId;
@@ -591,17 +606,27 @@ function saveActiveProfile(){
   if(typeof saveLayout==='function')saveLayout();
 }
 
+let _quotaWarned=false;
 function saveState(){
   saveActiveProfile();
-  localStorage.setItem('fp_profiles',JSON.stringify(profiles));
-  localStorage.setItem('fp_active',activeProfileId);
+  try{
+    localStorage.setItem('fp_profiles',JSON.stringify(profiles));
+    localStorage.setItem('fp_active',activeProfileId);
+    _quotaWarned=false;
+  }catch(err){
+    if(!_quotaWarned){
+      _quotaWarned=true;
+      alert('⚠ Browser storage is full — changes are NOT being saved.\nExport your profile now, then delete unused blueprints or profiles to free space.');
+    }
+    console.warn('saveState failed:',err);
+  }
 }
 
 // ── Profile CRUD ──
 function renderProfileSelector(){
   const sel=document.getElementById('prof-sel');
   sel.innerHTML=profiles.map(p=>
-    `<option value="${p.id}"${p.id===activeProfileId?' selected':''}>${p.name}</option>`
+    `<option value="${p.id}"${p.id===activeProfileId?' selected':''}>${esc(p.name)}</option>`
   ).join('');
 }
 
@@ -623,13 +648,14 @@ function reloadUI(){
   lastPlan=null;
   cancelMachine(); cancelResource();
   if(selResId){selResId=null;document.getElementById('rec-editor').style.display='none';}
-  lastPlan=null;
   document.getElementById('pl-results').innerHTML='';
   document.getElementById('rec-inputs').innerHTML='';
   addIO('rec-inputs');
   Object.keys(catState).forEach(k=>delete catState[k]);
   // Reload layout if canvas is active
   if(typeof loadLayout==='function'){loadLayout(); renderLyPalette(); renderBlueprints(); updateLyCost(); lyRender();}
+  // Restore this profile's saved planner query and re-run it if complete
+  if(restorePlannerQuery())runPlanner();
 }
 
 function toggleProfilePanel(){
@@ -640,7 +666,9 @@ function createProfile(){
   const nameEl=document.getElementById('prof-new-name');
   const name=nameEl.value.trim()||'New Profile';
   saveActiveProfile();
-  const p={id:crypto.randomUUID(),name,machines:[],resources:[],categories:[],selTiers:{},recOverrides:{},researchTiers:[],beltTiers:[],recToggles:{},unlockedTierId:null};
+  const p={id:crypto.randomUUID(),name,machines:[],resources:[],categories:[],selTiers:{},
+    researchTiers:[],beltTiers:[],pipeTiers:[],recToggles:{},unlockedTierId:null,
+    maxBeltTierId:null,maxPipeTierId:null,blueprints:[],layout:{instances:[],belts:[]}};
   profiles.push(p);
   activeProfileId=p.id;
   loadActiveProfile();
@@ -702,7 +730,6 @@ function importProfile(e){
         resources:d.resources||[],
         categories:d.categories||[],
         selTiers:d.selTiers||{},
-        recOverrides:d.recOverrides||{},
         researchTiers:d.researchTiers||[],
         beltTiers:d.beltTiers||[],
         recToggles:d.recToggles||{},
@@ -742,7 +769,6 @@ async function loadSampleProfile(key){
       resources:d.resources||[],
       categories:d.categories||[],
       selTiers:d.selTiers||{},
-      recOverrides:d.recOverrides||{},
       researchTiers:d.researchTiers||[],
       beltTiers:d.beltTiers||[],
       recToggles:d.recToggles||{},
@@ -770,7 +796,7 @@ function renderUnlockSelector(){
   if(!researchTiers.length){el.style.display='none';return;}
   el.style.display='';
   const cur=tierIdx(unlockedTierId)>=0?unlockedTierId:researchTiers[researchTiers.length-1].id;
-  el.innerHTML=researchTiers.map(t=>`<option value="${t.id}"${t.id===cur?' selected':''}>🔓 ${t.name}</option>`).join('');
+  el.innerHTML=researchTiers.map(t=>`<option value="${t.id}"${t.id===cur?' selected':''}>🔓 ${esc(t.name)}</option>`).join('');
 }
 function setUnlockedTier(id){unlockedTierId=id;saveState();reloadUI();}
 
@@ -792,17 +818,17 @@ function renderTierTab(){
   const chip=(label,removeCall)=>`<span class="prof-item">${label}${removeCall?`<button onclick="${removeCall}" title="Clear tier assignment" style="color:var(--red)">✕</button>`:''}</span>`;
   const group=(title,items)=>items.length?`<div class="rt-group"><div class="sl">${title} (${items.length})</div>${items.join('')}</div>`:'';
   const contents=(k,removable)=>
-    group('Machines',k.machines.map(m=>chip(m.name,removable?`assignTier('m:${m.id}','')`:'')))+
-    group('Machine tiers',k.machTiers.map(({m,t})=>chip(`${m.name} · ${t.name}`,removable?`assignTier('mt:${m.id}:${t.id}','')`:'')))+
-    group('Resources',k.resources.map(r=>chip(r.name,removable?`assignTier('r:${r.id}','')`:'')))+
-    group('Belts',k.belts.map(b=>chip(b.name,removable?`assignTier('b:${b.id}','')`:'')))+
-    group('Pipes',k.pipes.map(b=>chip(b.name,removable?`assignTier('p:${b.id}','')`:'')));
+    group('Machines',k.machines.map(m=>chip(esc(m.name),removable?`assignTier('m:${m.id}','')`:'')))+
+    group('Machine tiers',k.machTiers.map(({m,t})=>chip(`${esc(m.name)} · ${esc(t.name)}`,removable?`assignTier('mt:${m.id}:${t.id}','')`:'')))+
+    group('Resources',k.resources.map(r=>chip(esc(r.name),removable?`assignTier('r:${r.id}','')`:'')))+
+    group('Belts',k.belts.map(b=>chip(esc(b.name),removable?`assignTier('b:${b.id}','')`:'')))+
+    group('Pipes',k.pipes.map(b=>chip(esc(b.name),removable?`assignTier('p:${b.id}','')`:'')));
 
   function assignOpts(){
     const byName=(a,b)=>a.name.localeCompare(b.name);
     const opt=(v,label,curTid)=>{
       const cur=tierName(norm(curTid));
-      return`<option value="${v}">${label}${cur?` (${cur})`:''}</option>`;
+      return`<option value="${v}">${esc(label)}${cur?` (${esc(cur)})`:''}</option>`;
     };
     let h='<option value="">+ Assign an item to this tier…</option>';
     if(machines.length)h+='<optgroup label="Machines">'+machines.slice().sort(byName).map(m=>opt(`m:${m.id}`,m.name,m.researchTierId)).join('')+'</optgroup>';
@@ -810,7 +836,7 @@ function renderTierTab(){
     if(mts.length)h+='<optgroup label="Machine tiers">'+mts.map(({m,t})=>opt(`mt:${m.id}:${t.id}`,`${m.name} · ${t.name}`,t.researchTierId)).join('')+'</optgroup>';
     // Resources get one subheader per category, alphabetical within each
     const bucket=(items,label)=>{
-      if(items.length)h+=`<optgroup label="Resources · ${label}">`+items.sort(byName).map(r=>opt(`r:${r.id}`,r.name,r.researchTierId)).join('')+'</optgroup>';
+      if(items.length)h+=`<optgroup label="Resources · ${esc(label)}">`+items.sort(byName).map(r=>opt(`r:${r.id}`,r.name,r.researchTierId)).join('')+'</optgroup>';
     };
     categories.forEach(c=>bucket(resources.filter(r=>r.categoryId===c.id),c.name));
     bucket(resources.filter(r=>!r.categoryId||!categories.some(c=>c.id===r.categoryId)),'Other');
@@ -827,7 +853,7 @@ function renderTierTab(){
     return`<div class="card rt-card${locked?' rt-locked':''}">
       <div class="lh">
         <div>
-          <div class="ln">${i+1}. ${t.name} ${locked?'<span class="badge bi">🔒 locked</span>':'<span class="badge bo">🔓 unlocked</span>'}</div>
+          <div class="ln">${i+1}. ${esc(t.name)} ${locked?'<span class="badge bi">🔒 locked</span>':'<span class="badge bo">🔓 unlocked</span>'}</div>
           <div class="ls">${total} item${total!==1?'s':''} gated at this tier</div>
         </div>
         <div class="la">
@@ -911,7 +937,7 @@ function delResearchTier(id){
 }
 // Fill the research-tier selects in the machine/resource/belt forms
 function refreshTierSelects(){
-  const opts='<option value="">— always —</option>'+researchTiers.map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
+  const opts='<option value="">— always —</option>'+researchTiers.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('');
   ['mf-rt','rf-rt','bf-rt','pf-rt'].forEach(id=>{
     const el=document.getElementById(id);
     if(el){const cur=el.value;el.innerHTML=opts;el.value=cur;}
@@ -933,7 +959,7 @@ function renderBeltTiers(){
   el.innerHTML=visible.map(b=>{
     const rt=tierName(b.researchTierId);
     return`<div class="litem"><div class="lh">
-      <div><div class="ln">${b.name}</div><div class="ls">${rfmt(b.speed,2)}${rt?` · ${rt}`:''}</div></div>
+      <div><div class="ln">${esc(b.name)}</div><div class="ls">${rfmt(b.speed,2)}${rt?` · ${esc(rt)}`:''}</div></div>
       <div class="la"><button class="bx" onclick="delBeltTier('${b.id}')">Del</button></div>
     </div></div>`;
   }).join('')+(hidden?`<div class="empty">🔒 ${hidden} belt tier${hidden>1?'s':''} hidden above the unlocked research tier</div>`:'');
@@ -969,7 +995,7 @@ function renderPipeTiers(){
   el.innerHTML=visible.map(b=>{
     const rt=tierName(b.researchTierId);
     return`<div class="litem"><div class="lh">
-      <div><div class="ln">${b.name}</div><div class="ls">${rfmt(b.speed,2)}${rt?` · ${rt}`:''}</div></div>
+      <div><div class="ln">${esc(b.name)}</div><div class="ls">${rfmt(b.speed,2)}${rt?` · ${esc(rt)}`:''}</div></div>
       <div class="la"><button class="bx" onclick="delPipeTier('${b.id}')">Del</button></div>
     </div></div>`;
   }).join('')+(hidden?`<div class="empty">🔒 ${hidden} pipe tier${hidden>1?'s':''} hidden above the unlocked research tier</div>`:'');
@@ -1014,8 +1040,16 @@ function goTab(name){document.querySelector(`.nav-tab[data-tab="${name}"]`).clic
 function uid(){return crypto.randomUUID();}
 function rname(id){return resources.find(r=>r.id===id)?.name??id;}
 function mname(id){return machines.find(m=>m.id===id)?.name??id;}
+// Escape user-entered text before interpolating into HTML/SVG templates
+function esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 function setErr(id,msg){document.getElementById(id).innerHTML=msg?`<div class="alert ae">${msg}</div>`:''}
 function fmt(n,d=3){return isFinite(n)?n.toFixed(d):'-'}
+// Compact rate for tight labels: "360/min", "22.5/min", "4.5/s"
+function cfmt(ratePerSec){
+  const v=rateUnit==='m'?ratePerSec*60:ratePerSec;
+  const t=v>=100?String(Math.round(v)):String(Math.round(v*100)/100);
+  return t+(rateUnit==='m'?'/min':'/s');
+}
 
 // ── Rate display unit (global /min vs /s toggle) ──
 function rfmt(ratePerSec,d=2){return rateUnit==='m'?`${fmt(ratePerSec*60,d)}/min`:`${fmt(ratePerSec,d)}/s`;}
@@ -1050,7 +1084,7 @@ function recipeAvailable(rec){
   return true;
 }
 function researchTierOpts(sel){
-  return '<option value="">— always —</option>'+researchTiers.map(t=>`<option value="${t.id}"${t.id===sel?' selected':''}>${t.name}</option>`).join('');
+  return '<option value="">— always —</option>'+researchTiers.map(t=>`<option value="${t.id}"${t.id===sel?' selected':''}>${esc(t.name)}</option>`).join('');
 }
 
 // ── Belt tiers ──
@@ -1097,17 +1131,23 @@ function beltLabel(ratePerSec,isFluid){
 function isFluidRes(resId){return !!resources.find(r=>r.id===resId)?.isFluid;}
 function flowTierById(id){return beltTiers.find(b=>b.id===id)||pipeTiers.find(b=>b.id===id)||null;}
 
-// Stable per-machine colour, used in both planner and layout
+// Stable colours: hues are STORED on machines/resources (assigned once, never
+// shifting when other items are deleted). Used across planner + layout.
 function machColor(machId,sat=55,lum=55){
-  const i=machines.findIndex(m=>m.id===machId);
-  if(i<0)return`hsl(210 15% ${lum}%)`;
-  return`hsl(${Math.round(i*137.5)%360} ${sat}% ${lum}%)`;
+  const m=machines.find(m=>m.id===machId);
+  return`hsl(${Math.round(m?.hue??210)} ${m?sat:15}% ${lum}%)`;
+}
+function resColor(resId,sat=60,lum=62){
+  const r=resources.find(r=>r.id===resId);
+  return`hsl(${Math.round(r?.hue??210)} ${r?sat:15}% ${lum}%)`;
 }
 
 function buildResOpts(selectedId='', exclude=''){
-  const eligible = r => r.id !== exclude && resUnlocked(r);
+  // The CURRENT selection is always kept even when research-locked, so opening
+  // an editor at a low unlock level can never silently swap an ingredient.
+  const eligible = r => r.id !== exclude && (resUnlocked(r) || r.id===selectedId);
   const byName = (a,b) => a.name.localeCompare(b.name);
-  const opt = r => `<option value="${r.id}"${r.id===selectedId?' selected':''}>${r.name}</option>`;
+  const opt = r => `<option value="${r.id}"${r.id===selectedId?' selected':''}>${resUnlocked(r)?'':'🔒 '}${esc(r.name)}</option>`;
   // Group into categories + uncategorized, alphabetical within each group
   const catBuckets = {};
   categories.forEach(c => catBuckets[c.id] = []);
@@ -1121,7 +1161,7 @@ function buildResOpts(selectedId='', exclude=''){
   categories.forEach(c => {
     const items = catBuckets[c.id].sort(byName);
     if(!items.length) return;
-    html += `<optgroup label="${c.name}">${items.map(opt).join('')}</optgroup>`;
+    html += `<optgroup label="${esc(c.name)}">${items.map(opt).join('')}</optgroup>`;
   });
   if(uncat.length){
     uncat.sort(byName);
@@ -1161,17 +1201,28 @@ function refreshResSelects(){
 }
 
 function refreshMachSelects(){
-  const opts=`<option value="">— none —</option>`+machines.filter(machUnlocked).map(m=>`<option value="${m.id}">${m.name}</option>`).join('');
+  const opts=`<option value="">— none —</option>`+machines.filter(machUnlocked).map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('');
   const rawOpts=opts.replace('— none —','— none / raw —');
-  document.querySelectorAll('select.mach-sel').forEach(sel=>{const cur=sel.value;sel.innerHTML=opts;sel.value=cur;});
+  // Keep the current selection even if it's a research-locked machine — never
+  // silently strip a recipe's machine because of the unlock level.
+  const setKeep=(sel,html)=>{
+    const cur=sel.value;
+    sel.innerHTML=html;
+    sel.value=cur;
+    if(cur&&sel.value!==cur){
+      const m=machines.find(m=>m.id===cur);
+      if(m){sel.insertAdjacentHTML('beforeend',`<option value="${m.id}">🔒 ${esc(m.name)}</option>`);sel.value=cur;}
+    }
+  };
+  document.querySelectorAll('select.mach-sel').forEach(sel=>setKeep(sel,opts));
   const recMach=document.getElementById('rec-mach');
-  if(recMach){const cur=recMach.value;recMach.innerHTML=opts;recMach.value=cur;}
+  if(recMach)setKeep(recMach,opts);
   const rfMach=document.getElementById('rf-mach');
-  if(rfMach){const cur=rfMach.value;rfMach.innerHTML=rawOpts;rfMach.value=cur;}
+  if(rfMach)setKeep(rfMach,rawOpts);
 }
 
 function refreshCatSelect(){
-  const opts='<option value="">— none —</option>'+categories.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+  const opts='<option value="">— none —</option>'+categories.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
   const el=document.getElementById('rf-cat');
   if(el){const cur=el.value;el.innerHTML=opts;el.value=cur;}
 }
@@ -1276,9 +1327,10 @@ function getTierRows(){
   });
 }
 
-function addPortRow(type='input',side='left',offset=0,flow='item'){
+function addPortRow(type='input',side='left',offset=0,flow='item',portId=''){
   const row=document.createElement('div');
   row.className='port-row';
+  row.dataset.pid=portId; // stable port identity so belts survive machine edits
   row.innerHTML=`<select class="port-type"><option value="input"${type==='input'?' selected':''}>In</option><option value="output"${type==='output'?' selected':''}>Out</option></select>
     <select class="port-side"><option value="top"${side==='top'?' selected':''}>Top</option><option value="right"${side==='right'?' selected':''}>Right</option><option value="bottom"${side==='bottom'?' selected':''}>Bottom</option><option value="left"${side==='left'?' selected':''}>Left</option></select>
     <input type="number" class="port-off" min="0" step="1" placeholder="Pos" value="${offset}" title="Position along side (0 = first cell)">
@@ -1289,6 +1341,7 @@ function addPortRow(type='input',side='left',offset=0,flow='item'){
 
 function getPortRows(){
   return[...document.querySelectorAll('#mf-ports .port-row')].map(row=>({
+    id:row.dataset.pid||uid(),
     type:row.querySelector('.port-type').value,
     side:row.querySelector('.port-side').value,
     offset:parseInt(row.querySelector('.port-off').value)||0,
@@ -1306,14 +1359,45 @@ function saveMachine(){
   const h=parseInt(document.getElementById('mf-h').value)||1;
   const ports=getPortRows();
   const researchTierId=document.getElementById('mf-rt').value||null;
+  let warn='';
   if(editMachId){
     const m=machines.find(x=>x.id===editMachId);
-    if(m){m.name=name;m.tiers=tiers;m.width=w;m.height=h;m.ports=ports;m.researchTierId=researchTierId;}
+    if(m){
+      m.name=name;m.tiers=tiers;m.width=w;m.height=h;m.ports=ports;m.researchTierId=researchTierId;
+      // Belts referencing ports that were deleted can never re-attach — remove them
+      const portIds=new Set(ports.map(p=>p.id));
+      const orphan=b=>{
+        const check=end=>{
+          if(!end)return false;
+          const inst=ly.instances.find(i=>i.id===end.instId);
+          return !!inst&&inst.machineId===m.id&&!!end.portId&&!portIds.has(end.portId);
+        };
+        return check(b.from)||check(b.to);
+      };
+      const dropped=ly.belts.filter(orphan).length;
+      if(dropped){
+        ly.belts=ly.belts.filter(b=>!orphan(b));
+        warn+=`${dropped} belt${dropped>1?'s':''} removed (their ports were deleted). `;
+      }
+      // Re-route surviving belts and flag any footprint-change overlaps
+      const mine=new Set(ly.instances.filter(i=>i.machineId===m.id).map(i=>i.id));
+      if(mine.size){
+        rerouteBeltsFor(mine);
+        let overlaps=0;
+        ly.instances.forEach(i=>{
+          if(i.machineId!==m.id)return;
+          if(!canPlace(m.id,i.x,i.y,i.rotation,i.id))overlaps++;
+        });
+        if(overlaps)warn+=`⚠ ${overlaps} placed instance${overlaps>1?'s':''} now overlap other machines — move them apart in the layout.`;
+        saveLayout(); updateLyCost(); lyRender();
+      }
+    }
   } else {
-    machines.push({id:uid(),name,tiers,width:w,height:h,ports,researchTierId});
+    machines.push({id:uid(),name,tiers,width:w,height:h,ports,researchTierId,hue:Math.round(machines.length*137.5)%360});
   }
   saveState(); cancelMachine(); renderMachines(); refreshMachSelects();
   if(typeof renderLyPalette==='function')renderLyPalette();
+  if(warn)alert(warn);
 }
 
 function cancelMachine(){
@@ -1341,7 +1425,7 @@ function editMach(id){
   document.getElementById('mf-w').value=m.width||1;
   document.getElementById('mf-h').value=m.height||1;
   document.getElementById('mf-ports').innerHTML='';
-  (m.ports||[]).forEach(p=>addPortRow(p.type,p.side,p.offset,p.flow||'item'));
+  (m.ports||[]).forEach(p=>addPortRow(p.type,p.side,p.offset,p.flow||'item',p.id||''));
 }
 
 function delMach(id){
@@ -1368,16 +1452,16 @@ function renderMachines(){
   el.innerHTML=visible.map(m=>{
     const tRows=m.tiers.map(t=>{
       const locked=!tierOk(t.researchTierId);
-      return`<span class="badge bm"${locked?' style="opacity:.45"':''}>${locked?'🔒 ':''}${t.name} ×${t.speedMult}${(t.buildCost||[]).length?' · '+t.buildCost.length+' costs':''}</span>`;
+      return`<span class="badge bm"${locked?' style="opacity:.45"':''}>${locked?'🔒 ':''}${esc(t.name)} ×${t.speedMult}${(t.buildCost||[]).length?' · '+t.buildCost.length+' costs':''}</span>`;
     }).join('');
     const sz=(m.width||1)+'×'+(m.height||1);
     const pCnt=(m.ports||[]).length;
     const pIn=(m.ports||[]).filter(p=>p.type==='input').length;
     const pOut=pCnt-pIn;
     const portStr=pCnt?` · ${pIn} in / ${pOut} out`:'';
-    const rtStr=m.researchTierId?` · ${tierName(m.researchTierId)}`:'';
+    const rtStr=m.researchTierId?` · ${esc(tierName(m.researchTierId))}`:'';
     return`<div class="litem"><div class="lh">
-      <div><div class="ln">${m.name}</div>
+      <div><div class="ln"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${machColor(m.id)};margin-right:6px"></span>${esc(m.name)}</div>
         <div class="ls">${sz} cells${portStr}${rtStr}</div>
         <div style="margin-top:4px">${tRows}</div></div>
       <div class="la">
@@ -1401,7 +1485,7 @@ function saveResource(){
     const r=resources.find(x=>x.id===editResId);
     if(r){r.name=name;r.categoryId=categoryId;r.researchTierId=researchTierId;r.isFluid=isFluid;}
   } else {
-    const newRes={id:uid(),name,categoryId,researchTierId,isFluid,recipes:[],defaultRecipeId:null};
+    const newRes={id:uid(),name,categoryId,researchTierId,isFluid,recipes:[],defaultRecipeId:null,hue:Math.round(resources.length*137.5+60)%360};
     const machId=document.getElementById('rf-mach').value;
     const ct=parseFloat(document.getElementById('rf-time').value);
     const outAmt=parseFloat(document.getElementById('rf-outamt').value)||1;
@@ -1455,7 +1539,7 @@ function selectResource(id){
   const r=resources.find(x=>x.id===id);
   if(!r)return;
   document.getElementById('rec-editor').style.display='';
-  document.getElementById('rec-ed-title').textContent=`Recipes for "${r.name}"`;
+  document.getElementById('rec-ed-title').textContent=`Recipes for "${r.name}"`; // textContent — no escaping needed
   refreshMachSelects();
   cancelRecipe();
   renderRecipesForResource(id);
@@ -1536,9 +1620,9 @@ function buildResTreeSVG(resId){
     const bord =isRoot?'#b07020':isRaw?'#2a4a2a':isCyc?'#663333':'#1e3a54';
     const bdash=isRaw?'stroke-dasharray="5 3"':isCyc?'stroke-dasharray="3 2"':'';
     const nameC=isRoot?'#e09030':isRaw?'#5aaa6a':isCyc?'#cc6666':'#4a8ab8';
-    const name =clip(rname(n.resId),18);
-    const mline=isRaw?'raw resource':isCyc?'⚠ cycle detected':(n.mach?clip(n.mach.name,20):'no machine');
-    const rline=(!isRaw&&!isCyc&&n.rec)?clip(n.rec.name,22):'';
+    const name =esc(clip(rname(n.resId),18));
+    const mline=isRaw?'raw resource':isCyc?'⚠ cycle detected':esc(n.mach?clip(n.mach.name,20):'no machine');
+    const rline=(!isRaw&&!isCyc&&n.rec)?esc(clip(n.rec.name,22)):'';
     const mCol =isRaw?'#3a7a4a':isCyc?'#aa5555':'#4a6a88';
     const sw   =isRoot?2:1.5;
     return`<rect x="${n.tx}" y="${n.ty}" width="${TW}" height="${TH}" rx="6" fill="${bg}" stroke="${bord}" stroke-width="${sw}" ${bdash}/>
@@ -1556,11 +1640,11 @@ function resItemHTML(r){
   const defRec=r.recipes.find(x=>x.id===r.defaultRecipeId)??r.recipes[0];
   const sub=recCount===0
     ?'<span style="color:#444;font-size:11px">raw resource</span>'
-    :`<span style="color:#5a8a6a;font-size:11px">${recCount} recipe${recCount>1?'s':''}${defRec?` · ${defRec.name||'(unnamed)'}`:''}</span>`;
+    :`<span style="color:#5a8a6a;font-size:11px">${recCount} recipe${recCount>1?'s':''}${defRec?` · ${esc(defRec.name||'(unnamed)')}`:''}</span>`;
   const hasRec=recCount>0;
   return`<div class="litem" style="${selResId===r.id?'border-color:var(--acc2)':''}">
     <div class="lh">
-      <div><div class="ln">${r.name}${r.isFluid?' <span class="badge bm" title="Fluid — flows through pipes">💧 fluid</span>':''}</div><div style="margin-top:2px">${sub}</div></div>
+      <div><div class="ln"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${resColor(r.id)};margin-right:6px"></span>${esc(r.name)}${r.isFluid?' <span class="badge bm" title="Fluid — flows through pipes">💧 fluid</span>':''}</div><div style="margin-top:2px">${sub}</div></div>
       <div class="la">
         ${hasRec?`<button class="btree bsm" id="treebtn-${r.id}" onclick="toggleResTree('${r.id}',this)">▸ Tree</button>`:''}
         <button class="bb bsm" onclick="editRes('${r.id}')">Edit</button>
@@ -1581,7 +1665,7 @@ function catHeaderHTML(id,name,count,isUncat){
     </div>`;
   return`<div class="cat-hdr" onclick="toggleCat('${id}')">
     <span class="cat-arrow" id="catarrow-${id}">${exp?'▾':'▸'}</span>
-    <span class="cat-name-lbl">${name}</span>
+    <span class="cat-name-lbl">${esc(name)}</span>
     <span class="cat-ct">${count}</span>
     ${acts}
   </div>
@@ -1708,14 +1792,14 @@ function renderRecipesForResource(resId){
   el.innerHTML=res.recipes.map(rec=>{
     const m=rec.machineId?machines.find(m=>m.id===rec.machineId):null;
     const isDef=rec.id===res.defaultRecipeId;
-    const inBadges=rec.inputs.map(i=>`<span class="badge bi">${i.amount}× ${rname(i.resourceId)}</span>`).join('');
-    const outBadge=`<span class="badge bo">${rec.outputAmount??1}× ${res.name}</span>`;
+    const inBadges=rec.inputs.map(i=>`<span class="badge bi">${i.amount}× ${esc(rname(i.resourceId))}</span>`).join('');
+    const outBadge=`<span class="badge bo">${rec.outputAmount??1}× ${esc(res.name)}</span>`;
     return`<div class="litem" style="${isDef?'border-color:#2a5a2a;background:#151e15':''}">
       <div class="lh">
         <div>
-          <span class="ln">${rec.name||'(unnamed)'}</span>
+          <span class="ln">${esc(rec.name||'(unnamed)')}</span>
           ${isDef?'<span class="badge bdef-badge" style="margin-left:6px">default</span>':''}
-          ${m?`<span class="badge bm" style="margin-left:4px">${m.name}</span>`:''}
+          ${m?`<span class="badge bm" style="margin-left:4px">${esc(m.name)}</span>`:''}
         </div>
         <div class="la">
           ${!isDef?`<button class="bdef" onclick="setDefaultRecipe('${rec.id}','${resId}')">Set Default</button>`:''}
@@ -1724,7 +1808,7 @@ function renderRecipesForResource(resId){
         </div>
       </div>
       <div style="margin-top:6px">${inBadges}${inBadges?'<span style="color:#333;margin:0 4px">→</span>':''}${outBadge}</div>
-      <div class="ls">${rec.cycleTime}s cycle · ${rfmt((rec.outputAmount??1)/rec.cycleTime,3)} per machine${m?` · ${m.name}`:''}</div>
+      <div class="ls">${rec.cycleTime}s cycle · ${rfmt((rec.outputAmount??1)/rec.cycleTime,3)} per machine${m?` · ${esc(m.name)}`:''}</div>
     </div>`;
   }).join('');
 }
@@ -1763,10 +1847,10 @@ function renderPlannerControls(){
     tierCard.style.display='';
     let rows=multiTier.map(m=>{
       const cur=activeTier(m.id);
-      const tierOpts=unlockedMachTiers(m).map(t=>`<option value="${t.id}"${cur&&cur.id===t.id?' selected':''}>${t.name} (×${t.speedMult})</option>`).join('');
+      const tierOpts=unlockedMachTiers(m).map(t=>`<option value="${t.id}"${cur&&cur.id===t.id?' selected':''}>${esc(t.name)} (×${t.speedMult})</option>`).join('');
       return`<div class="tier-sel-row">
-        <span>${m.name}</span>
-        <select onchange="selTiers['${m.id}']=this.value;saveState()">
+        <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${machColor(m.id)};margin-right:5px"></span>${esc(m.name)}</span>
+        <select onchange="selTiers['${m.id}']=this.value;saveState();replan()">
           ${tierOpts}
         </select></div>`;
     }).join('');
@@ -1776,18 +1860,18 @@ function renderPlannerControls(){
       const cur=ub.some(b=>b.id===maxBeltTierId)?maxBeltTierId:'';
       rows+=`<div class="tier-sel-row">
         <span>Belts</span>
-        <select onchange="maxBeltTierId=this.value||null;saveState()">
+        <select onchange="maxBeltTierId=this.value||null;saveState();replan()">
           <option value=""${cur?'':' selected'}>fastest unlocked</option>
-          ${ub.map(b=>`<option value="${b.id}"${cur===b.id?' selected':''}>≤ ${b.name} (${rfmt(b.speed,0)})</option>`).join('')}
+          ${ub.map(b=>`<option value="${b.id}"${cur===b.id?' selected':''}>≤ ${esc(b.name)} (${rfmt(b.speed,0)})</option>`).join('')}
         </select></div>`;
     }
     if(up.length>1){
       const cur=up.some(b=>b.id===maxPipeTierId)?maxPipeTierId:'';
       rows+=`<div class="tier-sel-row">
         <span>Pipes</span>
-        <select onchange="maxPipeTierId=this.value||null;saveState()">
+        <select onchange="maxPipeTierId=this.value||null;saveState();replan()">
           <option value=""${cur?'':' selected'}>fastest unlocked</option>
-          ${up.map(b=>`<option value="${b.id}"${cur===b.id?' selected':''}>≤ ${b.name} (${rfmt(b.speed,0)})</option>`).join('')}
+          ${up.map(b=>`<option value="${b.id}"${cur===b.id?' selected':''}>≤ ${esc(b.name)} (${rfmt(b.speed,0)})</option>`).join('')}
         </select></div>`;
     }
     tierRows.innerHTML=rows;
@@ -1806,10 +1890,10 @@ function renderPlannerControls(){
         const on=recToggles[rec.id]!==false;
         const isDef=rec.id===r.defaultRecipeId;
         return`<label style="display:inline-flex;align-items:center;gap:5px;margin:2px 12px 2px 0;font-size:12px;cursor:pointer;color:${on?'var(--tx)':'var(--dim)'}">
-          <input type="checkbox" style="width:auto" ${on?'checked':''} onchange="toggleRecipe('${rec.id}',this.checked)">${rec.name}${isDef?' ★':''}</label>`;
+          <input type="checkbox" style="width:auto" ${on?'checked':''} onchange="toggleRecipe('${rec.id}',this.checked)">${esc(rec.name)}${isDef?' ★':''}</label>`;
       }).join('');
       return`<div class="rec-override-row">
-        <span>${r.name}</span>
+        <span>${esc(r.name)}</span>
         <div style="flex:1;min-width:200px">${boxes}</div>
       </div>`;
     }).join('');
@@ -1820,6 +1904,51 @@ function toggleRecipe(recId,on){
   if(on)delete recToggles[recId];
   else recToggles[recId]=false;
   saveState();
+  replan();
+}
+
+// Re-run the planner if results are on screen, so tier/toggle/cap changes can
+// never leave a stale plan (and a stale "Build in Layout") behind.
+function replan(){
+  if(document.querySelector('#pl-results .plan-panels'))runPlanner();
+}
+
+// ── Planner query persistence (per profile) ──
+function savePlannerQuery(){
+  const p=profiles.find(p=>p.id===activeProfileId);
+  if(!p)return;
+  p.planner={
+    mode:planMode,
+    targetId:document.getElementById('pl-res').value,
+    rate:document.getElementById('pl-rate').value,
+    unit:document.getElementById('pl-unit').value,
+    inpTargetId:document.getElementById('pl-inp-target').value,
+    inputs:[...document.querySelectorAll('#pl-inp-rows .inp-row')].map(row=>{
+      const[s,i,u]=row.querySelectorAll('select,input');
+      return{resourceId:s.value,rate:i.value,unit:u.value};
+    })
+  };
+}
+// Returns true when the restored query is complete enough to auto-run
+function restorePlannerQuery(){
+  const q=profiles.find(p=>p.id===activeProfileId)?.planner;
+  if(!q)return false;
+  setPlanMode(q.mode==='inputs'?'inputs':'target');
+  document.getElementById('pl-res').value=q.targetId||'';
+  document.getElementById('pl-rate').value=q.rate||'';
+  document.getElementById('pl-unit').value=q.unit||'60';
+  document.getElementById('pl-inp-target').value=q.inpTargetId||'';
+  const rows=document.getElementById('pl-inp-rows');
+  rows.innerHTML='';
+  (q.inputs||[]).forEach(inp=>{
+    addInputRow();
+    const row=rows.lastElementChild;
+    const[s,i,u]=row.querySelectorAll('select,input');
+    s.value=inp.resourceId;i.value=inp.rate;u.value=inp.unit;
+  });
+  return q.mode==='inputs'
+    ? !!(q.inpTargetId&&(q.inputs||[]).length)
+    : !!(q.targetId&&parseFloat(q.rate)>0);
 }
 
 function addInputRow(){
@@ -1934,7 +2063,7 @@ function computeChain(targetResId, targetRatePerSec, inputSet=new Set(), useCeil
   topo(targetResId);
 
   const demand={[targetResId]:targetRatePerSec};
-  const nodes=[], addedRec=new Set(), rawNeeds={};
+  const nodes=[], rawNeeds={};
 
   for(const resId of order){
     const d=demand[resId]??0;
@@ -1960,13 +2089,8 @@ function computeChain(targetResId, targetRatePerSec, inputSet=new Set(), useCeil
     }
     const capF=perMach/fullPerMach; // fraction of full speed the machine can actually run at
     const exact=d/perMach;
-    if(!addedRec.has(rec.id)){
-      addedRec.add(rec.id);
-      nodes.push({rec,exact,resId,perMach,fullPerMach,capF,beltCapped});
-    } else {
-      const n=nodes.find(n=>n.rec.id===rec.id);
-      if(exact>n.exact)n.exact=exact;
-    }
+    // Each resource is processed exactly once in topological order, so one node per stage
+    nodes.push({rec,exact,resId,perMach,fullPerMach,capF,beltCapped});
     // Propagate inputs for ceil (full capacity) or exact (constrained) depending
     // on mode; belt-capped machines consume inputs at their reduced rate.
     const propagate=(useCeil?Math.ceil(exact):exact)*capF;
@@ -1987,7 +2111,7 @@ function computeFromInputs(targetResId, inputMap){
   if(infeasible)return{error:'No unlocked & enabled recipe chain can produce this target from the given inputs.'};
 
   const missing=Object.keys(rn1).filter(id=>!inputMap[id]);
-  if(missing.length)return{error:`Required resources not in inputs: ${missing.map(rname).join(', ')}`};
+  if(missing.length)return{error:`Required resources not in inputs: ${missing.map(id=>esc(rname(id))).join(', ')}`};
   if(!Object.keys(rn1).length&&!n1.length)return{error:'No recipe found for target resource.'};
 
   let achievable=Infinity, bottleneckRes=null;
@@ -2008,7 +2132,7 @@ function computeFromInputs(targetResId, inputMap){
 // ══════════════════════════════════════════════════════
 function runPlanner(){
   const resEl=document.getElementById('pl-results');
-  let result;
+  savePlannerQuery(); saveState();
 
   if(planMode==='target'){
     const resId  =document.getElementById('pl-res').value;
@@ -2018,9 +2142,9 @@ function runPlanner(){
     if(!resId)      return resEl.innerHTML='<div class="alert ae">Select a target resource.</div>';
     if(!rateNum||rateNum<=0)return resEl.innerHTML='<div class="alert ae">Enter a positive rate.</div>';
     const{nodes,rawNeeds}=computeChain(resId,rateNum/unit,new Set(),true);
-    if(!nodes.length)return resEl.innerHTML=`<div class="alert ae">No recipe produces "${rname(resId)}". Add one in Resources.</div>`;
+    if(!nodes.length)return resEl.innerHTML=`<div class="alert ae">No recipe produces "${esc(rname(resId))}". Add one in Resources.</div>`;
     lastPlan={nodes};
-    renderResults(resId,nodes,rawNeeds,`${rateNum} ${rname(resId)}/${unitLbl}`,null,resEl);
+    renderResults(resId,nodes,rawNeeds,`${rateNum} ${esc(rname(resId))}/${unitLbl}`,null,resEl);
   } else {
     const targetId=document.getElementById('pl-inp-target').value;
     if(!targetId)return resEl.innerHTML='<div class="alert ae">Select a target resource.</div>';
@@ -2032,11 +2156,16 @@ function runPlanner(){
       const rid=resSel.value, rate=parseFloat(rateInp.value), unit=parseFloat(unitSel.value);
       if(rid&&!isNaN(rate)&&rate>0)inputMap[rid]=(inputMap[rid]??0)+rate/unit;
     });
-    if(!Object.keys(inputMap).length)return resEl.innerHTML='<div class="alert ae">No valid input rows.</div>';
+    // Supplying the target itself is degenerate — ignore it as an input
+    const hadTargetInput=targetId in inputMap;
+    delete inputMap[targetId];
+    if(!Object.keys(inputMap).length)return resEl.innerHTML=hadTargetInput
+      ?'<div class="alert ae">The target resource can\'t be its own only input — supply its ingredients instead.</div>'
+      :'<div class="alert ae">No valid input rows.</div>';
     const res=computeFromInputs(targetId,inputMap);
     if(res.error)return resEl.innerHTML=`<div class="alert ae">${res.error}</div>`;
     lastPlan={nodes:res.nodes};
-    renderResults(targetId,res.nodes,res.rawNeeds,`max ${rfmt(res.achievable,3)} ${rname(targetId)}`,res,resEl);
+    renderResults(targetId,res.nodes,res.rawNeeds,`max ${rfmt(res.achievable,3)} ${esc(rname(targetId))}`,res,resEl);
   }
 }
 
@@ -2048,7 +2177,7 @@ function renderResults(targetResId, nodes, rawNeeds, header, inputMeta, el){
   </div>`;
 
   if(inputMeta){
-    const bName=inputMeta.bottleneckRes?rname(inputMeta.bottleneckRes):'?';
+    const bName=inputMeta.bottleneckRes?esc(rname(inputMeta.bottleneckRes)):'?';
     left+=`<div class="ach-banner">Bottleneck: <strong>${bName}</strong> · achievable: <strong>${rfmt(inputMeta.achievable,3)}</strong></div>`;
   }
 
@@ -2073,9 +2202,9 @@ function renderResults(targetResId, nodes, rawNeeds, header, inputMeta, el){
 
     left+=`<div class="ri${isTgt?' tgt':''}">
       <div class="ri-l">
-        <div class="rm"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${m?machColor(m.id):'#555'};margin-right:6px"></span>${m?m.name:'(no machine)'}${tier?` <span style="color:#6a8090;font-size:11px">${tier}</span>`:''}</div>
-        <div class="rr">${rec.name}</div>
-        <div class="ro">${rfmt(actualRate,3)} ${rname(resId)}${fromInputs&&!atCapacity?` <span style="color:#c07030">(${effPct}% capacity · max ${rfmt(fullRate,3)})</span>`:''}</div>
+        <div class="rm"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${m?machColor(m.id):'#555'};margin-right:6px"></span>${m?esc(m.name):'(no machine)'}${tier?` <span style="color:#6a8090;font-size:11px">${esc(tier)}</span>`:''}</div>
+        <div class="rr">${esc(rec.name)}</div>
+        <div class="ro">${rfmt(actualRate,3)} <span style="color:${resColor(resId)}">${esc(rname(resId))}</span>${fromInputs&&!atCapacity?` <span style="color:#c07030">(${effPct}% capacity · max ${rfmt(fullRate,3)})</span>`:''}</div>
         ${n.beltCapped?`<div class="rr" style="color:#c07030">⚠ output belt-limited to ${rfmt(n.perMach,2)} per machine (would be ${rfmt(n.fullPerMach,2)})</div>`:''}
       </div>
       <div class="ri-r">
@@ -2090,8 +2219,8 @@ function renderResults(targetResId, nodes, rawNeeds, header, inputMeta, el){
       const bf=flowFor(rate,isFluidRes(rid));
       const beltStr=bf?`${bf.count>1?bf.count+'× ':''}${bf.belt.name}`:'';
       left+=`<div class="raw-i">
-        <span class="raw-n">${rname(rid)}</span>
-        <div class="ri-r"><div class="raw-v">${rfmt(rate,3)}</div>${beltStr?`<div class="raw-s">${beltStr}</div>`:''}</div>
+        <span class="raw-n"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${resColor(rid)};margin-right:6px"></span>${esc(rname(rid))}</span>
+        <div class="ri-r"><div class="raw-v">${rfmt(rate,3)}</div>${beltStr?`<div class="raw-s">${esc(beltStr)}</div>`:''}</div>
       </div>`;
     });
   }
@@ -2198,22 +2327,17 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
     return i>=0?palette[i%palette.length]:null;
   }
 
-  let defs=`<defs>
-    <marker id="ar"     markerWidth="7" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0,7 3,0 6" fill="#3a5060"/></marker>
-    <marker id="arlong" markerWidth="7" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0,7 3,0 6" fill="#2a4858"/></marker>
-  </defs>`;
   let edges='',raws='',boxes='';
 
-  // ── Edge renderer ──
   // ── Edge collection ──
   // Each edge later gets its own entry/exit point along the node side, so
-  // multiple flows into one machine no longer converge on a single midpoint
-  // (this is what kept labels and arrows from overlapping).
+  // multiple flows into one machine no longer converge on a single midpoint.
   const edgeList=[];
   nodes.forEach(consumer=>{
     const cp=posR[consumer.rec.id];
     if(!cp)return;
     const ct=effectiveCycleTime(consumer.rec);
+    const toLabel=`${consumer.rec.machineId?mname(consumer.rec.machineId):'(no machine)'} → ${rname(consumer.resId)}`;
     consumer.rec.inputs.forEach(inp=>{
       const rate=(inp.amount/ct)*consumer.exact*(consumer.capF??1);
       const pn=byOut[inp.resourceId];
@@ -2222,12 +2346,16 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
         edgeList.push({fromKey:'n'+pn.rec.id,toKey:'n'+consumer.rec.id,
           fx:pp.x+NW,fyBase:pp.y,fH:NH,tx:cp.x,tyBase:cp.y,
           rate,resId:inp.resourceId,
+          fromLabel:pn.rec.machineId?mname(pn.rec.machineId):'(no machine)',
+          toLabel,
           isLong:(dc[pn.rec.id]-dc[consumer.rec.id])>1});
       } else if(posRaw[inp.resourceId]){
         const rp=posRaw[inp.resourceId];
         edgeList.push({fromKey:'r'+inp.resourceId,toKey:'n'+consumer.rec.id,
           fx:rp.x+RW,fyBase:rp.y,fH:RH,tx:cp.x,tyBase:cp.y,
           rate,resId:inp.resourceId,
+          fromLabel:'Raw input',
+          toLabel,
           isLong:dc[consumer.rec.id]<maxD});
       }
     });
@@ -2247,63 +2375,51 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
     list.forEach((e,i)=>{e.x2=e.tx;e.y2=e.tyBase+NH*(i+1)/(list.length+1);e.slots=list.length;});
   });
 
+  // ── Edge renderer ──
+  // Edges are colour-coded per RESOURCE (same material = same colour across the
+  // whole diagram). Each edge carries only a tiny rate pill at its arrowhead;
+  // the full details (resource, exact rate, belt tier, from → to) live in a
+  // native hover tooltip on the edge group. A wide invisible stroke makes the
+  // whole line easy to hover.
   function drawEdge(e){
     const{x1,y1,x2,y2,isLong}=e;
+    const col=resColor(e.resId);
     const LEAD=26; // straight horizontal run into the arrowhead's back
     let path, laneY=null;
     if(isLong){
       // Highway routing: exit source → curve into lane → horizontal → curve out to target
       laneY=allocLane(chooseLane(y1,y2));
       const s=34;
-      path=`M${x1},${y1} C${x1+s},${y1} ${x1+s},${laneY} ${x1+s*2},${laneY} L${x2-s*2},${laneY} C${x2-s},${laneY} ${x2-s},${y2} ${x2-LEAD},${y2} L${x2},${y2}`;
+      path=`M${x1},${y1} C${x1+s},${y1} ${x1+s},${laneY} ${x1+s*2},${laneY} L${x2-s*2},${laneY} C${x2-s},${laneY} ${x2-s},${y2} ${x2-LEAD},${y2} L${x2-7},${y2}`;
     } else {
       const bx=x2-LEAD;
       const dx=Math.max(20,(bx-x1)*0.5);
-      path=`M${x1},${y1} C${x1+dx},${y1} ${bx-dx},${y2} ${bx},${y2} L${x2},${y2}`;
+      path=`M${x1},${y1} C${x1+dx},${y1} ${bx-dx},${y2} ${bx},${y2} L${x2-7},${y2}`;
     }
-    edges+=`<path d="${path}" fill="none" stroke="${isLong?'#253848':'#2a4050'}" stroke-width="2" marker-end="url(#${isLong?'arlong':'ar'})"/>`;
-
-    const clip=(s,n)=>s&&s.length>n?s.slice(0,n-1)+'…':(s||'');
     const beltStr=beltLabel(e.rate,isFluidRes(e.resId));
-    const l1=`${rfmt(e.rate,2)}${beltStr?' · '+beltStr:''}`;
-    const name=rname(e.resId);
-    if(isLong){
-      // Highway labels sit on the lane run — a box-free band, so one line is fine
-      const txt=`${l1} ${clip(name,26)}`;
-      const mx=(x1+x2)/2, ty=laneY-5;
-      const bgW=txt.length*5.5+10;
-      edges+=`<rect x="${mx-bgW/2}" y="${ty-10}" width="${bgW}" height="13" rx="3" fill="#13151a" opacity=".94"/>`;
-      edges+=`<text x="${mx}" y="${ty}" text-anchor="middle" font-size="10" fill="#5a8aaa">${txt}</text>`;
-    } else {
-      // Label floats ABOVE the horizontal approach (never covering the line),
-      // right-aligned against the consumer; per-entry heights keep them apart.
-      const spacing=NH/((e.slots||1)+1);
-      const lx=x2-6;
-      if(spacing>=21){
-        const l2=clip(name,24);
-        const bgW=Math.max(l1.length*5.5,l2.length*5)+8;
-        edges+=`<rect x="${lx-bgW}" y="${y2-25}" width="${bgW}" height="21" rx="3" fill="#13151a" opacity=".92"/>`;
-        edges+=`<text x="${lx}" y="${y2-15}" text-anchor="end" font-size="10" fill="#5a8aaa">${l1}</text>`;
-        edges+=`<text x="${lx}" y="${y2-5}" text-anchor="end" font-size="9" fill="#4a7090">${l2}</text>`;
-      } else {
-        const txt=`${l1} · ${clip(name,14)}`;
-        const bgW=txt.length*5+8;
-        edges+=`<rect x="${lx-bgW}" y="${y2-14}" width="${bgW}" height="11" rx="3" fill="#13151a" opacity=".92"/>`;
-        edges+=`<text x="${lx}" y="${y2-5}" text-anchor="end" font-size="9" fill="#5a8aaa">${txt}</text>`;
-      }
-    }
+    const tip=`${rname(e.resId)} — ${rfmt(e.rate,2)}${beltStr?' · '+beltStr:''}\n${e.fromLabel} → ${e.toLabel}`;
+    const rateTxt=cfmt(e.rate);
+    const pw=rateTxt.length*5.4+8;
+    edges+=`<g class="fe">
+      <title>${esc(tip)}</title>
+      <path d="${path}" fill="none" stroke="rgba(0,0,0,0.001)" stroke-width="13"/>
+      <path class="vis" d="${path}" fill="none" stroke="${col}" stroke-opacity="${isLong?0.5:0.65}" stroke-width="2"/>
+      <polygon points="${x2},${y2} ${x2-8},${y2-4.2} ${x2-8},${y2+4.2}" fill="${col}"/>
+      <rect x="${x2-10-pw}" y="${y2-16}" width="${pw}" height="12" rx="3" fill="#13151a" opacity=".9"/>
+      <text x="${x2-14}" y="${y2-7}" text-anchor="end" font-size="9" fill="${col}">${rateTxt}</text>
+    </g>`;
   }
   edgeList.forEach(drawEdge);
 
-  // ── Raw material boxes ──
+  // ── Raw material boxes (border tinted by the resource's flow colour) ──
   rawEntries.forEach(([rid,rate])=>{
     const p=posRaw[rid];
     const rawBelt=beltLabel(rate,isFluidRes(rid));
-    raws+=`<rect x="${p.x}" y="${p.y}" width="${RW}" height="${RH}" rx="6" fill="#111a11" stroke="#2a4a2a" stroke-width="1.5" stroke-dasharray="5 3"/>
-      <text x="${p.x+RW/2}" y="${p.y+18}" text-anchor="middle" font-size="12" font-weight="600" fill="#5aaa6a">${rname(rid)}</text>
+    raws+=`<rect x="${p.x}" y="${p.y}" width="${RW}" height="${RH}" rx="6" fill="#111a11" stroke="${resColor(rid,45,40)}" stroke-width="1.5" stroke-dasharray="5 3"/>
+      <text x="${p.x+RW/2}" y="${p.y+18}" text-anchor="middle" font-size="12" font-weight="600" fill="${resColor(rid,55,68)}">${esc(rname(rid))}</text>
       <line x1="${p.x+8}" y1="${p.y+24}" x2="${p.x+RW-8}" y2="${p.y+24}" stroke="#2a4a2a" stroke-width="1"/>
       <text x="${p.x+RW/2}" y="${p.y+38}" text-anchor="middle" font-size="10" fill="#3a7a4a">${rfmt(rate,3)}</text>
-      ${rawBelt?`<text x="${p.x+RW/2}" y="${p.y+51}" text-anchor="middle" font-size="10" fill="#2a6a3a">${rawBelt}</text>`:''}`;
+      ${rawBelt?`<text x="${p.x+RW/2}" y="${p.y+51}" text-anchor="middle" font-size="10" fill="#2a6a3a">${esc(rawBelt)}</text>`:''}`;
   });
 
   // ── Recipe boxes ──
@@ -2330,15 +2446,15 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
         <text x="${p.x+NW/2}" y="${p.y+NH-3}" text-anchor="middle" font-size="8" fill="#c07030">${(eff*100).toFixed(0)}%</text>`
       :'';
     boxes+=`<rect x="${p.x}" y="${p.y}" width="${NW}" height="${NH}" rx="7" fill="${bg}" stroke="${bord}" stroke-width="${isTgt?2:1.5}"/>
-      <text x="${p.x+NW/2}" y="${p.y+19}" text-anchor="middle" font-size="12" font-weight="700" fill="${mCol}">${machLine}</text>
-      <text x="${p.x+NW/2}" y="${p.y+33}" text-anchor="middle" font-size="10" fill="#5a7888">${n.rec.name}</text>
+      <text x="${p.x+NW/2}" y="${p.y+19}" text-anchor="middle" font-size="12" font-weight="700" fill="${mCol}">${esc(machLine)}</text>
+      <text x="${p.x+NW/2}" y="${p.y+33}" text-anchor="middle" font-size="10" fill="#5a7888">${esc(n.rec.name)}</text>
       <line x1="${p.x+10}" y1="${p.y+40}" x2="${p.x+NW-10}" y2="${p.y+40}" stroke="#1e3040" stroke-width="1"/>
       <text x="${p.x+NW/2}" y="${p.y+66}" text-anchor="middle" font-size="26" font-weight="900" fill="${cCol}">${count}</text>
-      <text x="${p.x+NW-7}" y="${p.y+NH-(fromInputs&&!atCap?15:5)}" text-anchor="end" font-size="9" fill="#3a5a70">${rfmt(actualRate,2)} ${rname(n.resId)}</text>
+      <text x="${p.x+NW-7}" y="${p.y+NH-(fromInputs&&!atCap?15:5)}" text-anchor="end" font-size="9" fill="${resColor(n.resId,45,52)}">${rfmt(actualRate,2)} ${esc(rname(n.resId))}</text>
       ${effBand}`;
   });
 
-  return`<div style="overflow-x:auto"><svg width="${svgW}" height="${svgH}" xmlns="http://www.w3.org/2000/svg" style="display:block;font-family:'Segoe UI',system-ui,sans-serif">${defs}${edges}${raws}${boxes}</svg></div>`;
+  return`<div style="overflow-x:auto"><svg width="${svgW}" height="${svgH}" xmlns="http://www.w3.org/2000/svg" style="display:block;font-family:'Segoe UI',system-ui,sans-serif">${edges}${raws}${boxes}</svg></div>`;
 }
 
 // ══════════════════════════════════════════════════════
@@ -2360,7 +2476,15 @@ function importData(e){
       if(d.resources)resources=d.resources;
       if(d.categories)categories=d.categories;
       migrateTierCosts(machines);
-      saveState(); renderMachines(); renderResources(); renderPlannerControls(); refreshMachSelects(); refreshCatSelect();
+      migrateData();
+      // Prune layout objects that reference machines which no longer exist
+      const ids=new Set(machines.map(m=>m.id));
+      const gone=new Set(ly.instances.filter(i=>!ids.has(i.machineId)).map(i=>i.id));
+      if(gone.size){
+        ly.instances=ly.instances.filter(i=>ids.has(i.machineId));
+        ly.belts=ly.belts.filter(b=>!gone.has(b.from.instId)&&!gone.has(b.to.instId));
+      }
+      saveState(); reloadUI();
     }catch{alert('Invalid JSON.');}
   };
   r.readAsText(f); e.target.value='';
@@ -2372,13 +2496,14 @@ function importData(e){
 
 // ── Layout state (per profile, persisted) ──
 let ly={
+  profileId:null,// which profile these arrays belong to (guards cross-profile writes)
   instances:[],  // [{id,machineId,tierId,x,y,rotation,label?}]
-  belts:[],      // [{id,kind:'belt'|'pipe',beltTierId,from:{instId,portIdx},to:{instId,portIdx},waypoints:[{x,y}],path:[{x,y}]}]
+  belts:[],      // [{id,kind:'belt'|'pipe',beltTierId,from:{instId,portId},to:{instId,portId},waypoints:[{x,y}]}] + hidden .path
   // view (ephemeral)
   vx:0,vy:0,zoom:1,
   tool:'select', placeMachId:null, placeTierId:null, beltTierId:null, flowKind:'belt', rotation:0,
   selIds:new Set(), // selected instance ids
-  beltStart:null,   // {instId,portIdx,x,y} when routing a belt
+  beltStart:null,   // {instId,portId,...} when routing a belt
   beltPath:[],      // [{x,y}] waypoints being drawn
   mouseGx:0,mouseGy:0,
   canvasReady:false
@@ -2387,17 +2512,28 @@ const CELL=32; // px per grid cell at zoom 1
 
 function loadLayout(){
   const p=profiles.find(p=>p.id===activeProfileId);
+  // Undo history only resets when the PROFILE changes — re-opening the layout
+  // tab (which also lands here) must not wipe it.
+  if(ly.profileId!==activeProfileId){_lyUndo.length=0;_lyRedo.length=0;ly.selIds=new Set();}
+  ly.profileId=activeProfileId;
   ly.instances=(p?.layout?.instances)||[];
   ly.belts=(p?.layout?.belts)||[];
   ly.bpBox=(p?.layout?.bpBox)||{w:32,h:32,show:false};
   const bw=document.getElementById('bp-box-w'), bh=document.getElementById('bp-box-h'), bs=document.getElementById('bp-box-show');
   if(bw){bw.value=ly.bpBox.w;bh.value=ly.bpBox.h;bs.checked=!!ly.bpBox.show;}
-  ly.selIds=new Set();
-  // Heal legacy belts: derive waypoints from the stored path, tag kind, and
-  // re-route from the current port positions so they track their machines.
+  // Heal legacy belts: derive waypoints from the stored path, tag kind, resolve
+  // index-based port references to stable port ids, and re-route from current
+  // port positions so belts track their machines.
   ly.belts.forEach(b=>{
     if(!b.kind)b.kind=pipeTiers.some(t=>t.id===b.beltTierId)?'pipe':'belt';
     if(!b.waypoints)b.waypoints=(b.path||[]).slice(1,-1).map(c=>({x:c.x,y:c.y}));
+    [b.from,b.to].forEach(end=>{
+      if(end&&!end.portId&&end.portIdx!=null){
+        const inst=ly.instances.find(i=>i.id===end.instId);
+        const m=inst&&machines.find(m=>m.id===inst.machineId);
+        end.portId=m?.ports?.[end.portIdx]?.id||null;
+      }
+    });
     rerouteBelt(b);
   });
 }
@@ -2416,20 +2552,26 @@ function rasterize(wps){
   }
   return cells;
 }
-function portCellOf(instId,portIdx){
+// Ports are referenced by their stable id (with a legacy index fallback), so
+// editing/reordering a machine's port list can't silently re-target belts.
+function portCellOf(instId,portId,portIdx){
   const inst=ly.instances.find(i=>i.id===instId);
   if(!inst)return null;
   const m=machines.find(m=>m.id===inst.machineId);
-  if(!m||!m.ports||!m.ports[portIdx])return null;
-  return portExternalCell(machPortPos(m,m.ports[portIdx],inst.x,inst.y,inst.rotation));
+  if(!m||!m.ports)return null;
+  const port=(portId&&m.ports.find(p=>p.id===portId))||(portIdx!=null?m.ports[portIdx]:null);
+  if(!port)return null;
+  return portExternalCell(machPortPos(m,port,inst.x,inst.y,inst.rotation));
 }
 // Belts stay attached: whenever an endpoint machine moves or rotates, the
 // path is recomputed from the port cells through the belt's waypoints.
+// The path is stored as a NON-ENUMERABLE property so it is never persisted —
+// it's derived data, and keeping it out of saves shrinks localStorage hugely.
 function rerouteBelt(b){
-  const a=b.from?portCellOf(b.from.instId,b.from.portIdx):null;
-  const z=b.to?portCellOf(b.to.instId,b.to.portIdx):null;
+  const a=b.from?portCellOf(b.from.instId,b.from.portId,b.from.portIdx):null;
+  const z=b.to?portCellOf(b.to.instId,b.to.portId,b.to.portIdx):null;
   if(!a||!z)return;
-  b.path=rasterize([a,...(b.waypoints||[]),z]);
+  setHidden(b,'path',rasterize([a,...(b.waypoints||[]),z]));
 }
 function rerouteBeltsFor(ids){
   ly.belts.forEach(b=>{
@@ -2447,8 +2589,10 @@ function beltDrawPts(b){
   const p=b.path||[], pts=[];
   for(let i=0;i<p.length;i++){
     if(i===0||i===p.length-1){pts.push(p[i]);continue;}
-    const a=p[i-1], c=p[i+1];
-    if(a.x!==c.x&&a.y!==c.y)pts.push(p[i]); // direction change → corner
+    // keep any cell where the travel direction changes (corners AND u-turns)
+    const d1x=Math.sign(p[i].x-p[i-1].x), d1y=Math.sign(p[i].y-p[i-1].y);
+    const d2x=Math.sign(p[i+1].x-p[i].x), d2y=Math.sign(p[i+1].y-p[i].y);
+    if(d1x!==d2x||d1y!==d2y)pts.push(p[i]);
   }
   setHidden(b,'_pts',pts); setHidden(b,'_ptsFor',b.path);
   return pts;
@@ -2465,6 +2609,10 @@ function beltBBox(b){
   return bb;
 }
 function saveLayout(){
+  // Ownership guard: ly may still hold ANOTHER profile's layout during profile
+  // switches (saveState runs before loadLayout). Never write it elsewhere —
+  // this used to clobber the destination profile's layout on every switch.
+  if(ly.profileId!==activeProfileId)return;
   const p=profiles.find(p=>p.id===activeProfileId);
   if(p){
     if(!p.layout)p.layout={};
@@ -2487,8 +2635,14 @@ function initLayoutCanvas(){
     ly.canvasReady=true;
     window.addEventListener('resize',resizeLyCanvas);
     canvas.addEventListener('mousedown',lyMouseDown);
-    canvas.addEventListener('mousemove',lyMouseMove);
-    canvas.addEventListener('mouseup',lyMouseUp);
+    // move/up live on the WINDOW so releasing the button outside the canvas
+    // can never leave a drag, pan, or marquee stuck
+    window.addEventListener('mousemove',lyMouseMove);
+    window.addEventListener('mouseup',lyMouseUp);
+    window.addEventListener('blur',()=>{
+      if(_lyDrag&&_lyDrag.moved){saveLayout();saveState();updateLyCost();}
+      _lyDrag=null;_lyPan=false;_lyMarquee=null;lyRender();
+    });
     canvas.addEventListener('wheel',lyWheel,{passive:false});
     canvas.addEventListener('contextmenu',e=>e.preventDefault());
     document.addEventListener('keydown',lyKeyDown);
@@ -2497,10 +2651,18 @@ function initLayoutCanvas(){
   lyRender();
 }
 
+// Logical (CSS-pixel) canvas size — the backing store is DPR-scaled for crispness
+function lyViewW(){return _lyCanvas?_lyCanvas.width/(window.devicePixelRatio||1):800;}
+function lyViewH(){return _lyCanvas?_lyCanvas.height/(window.devicePixelRatio||1):600;}
+
 function resizeLyCanvas(){
   if(!_lyCanvas)return;
   const r=_lyCanvas.parentElement.getBoundingClientRect();
-  _lyCanvas.width=r.width; _lyCanvas.height=r.height;
+  const dpr=window.devicePixelRatio||1;
+  _lyCanvas.width=Math.max(1,Math.round(r.width*dpr));
+  _lyCanvas.height=Math.max(1,Math.round(r.height*dpr));
+  _lyCanvas.style.width=r.width+'px';
+  _lyCanvas.style.height=r.height+'px';
   lyRender();
 }
 
@@ -2569,7 +2731,7 @@ function portAt(gx,gy,radius){
     m.ports.forEach((port,pi)=>{
       const{px,py,side}=machPortPos(m,port,inst.x,inst.y,inst.rotation);
       const d=Math.hypot(gx+0.5-px,gy+0.5-py);
-      if(d<r&&d<bestD){bestD=d;best={instId:inst.id,portIdx:pi,port,px,py,side,type:port.type};}
+      if(d<r&&d<bestD){bestD=d;best={instId:inst.id,portId:port.id,portIdx:pi,port,px,py,side,type:port.type};}
     });
   });
   return best;
@@ -2592,7 +2754,10 @@ function lyRender(){
 
 function lyDraw(){
   if(!_lyCtx||!_lyCanvas)return;
-  const ctx=_lyCtx, cw=_lyCanvas.width, ch=_lyCanvas.height;
+  const ctx=_lyCtx;
+  const dpr=window.devicePixelRatio||1;
+  const cw=_lyCanvas.width/dpr, ch=_lyCanvas.height/dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0); // HiDPI-crisp rendering
   ctx.fillStyle='#111315';
   ctx.fillRect(0,0,cw,ch);
   ctx.save();
@@ -2656,10 +2821,14 @@ function lyDraw(){
     if(inst.x+w<gx0||inst.x>gx1||inst.y+h<gy0||inst.y>gy1)return;
     const x=inst.x*cs,y=inst.y*cs,pw=w*cs,ph=h*cs;
     const isSel=ly.selIds.has(inst.id);
+    // Instances of research-locked machines are dimmed and unlabeled (spoiler rule)
+    const lockedM=!machUnlocked(m);
+    if(lockedM)ctx.globalAlpha=0.35;
     ctx.fillStyle=machColor(m.id,40,14);
     ctx.strokeStyle=isSel?'#e8b84a':machColor(m.id,50,42);
     ctx.lineWidth=(isSel?2.5:1.5)/ly.zoom;
     ctx.beginPath();ctx.roundRect(x+1,y+1,pw-2,ph-2,Math.min(4,cs*0.1));ctx.fill();ctx.stroke();
+    if(lockedM){ctx.globalAlpha=1;return;}
     // Labels — sized to the footprint; second line shows the active recipe/product
     if(Math.min(pw,ph)*ly.zoom>=22){
       const t=instTier(inst,m);
@@ -2728,15 +2897,38 @@ function lyDraw(){
   const hud=document.getElementById('ly-hud');
   if(hud){
     let txt=`${ly.mouseGx}, ${ly.mouseGy} · ${Math.round(ly.zoom*100)}%`;
+    if(Date.now()-_lyToastT<2200&&_lyToast)txt=`⚠ ${_lyToast} · `+txt;
     if(ly.selIds.size)txt+=` · ${ly.selIds.size} selected`;
     if(ly.tool==='place'&&ly.placeMachId){const m=machines.find(m=>m.id===ly.placeMachId);txt+=` · Placing: ${m?.name||'?'} · R to rotate`;}
     else if(ly.tool==='select'){
-      txt+=ly.selIds.size?' · drag/arrows to move · R rotate · DEL remove · Ctrl+C/V copy/paste':' · drag empty space to box-select';
+      txt+=ly.selIds.size?' · drag/arrows to move (Alt = no snap) · R rotate · DEL remove · Ctrl+C/V copy/paste · Ctrl+Z undo':' · drag empty space to box-select · Ctrl+Z undo';
     }
     if(ly.tool==='belt'){txt+=ly.beltStart?' · Click cells for path · Right-click to cancel':' · Click an output port to start';}
     hud.textContent=txt;
   }
 }
+
+// Transient HUD warning message (used instead of silent no-ops)
+let _lyToast='', _lyToastT=0;
+function lyToast(msg){_lyToast=msg;_lyToastT=Date.now();lyRender();setTimeout(lyRender,2300);}
+
+// ── Undo / redo (layout only, snapshot-based; paths are hidden so this is compact) ──
+let _lyUndo=[], _lyRedo=[];
+function lySnapshot(){return JSON.stringify({instances:ly.instances,belts:ly.belts});}
+function lyPushUndo(snap){
+  _lyUndo.push(snap??lySnapshot());
+  if(_lyUndo.length>50)_lyUndo.shift();
+  _lyRedo.length=0;
+}
+function lyRestore(snap){
+  const d=JSON.parse(snap);
+  ly.instances=d.instances; ly.belts=d.belts;
+  ly.selIds=new Set();
+  ly.belts.forEach(rerouteBelt);
+  saveLayout(); saveState(); updateLyCost(); lyRender();
+}
+function lyUndoOp(){if(!_lyUndo.length)return;_lyRedo.push(lySnapshot());lyRestore(_lyUndo.pop());}
+function lyRedoOp(){if(!_lyRedo.length)return;_lyUndo.push(lySnapshot());lyRestore(_lyRedo.pop());}
 
 function drawBeltPath(ctx,path,color){
   if(path.length<2)return;
@@ -2826,7 +3018,7 @@ function lyMouseDown(e){
         ly.selIds=new Set([inst.id]);
       }
       if(ly.selIds.has(inst.id)){
-        _lyDrag={grabX:gx,grabY:gy,anchorId:inst.id,moved:false,
+        _lyDrag={grabX:gx,grabY:gy,anchorId:inst.id,moved:false,snap:lySnapshot(),
           orig:new Map([...ly.selIds].map(id=>{const i=ly.instances.find(x=>x.id===id);return[id,i?{x:i.x,y:i.y}:null];}))};
       }
     } else {
@@ -2837,6 +3029,7 @@ function lyMouseDown(e){
   }
   if(ly.tool==='place'&&ly.placeMachId){
     if(canPlace(ly.placeMachId,gx,gy,ly.rotation)){
+      lyPushUndo();
       ly.instances.push({id:uid(),machineId:ly.placeMachId,tierId:ly.placeTierId,x:gx,y:gy,rotation:ly.rotation});
       saveLayout(); saveState(); updateLyCost();
     }
@@ -2853,15 +3046,17 @@ function lyMouseDown(e){
       // Check if clicking an input port to finish
       const p=portAt(gx,gy);
       if(p&&p.type==='input'&&p.instId!==ly.beltStart.instId){
+        lyPushUndo();
         const endCell=portExternalCell(p);
         const waypoints=ly.beltPath.slice(1).map(c=>({x:c.x,y:c.y}));
-        ly.belts.push({
+        const nb={
           id:uid(),kind:ly.flowKind||'belt',beltTierId:ly.beltTierId||null,
-          from:{instId:ly.beltStart.instId,portIdx:ly.beltStart.portIdx},
-          to:{instId:p.instId,portIdx:p.portIdx},
-          waypoints,
-          path:rasterize([ly.beltPath[0],...waypoints,endCell])
-        });
+          from:{instId:ly.beltStart.instId,portId:ly.beltStart.portId},
+          to:{instId:p.instId,portId:p.portId},
+          waypoints
+        };
+        setHidden(nb,'path',rasterize([ly.beltPath[0],...waypoints,endCell]));
+        ly.belts.push(nb);
         ly.beltStart=null; ly.beltPath=[];
         saveLayout(); saveState(); updateLyCost();
       } else {
@@ -2873,19 +3068,22 @@ function lyMouseDown(e){
   if(ly.tool==='delete'){
     const inst=instAt(gx,gy);
     if(inst){
+      lyPushUndo();
       ly.instances=ly.instances.filter(i=>i.id!==inst.id);
       ly.belts=ly.belts.filter(b=>b.from.instId!==inst.id&&b.to.instId!==inst.id);
       ly.selIds.delete(inst.id);
       saveLayout(); saveState(); updateLyCost();
     } else {
-      const bi=ly.belts.findIndex(b=>b.path.some(p=>p.x===gx&&p.y===gy));
-      if(bi>=0){ly.belts.splice(bi,1);saveLayout();saveState();updateLyCost();}
+      const bi=ly.belts.findIndex(b=>(b.path||[]).some(p=>p.x===gx&&p.y===gy));
+      if(bi>=0){lyPushUndo();ly.belts.splice(bi,1);saveLayout();saveState();updateLyCost();}
     }
     lyRender();
   }
 }
 
 function lyMouseMove(e){
+  // window-level listener: skip entirely when the layout tab isn't in use
+  if(!_lyDrag&&!_lyPan&&!_lyMarquee&&!document.getElementById('tab-layout')?.classList.contains('active'))return;
   const rect=_lyCanvas.getBoundingClientRect();
   const sx=e.clientX-rect.left, sy=e.clientY-rect.top;
   const{gx,gy}=scrToGrid(sx,sy);
@@ -2902,7 +3100,7 @@ function lyMouseMove(e){
   if(_lyDrag){
     let dx=gx-_lyDrag.grabX, dy=gy-_lyDrag.grabY;
     const anchor=ly.instances.find(i=>i.id===_lyDrag.anchorId);
-    if(anchor&&(dx||dy)){
+    if(anchor&&(dx||dy)&&!e.altKey){ // hold Alt to bypass soft-snap
       const o=_lyDrag.orig.get(anchor.id);
       if(o){
         const s=softSnap(anchor,o.x+dx,o.y+dy);
@@ -2937,7 +3135,10 @@ function lyMouseUp(e){
     _lyMarquee=null; lyRender();
   }
   if(_lyDrag){
-    if(_lyDrag.moved){saveLayout();saveState();updateLyCost();}
+    if(_lyDrag.moved){
+      lyPushUndo(_lyDrag.snap); // pre-drag state captured at mousedown
+      saveLayout();saveState();updateLyCost();
+    }
     _lyDrag=null;
   }
 }
@@ -2963,6 +3164,7 @@ function nudgeSelection(dx,dy){
     return canPlace(i.machineId,i.x+dx,i.y+dy,i.rotation,ly.selIds);
   });
   if(!ok)return;
+  lyPushUndo();
   ly.selIds.forEach(id=>{
     const i=ly.instances.find(x=>x.id===id);
     if(i){i.x+=dx;i.y+=dy;}
@@ -2980,8 +3182,8 @@ function copySelection(){
     instances:insts.map(i=>({machineId:i.machineId,tierId:i.tierId,rotation:i.rotation,label:i.label,dx:i.x-minX,dy:i.y-minY})),
     belts:ly.belts.filter(b=>b.from&&b.to&&idx.has(b.from.instId)&&idx.has(b.to.instId)).map(b=>({
       kind:b.kind,beltTierId:b.beltTierId,
-      f:idx.get(b.from.instId),fp:b.from.portIdx,
-      t:idx.get(b.to.instId),tp:b.to.portIdx,
+      f:idx.get(b.from.instId),fp:b.from.portId,
+      t:idx.get(b.to.instId),tp:b.to.portId,
       waypoints:(b.waypoints||[]).map(c=>({x:c.x-minX,y:c.y-minY}))
     }))
   };
@@ -2994,15 +3196,16 @@ function pasteClipboard(){
   for(let s=0;s<200&&shift<0;s++){
     if(_lyClip.instances.every(ci=>canPlace(ci.machineId,bx+s+ci.dx,by+ci.dy,ci.rotation)))shift=s;
   }
-  if(shift<0)return;
+  if(shift<0)return lyToast('No free space to paste here');
+  lyPushUndo();
   const newIds=_lyClip.instances.map(()=>uid());
   _lyClip.instances.forEach((ci,n)=>{
     ly.instances.push({id:newIds[n],machineId:ci.machineId,tierId:ci.tierId,rotation:ci.rotation,label:ci.label,x:bx+shift+ci.dx,y:by+ci.dy});
   });
   _lyClip.belts.forEach(cb=>{
     const b={id:uid(),kind:cb.kind,beltTierId:cb.beltTierId,
-      from:{instId:newIds[cb.f],portIdx:cb.fp},to:{instId:newIds[cb.t],portIdx:cb.tp},
-      waypoints:cb.waypoints.map(c=>({x:c.x+bx+shift,y:c.y+by})),path:[]};
+      from:{instId:newIds[cb.f],portId:cb.fp},to:{instId:newIds[cb.t],portId:cb.tp},
+      waypoints:cb.waypoints.map(c=>({x:c.x+bx+shift,y:c.y+by}))};
     rerouteBelt(b);
     ly.belts.push(b);
   });
@@ -3014,6 +3217,8 @@ function lyKeyDown(e){
   if(document.activeElement.tagName==='INPUT'||document.activeElement.tagName==='SELECT'||document.activeElement.tagName==='TEXTAREA')return;
   if(!document.getElementById('tab-layout')?.classList.contains('active'))return;
 
+  if((e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z')&&!e.shiftKey){lyUndoOp();e.preventDefault();return;}
+  if((e.ctrlKey||e.metaKey)&&((e.key==='y'||e.key==='Y')||((e.key==='z'||e.key==='Z')&&e.shiftKey))){lyRedoOp();e.preventDefault();return;}
   if((e.ctrlKey||e.metaKey)&&(e.key==='c'||e.key==='C')){copySelection();e.preventDefault();return;}
   if((e.ctrlKey||e.metaKey)&&(e.key==='v'||e.key==='V')){pasteClipboard();e.preventDefault();return;}
 
@@ -3023,6 +3228,7 @@ function lyKeyDown(e){
       if(inst){
         const newRot=(inst.rotation+90)%360;
         if(canPlace(inst.machineId,inst.x,inst.y,newRot,inst.id)){
+          lyPushUndo();
           inst.rotation=newRot;
           rerouteBeltsFor(new Set([inst.id]));
           saveLayout(); saveState(); lyRender();
@@ -3035,6 +3241,7 @@ function lyKeyDown(e){
     }
   }
   if((e.key==='Delete'||e.key==='Backspace')&&ly.selIds.size){
+    lyPushUndo();
     ly.instances=ly.instances.filter(i=>!ly.selIds.has(i.id));
     ly.belts=ly.belts.filter(b=>!(b.from&&ly.selIds.has(b.from.instId))&&!(b.to&&ly.selIds.has(b.to.instId)));
     ly.selIds.clear();
@@ -3078,7 +3285,7 @@ function renderLyPalette(){
       const sz=(m.width||1)+'×'+(m.height||1);
       return unlockedMachTiers(m).map(t=>{
         const sel=ly.placeMachId===m.id&&ly.placeTierId===t.id;
-        const label=m.tiers.length>1?`${m.name} <span style="color:var(--dim)">${t.name}</span>`:m.name;
+        const label=m.tiers.length>1?`${esc(m.name)} <span style="color:var(--dim)">${esc(t.name)}</span>`:esc(m.name);
         return`<div class="lmach${sel?' sel':''}" onclick="selectPlaceMach('${m.id}','${t.id}',this)">
           <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${machColor(m.id)};margin-right:5px"></span>${label}</span><span class="lm-size">${sz}</span>
         </div>`;
@@ -3097,7 +3304,7 @@ function renderLyPalette(){
       if(!cur){ly.beltTierId=all[0].b.id;ly.flowKind=all[0].kind;}
       else ly.flowKind=cur.kind;
       const entry=(b,kind)=>`<div class="lmach${ly.beltTierId===b.id?' sel':''}" onclick="selectBeltTier('${b.id}','${kind}')">
-        <span>${b.name}</span><span class="lm-size">${rfmt(b.speed,0)}</span>
+        <span>${esc(b.name)}</span><span class="lm-size">${rfmt(b.speed,0)}</span>
       </div>`;
       bl.innerHTML=(ub.length?'<div class="sl" style="margin:2px 0 4px">Belts</div>'+ub.map(b=>entry(b,'belt')).join(''):'')+
         (up.length?'<div class="sl" style="margin:8px 0 4px">Pipes</div>'+up.map(b=>entry(b,'pipe')).join(''):'');
@@ -3157,11 +3364,11 @@ function updateLyCost(){
     const m=machines.find(m=>m.id===machId);
     if(!m)return;
     const t=(m.tiers||[]).find(t=>t.id===tierId)||m.tiers?.[0];
-    const label=m.name+((m.tiers||[]).length>1&&t?` ${t.name}`:'');
+    const label=esc(m.name+((m.tiers||[]).length>1&&t?` ${t.name}`:''));
     html+=`<div class="lcost-group"><div class="lcost-name">${label} ×${count}</div>`;
     (t?.buildCost||[]).forEach(c=>{
       const total=c.amount*count;
-      html+=`<div class="lcost-row">${rname(c.resourceId)}: ${total}</div>`;
+      html+=`<div class="lcost-row">${esc(rname(c.resourceId))}: ${total}</div>`;
       totalRes[c.resourceId]=(totalRes[c.resourceId]||0)+total;
     });
     html+='</div>';
@@ -3173,11 +3380,11 @@ function updateLyCost(){
     ly.belts.forEach(b=>{
       const k=b.beltTierId||'';
       (bg[k]=bg[k]||{n:0,seg:0});
-      bg[k].n++; bg[k].seg+=b.path.length;
+      bg[k].n++; bg[k].seg+=(b.path||[]).length;
     });
     Object.entries(bg).forEach(([k,v])=>{
       const bt=flowTierById(k);
-      html+=`<div class="lcost-group"><div class="lcost-name">${bt?bt.name:'Belts'} ×${v.n}</div>
+      html+=`<div class="lcost-group"><div class="lcost-name">${bt?esc(bt.name):'Belts'} ×${v.n}</div>
         <div class="lcost-row">${v.seg} segments total</div></div>`;
     });
   }
@@ -3187,7 +3394,7 @@ function updateLyCost(){
   if(resEntries.length){
     html+=`<div class="lcost-total"><div class="lcost-name">Total Resources</div>`;
     resEntries.forEach(([rid,amt])=>{
-      html+=`<div class="lcost-row">${rname(rid)}: ${amt}</div>`;
+      html+=`<div class="lcost-row">${esc(rname(rid))}: ${amt}</div>`;
     });
     html+='</div>';
   }
@@ -3210,18 +3417,18 @@ function renderBlueprints(){
   const el=document.getElementById('bp-list'), dl=document.getElementById('bp-cat-list');
   if(!el)return;
   const cats=[...new Set(blueprints.map(b=>b.category).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
-  if(dl)dl.innerHTML=cats.map(c=>`<option value="${c}"></option>`).join('');
+  if(dl)dl.innerHTML=cats.map(c=>`<option value="${esc(c)}"></option>`).join('');
   if(!blueprints.length){el.innerHTML='<div class="empty" style="padding:6px">No blueprints saved.</div>';return;}
   const bucket=cat=>blueprints.filter(b=>(b.category||null)===cat).sort((a,b)=>a.name.localeCompare(b.name));
   const item=b=>`<div class="lmach" style="cursor:default" title="${b.instances.length} machines · ${b.belts.length} belts">
-    <span style="overflow:hidden;text-overflow:ellipsis">${b.name}</span>
+    <span style="overflow:hidden;text-overflow:ellipsis">${esc(b.name)}</span>
     <span style="display:flex;gap:3px;flex-shrink:0">
       <button class="bb bsm" style="padding:1px 5px;font-size:10px" onclick="loadBlueprint('${b.id}')" title="Replace the current layout with this blueprint">Load</button>
       <button class="bb bsm" style="padding:1px 5px;font-size:10px" onclick="placeBlueprint('${b.id}')" title="Stamp a copy into the current layout">Place</button>
       <button class="bx" style="padding:1px 5px;font-size:10px" onclick="delBlueprint('${b.id}')">✕</button>
     </span></div>`;
   let html='';
-  cats.forEach(c=>{html+=`<div class="sl" style="margin:6px 0 3px">${c}</div>`+bucket(c).map(item).join('');});
+  cats.forEach(c=>{html+=`<div class="sl" style="margin:6px 0 3px">${esc(c)}</div>`+bucket(c).map(item).join('');});
   const un=bucket(null);
   if(un.length)html+=(cats.length?'<div class="sl" style="margin:6px 0 3px">Uncategorised</div>':'')+un.map(item).join('');
   el.innerHTML=html;
@@ -3248,6 +3455,7 @@ function loadBlueprint(id){
   const bp=blueprints.find(b=>b.id===id);
   if(!bp)return;
   if((ly.instances.length||ly.belts.length)&&!confirm(`Replace the current layout with "${bp.name}"? Anything not saved as a blueprint is lost.`))return;
+  lyPushUndo();
   ly.instances=JSON.parse(JSON.stringify(bp.instances));
   ly.belts=JSON.parse(JSON.stringify(bp.belts));
   ly.selIds=new Set();
@@ -3264,25 +3472,30 @@ function loadBlueprint(id){
 function placeBlueprint(id){
   const bp=blueprints.find(b=>b.id===id);
   if(!bp||!bp.instances.length)return;
-  const cx=Math.round((_lyCanvas.width/2-ly.vx)/(CELL*ly.zoom));
-  const cy=Math.round((_lyCanvas.height/2-ly.vy)/(CELL*ly.zoom));
-  const minX=Math.min(...bp.instances.map(i=>i.x)), minY=Math.min(...bp.instances.map(i=>i.y));
+  // Skip instances whose machine type no longer exists in this profile
+  const insts=bp.instances.filter(ci=>machines.some(m=>m.id===ci.machineId));
+  if(!insts.length)return lyToast('None of this blueprint\'s machines exist any more');
+  if(insts.length<bp.instances.length)lyToast(`${bp.instances.length-insts.length} machine(s) skipped — their type was deleted`);
+  const cx=Math.round((lyViewW()/2-ly.vx)/(CELL*ly.zoom));
+  const cy=Math.round((lyViewH()/2-ly.vy)/(CELL*ly.zoom));
+  const minX=Math.min(...insts.map(i=>i.x)), minY=Math.min(...insts.map(i=>i.y));
   let shift=-1;
   for(let s=0;s<400&&shift<0;s++){
-    if(bp.instances.every(ci=>canPlace(ci.machineId,cx+s+ci.x-minX,cy+ci.y-minY,ci.rotation)))shift=s;
+    if(insts.every(ci=>canPlace(ci.machineId,cx+s+ci.x-minX,cy+ci.y-minY,ci.rotation)))shift=s;
   }
-  if(shift<0)return alert('No free space near the view centre to place this blueprint.');
+  if(shift<0)return lyToast('No free space near the view centre to place this blueprint');
+  lyPushUndo();
   const map=new Map();
-  bp.instances.forEach(ci=>{
+  insts.forEach(ci=>{
     const nid=uid(); map.set(ci.id,nid);
     ly.instances.push({...JSON.parse(JSON.stringify(ci)),id:nid,x:cx+shift+ci.x-minX,y:cy+ci.y-minY});
   });
   bp.belts.forEach(cb=>{
     if(!cb.from||!cb.to||!map.has(cb.from.instId)||!map.has(cb.to.instId))return;
     const b={id:uid(),kind:cb.kind,beltTierId:cb.beltTierId,
-      from:{instId:map.get(cb.from.instId),portIdx:cb.from.portIdx},
-      to:{instId:map.get(cb.to.instId),portIdx:cb.to.portIdx},
-      waypoints:(cb.waypoints||[]).map(c=>({x:c.x+cx+shift-minX,y:c.y+cy-minY})),path:[]};
+      from:{instId:map.get(cb.from.instId),portId:cb.from.portId??null,portIdx:cb.from.portIdx},
+      to:{instId:map.get(cb.to.instId),portId:cb.to.portId??null,portIdx:cb.to.portIdx},
+      waypoints:(cb.waypoints||[]).map(c=>({x:c.x+cx+shift-minX,y:c.y+cy-minY}))};
     rerouteBelt(b);
     ly.belts.push(b);
   });
@@ -3314,25 +3527,41 @@ function planToLayout(){
     document.getElementById('plan-modal').style.display='flex';
     return;
   }
+  lyPushUndo();
   buildPlanLayout();
 }
 function confirmPlanBuild(mode){
   document.getElementById('plan-modal').style.display='none';
   if(mode==='cancel')return;
+  lyPushUndo();
   if(mode==='overwrite'){ly.instances=[];ly.belts=[];ly.selIds=new Set();}
   buildPlanLayout();
 }
+// Escape closes the Build-in-Layout dialog
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&document.getElementById('plan-modal').style.display==='flex')confirmPlanBuild('cancel');
+});
 function buildPlanLayout(){
   const nodes=lastPlan.nodes;
   const dc=stageDepths(nodes);
   const maxD=Math.max(...nodes.map(n=>dc[n.rec.id]));
 
-  // Stage list (one column per stage), raw side first
+  // Stage list (one column per stage), raw side first. Within a depth, put
+  // producers before their same-depth consumers so belts always flow rightward.
   const stages=[];
-  for(let d=maxD;d>=0;d--)nodes.filter(n=>dc[n.rec.id]===d).forEach(n=>{
-    const m=n.rec.machineId?machines.find(m=>m.id===n.rec.machineId):null;
-    if(m)stages.push({n,m,count:Math.ceil(n.exact)});
-  });
+  for(let d=maxD;d>=0;d--){
+    const grp=[];
+    nodes.filter(n=>dc[n.rec.id]===d).forEach(n=>{
+      const m=n.rec.machineId?machines.find(m=>m.id===n.rec.machineId):null;
+      if(m)grp.push({n,m,count:Math.ceil(n.exact)});
+    });
+    grp.sort((A,B)=>{
+      const bUsesA=B.n.rec.inputs.some(i=>i.resourceId===A.n.resId);
+      const aUsesB=A.n.rec.inputs.some(i=>i.resourceId===B.n.resId);
+      return bUsesA&&!aUsesB?-1:aUsesB&&!bUsesA?1:0;
+    });
+    grp.forEach(s=>stages.push(s));
+  }
   if(!stages.length)return alert('This plan has no machine stages to place.');
   const byRes={}; stages.forEach(s=>{byRes[s.n.resId]=s;});
 
@@ -3432,13 +3661,15 @@ function buildPlanLayout(){
     if(!prods.length||!conss.length)return;
     const nB=Math.max(prods.length,conss.length);
     for(let j=0;j<nB;j++){
-      const from={instId:prods[j%prods.length].id,portIdx:outPort.idx};
-      const to={instId:conss[j%conss.length].id,portIdx:inPort.idx};
-      const a=portCellOf(from.instId,from.portIdx);
-      const z=portCellOf(to.instId,to.portIdx);
+      const from={instId:prods[j%prods.length].id,portId:outPort.p.id};
+      const to={instId:conss[j%conss.length].id,portId:inPort.p.id};
+      const a=portCellOf(from.instId,from.portId);
+      const z=portCellOf(to.instId,to.portId);
       if(!a||!z)continue;
       const waypoints=[{x:trunkX,y:a.y},{x:trunkX,y:cy},{x:feedX,y:cy},{x:feedX,y:z.y}];
-      ly.belts.push({id:uid(),kind:g.fluid?'pipe':'belt',beltTierId:g.tierId,from,to,waypoints,path:rasterize([a,...waypoints,z])});
+      const nb={id:uid(),kind:g.fluid?'pipe':'belt',beltTierId:g.tierId,from,to,waypoints};
+      setHidden(nb,'path',rasterize([a,...waypoints,z]));
+      ly.belts.push(nb);
     }
   });
 
@@ -3449,7 +3680,7 @@ function buildPlanLayout(){
   // Fit the newly placed block (including corridor rows) into view
   const topY=-(3+corridorCount);
   const bw=(cursor-startX)*CELL, bh=(maxColH-topY+4)*CELL;
-  const cw=_lyCanvas?.width||800, ch=_lyCanvas?.height||600;
+  const cw=lyViewW(), ch=lyViewH();
   ly.zoom=Math.max(0.03,Math.min(1.2,Math.min(cw/(bw+120),ch/(bh+120))));
   ly.vx=-startX*CELL*ly.zoom+40;
   ly.vy=-topY*CELL*ly.zoom+20;
@@ -3476,6 +3707,8 @@ renderPlannerControls();
 cancelMachine();
 cancelResource();
 addIO('rec-inputs');
+// Restore the saved planner query for this profile and re-run it if complete
+if(restorePlannerQuery())runPlanner();
 </script>
 </body>
 </html>
