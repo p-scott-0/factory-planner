@@ -45,6 +45,7 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
 .io-row .io-res{flex:1!important;min-width:0}
 .tier-row{display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
 .tier-row input:first-child{flex:1;min-width:80px}.tier-row .spd{flex:0 0 68px!important}
+.tier-row .pwr{flex:0 0 62px!important}
 .tier-row .tier-rt{flex:0 0 100px;width:auto;font-size:12px;padding:4px 5px}
 .tier-block{border:1px solid var(--b);border-radius:6px;padding:8px;margin-bottom:8px;background:var(--surf2)}
 .tier-block .tier-row{margin-bottom:4px}
@@ -279,6 +280,9 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
       <select id="rf-rt"><option value="">— always —</option></select>
       <label style="display:flex;align-items:center;gap:7px;cursor:pointer;margin-top:9px">
         <input type="checkbox" id="rf-fluid" style="width:auto">Fluid resource <span style="color:#555">(flows through pipes, not belts)</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:7px;cursor:pointer;margin-top:6px">
+        <input type="checkbox" id="rf-power" style="width:auto">⚡ Power <span style="color:#555">(rates shown in MW; travels over power lines — give it generator recipes)</span>
       </label>
 
       <!-- Optional inline recipe — hidden when editing an existing resource -->
@@ -1122,14 +1126,28 @@ function pipeFor(ratePerSec){
   const top=bs[bs.length-1];
   return{belt:top,count:Math.ceil(ratePerSec/top.speed-1e-9)};
 }
-// Flow-aware: fluids use pipes, everything else belts
+// Flow-aware: fluids use pipes, items use belts, power needs neither
 function flowFor(ratePerSec,isFluid){return isFluid?pipeFor(ratePerSec):beltFor(ratePerSec);}
-function beltLabel(ratePerSec,isFluid){
-  const bf=flowFor(ratePerSec,isFluid);
+function beltLabel(ratePerSec,resId){
+  const r=resources.find(r=>r.id===resId);
+  if(r?.isPower)return'';
+  const bf=flowFor(ratePerSec,!!r?.isFluid);
   return bf?`${bf.count>1?bf.count+'× ':''}${bf.belt.name}`:'';
 }
 function isFluidRes(resId){return !!resources.find(r=>r.id===resId)?.isFluid;}
+// Power resources are continuous: their per-second rate IS megawatts, they
+// travel over power lines (no belts/pipes), and they display as "X MW"
+// regardless of the /min · /s toggle.
+function isPowerRes(resId){return !!resources.find(r=>r.id===resId)?.isPower;}
+function rateStr(resId,ratePerSec,d=2){return isPowerRes(resId)?`${fmt(ratePerSec,d)} MW`:rfmt(ratePerSec,d);}
+function crateStr(resId,ratePerSec){ // compact form for diagram pills
+  if(!isPowerRes(resId))return cfmt(ratePerSec);
+  const v=ratePerSec;
+  return(v>=100?String(Math.round(v)):String(Math.round(v*100)/100))+' MW';
+}
 function flowTierById(id){return beltTiers.find(b=>b.id===id)||pipeTiers.find(b=>b.id===id)||null;}
+// Power draw of one machine at a given tier (MW, 0 if unset)
+function tierPower(machId){return activeTier(machId)?.power||0;}
 
 // Stable colours: hues are STORED on machines/resources (assigned once, never
 // shifting when other items are deleted). Used across planner + layout.
@@ -1286,14 +1304,15 @@ function closeEditor(){
 // ══════════════════════════════════════════════════════
 // MACHINES
 // ══════════════════════════════════════════════════════
-function addTierRow(name='',speedMult='',buildCost=[],tierId='',researchTierId=''){
+function addTierRow(name='',speedMult='',buildCost=[],tierId='',researchTierId='',power=''){
   const blk=document.createElement('div');
   blk.className='tier-block';
   blk.dataset.tid=tierId; // preserved on save so planner/layout tier references survive edits
   blk.innerHTML=`<div class="tier-row">
-      <input type="text" placeholder="Tier name (e.g. Mk1)" value="${name}">
+      <input type="text" placeholder="Tier name (e.g. Mk1)" value="${esc(String(name))}">
       <span style="color:#555;flex-shrink:0">×</span>
-      <input type="number" class="spd" min="0.01" step="0.1" placeholder="Speed" value="${speedMult}">
+      <input type="number" class="spd" min="0.01" step="0.1" placeholder="Speed" value="${speedMult}" title="Speed multiplier">
+      <input type="number" class="pwr" min="0" step="any" placeholder="MW" value="${power||''}" title="Power draw per machine (MW) — leave empty for generators / unpowered">
       <select class="tier-rt" title="Research tier gating this machine tier">${researchTierOpts(researchTierId)}</select>
       <button class="bx" onclick="this.closest('.tier-block').remove()">✕</button>
     </div>
@@ -1315,15 +1334,16 @@ function addTierCostRow(blk,resourceId='',amount=''){
 
 function getTierRows(){
   return[...document.querySelectorAll('#mf-tiers .tier-block')].flatMap(blk=>{
-    const [nameI,spdI]=blk.querySelectorAll('.tier-row input');
+    const [nameI,spdI,pwrI]=blk.querySelectorAll('.tier-row input');
     const n=nameI.value.trim(), s=parseFloat(spdI.value);
     if(!n||isNaN(s)||s<=0)return[];
+    const pw=parseFloat(pwrI.value);
     const buildCost=[...blk.querySelectorAll('.tier-costs .io-row')].flatMap(row=>{
       const amt=parseFloat(row.querySelector('input').value);
       const rid=row.querySelector('select').value;
       return(rid&&!isNaN(amt)&&amt>0)?[{resourceId:rid,amount:amt}]:[];
     });
-    return[{id:blk.dataset.tid||uid(),name:n,speedMult:s,buildCost,researchTierId:blk.querySelector('.tier-rt').value||null}];
+    return[{id:blk.dataset.tid||uid(),name:n,speedMult:s,power:(!isNaN(pw)&&pw>0)?pw:0,buildCost,researchTierId:blk.querySelector('.tier-rt').value||null}];
   });
 }
 
@@ -1421,7 +1441,7 @@ function editMach(id){
   document.getElementById('mf-rt').value=m.researchTierId||'';
   document.getElementById('mf-title').textContent='Edit Machine';
   document.getElementById('mf-tiers').innerHTML='';
-  m.tiers.forEach(t=>addTierRow(t.name,t.speedMult,t.buildCost||[],t.id,t.researchTierId||''));
+  m.tiers.forEach(t=>addTierRow(t.name,t.speedMult,t.buildCost||[],t.id,t.researchTierId||'',t.power||''));
   document.getElementById('mf-w').value=m.width||1;
   document.getElementById('mf-h').value=m.height||1;
   document.getElementById('mf-ports').innerHTML='';
@@ -1452,7 +1472,7 @@ function renderMachines(){
   el.innerHTML=visible.map(m=>{
     const tRows=m.tiers.map(t=>{
       const locked=!tierOk(t.researchTierId);
-      return`<span class="badge bm"${locked?' style="opacity:.45"':''}>${locked?'🔒 ':''}${esc(t.name)} ×${t.speedMult}${(t.buildCost||[]).length?' · '+t.buildCost.length+' costs':''}</span>`;
+      return`<span class="badge bm"${locked?' style="opacity:.45"':''}>${locked?'🔒 ':''}${esc(t.name)} ×${t.speedMult}${t.power?` · ⚡${t.power}MW`:''}${(t.buildCost||[]).length?' · '+t.buildCost.length+' costs':''}</span>`;
     }).join('');
     const sz=(m.width||1)+'×'+(m.height||1);
     const pCnt=(m.ports||[]).length;
@@ -1478,14 +1498,15 @@ function saveResource(){
   const name=document.getElementById('rf-name').value.trim();
   const categoryId=document.getElementById('rf-cat').value||null;
   const researchTierId=document.getElementById('rf-rt').value||null;
-  const isFluid=document.getElementById('rf-fluid').checked;
+  const isPower=document.getElementById('rf-power').checked;
+  const isFluid=!isPower&&document.getElementById('rf-fluid').checked;
   if(!name)return setErr('rf-err','Name required.');
   setErr('rf-err','');
   if(editResId){
     const r=resources.find(x=>x.id===editResId);
-    if(r){r.name=name;r.categoryId=categoryId;r.researchTierId=researchTierId;r.isFluid=isFluid;}
+    if(r){r.name=name;r.categoryId=categoryId;r.researchTierId=researchTierId;r.isFluid=isFluid;r.isPower=isPower;}
   } else {
-    const newRes={id:uid(),name,categoryId,researchTierId,isFluid,recipes:[],defaultRecipeId:null,hue:Math.round(resources.length*137.5+60)%360};
+    const newRes={id:uid(),name,categoryId,researchTierId,isFluid,isPower,recipes:[],defaultRecipeId:null,hue:Math.round(resources.length*137.5+60)%360};
     const machId=document.getElementById('rf-mach').value;
     const ct=parseFloat(document.getElementById('rf-time').value);
     const outAmt=parseFloat(document.getElementById('rf-outamt').value)||1;
@@ -1506,6 +1527,7 @@ function cancelResource(){
   document.getElementById('rf-cat').value='';
   document.getElementById('rf-rt').value='';
   document.getElementById('rf-fluid').checked=false;
+  document.getElementById('rf-power').checked=false;
   document.getElementById('rf-title').textContent='New Resource';
   document.getElementById('rf-mach').value='';
   document.getElementById('rf-time').value='';
@@ -1523,6 +1545,7 @@ function editRes(id){
   document.getElementById('rf-cat').value=r.categoryId||'';
   document.getElementById('rf-rt').value=r.researchTierId||'';
   document.getElementById('rf-fluid').checked=!!r.isFluid;
+  document.getElementById('rf-power').checked=!!r.isPower;
   document.getElementById('rf-title').textContent='Edit Resource';
   document.getElementById('rf-recipe-section').style.display='none';
 }
@@ -1644,7 +1667,7 @@ function resItemHTML(r){
   const hasRec=recCount>0;
   return`<div class="litem" style="${selResId===r.id?'border-color:var(--acc2)':''}">
     <div class="lh">
-      <div><div class="ln"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${resColor(r.id)};margin-right:6px"></span>${esc(r.name)}${r.isFluid?' <span class="badge bm" title="Fluid — flows through pipes">💧 fluid</span>':''}</div><div style="margin-top:2px">${sub}</div></div>
+      <div><div class="ln"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${resColor(r.id)};margin-right:6px"></span>${esc(r.name)}${r.isFluid?' <span class="badge bm" title="Fluid — flows through pipes">💧 fluid</span>':''}${r.isPower?' <span class="badge bm" style="color:#e8b84a" title="Power — rates shown in MW">⚡ power</span>':''}</div><div style="margin-top:2px">${sub}</div></div>
       <div class="la">
         ${hasRec?`<button class="btree bsm" id="treebtn-${r.id}" onclick="toggleResTree('${r.id}',this)">▸ Tree</button>`:''}
         <button class="bb bsm" onclick="editRes('${r.id}')">Edit</button>
@@ -1913,6 +1936,19 @@ function replan(){
   if(document.querySelector('#pl-results .plan-panels'))runPlanner();
 }
 
+// One click from "my factory needs N MW" to a full generator plan: targets the
+// profile's Power resource at that many MW, so the planner picks generator
+// recipes (coal vs fuel via the usual toggles) and plans their fuel chains too.
+function planPowerGeneration(mw){
+  const pr=resources.find(r=>r.isPower&&resUnlocked(r)&&r.recipes.some(recipeAvailable));
+  if(!pr)return alert('No Power resource with generator recipes is available — create one in Resources (⚡ Power) and give it recipes on your generator machines.');
+  setPlanMode('target');
+  document.getElementById('pl-res').value=pr.id;
+  document.getElementById('pl-rate').value=String(Math.ceil(mw));
+  document.getElementById('pl-unit').value='1'; // MW = per-second rate
+  runPlanner();
+}
+
 // ── Planner query persistence (per profile) ──
 function savePlannerQuery(){
   const p=profiles.find(p=>p.id===activeProfileId);
@@ -2081,7 +2117,8 @@ function computeChain(targetResId, targetRatePerSec, inputSet=new Set(), useCeil
     let perMach=fullPerMach, beltCapped=false;
     const bm=rec.machineId?machines.find(m=>m.id===rec.machineId):null;
     const fluidOut=isFluidRes(resId);
-    const outPorts=bm?(bm.ports||[]).filter(p=>p.type==='output'&&((p.flow||'item')===(fluidOut?'fluid':'item'))).length:0;
+    // Power flows over power lines — never belt/pipe capped
+    const outPorts=(bm&&!isPowerRes(resId))?(bm.ports||[]).filter(p=>p.type==='output'&&((p.flow||'item')===(fluidOut?'fluid':'item'))).length:0;
     const pb=fluidOut?plannerPipes():plannerBelts();
     if(outPorts>0&&pb.length){
       const cap=outPorts*pb[pb.length-1].speed;
@@ -2144,7 +2181,10 @@ function runPlanner(){
     const{nodes,rawNeeds}=computeChain(resId,rateNum/unit,new Set(),true);
     if(!nodes.length)return resEl.innerHTML=`<div class="alert ae">No recipe produces "${esc(rname(resId))}". Add one in Resources.</div>`;
     lastPlan={nodes};
-    renderResults(resId,nodes,rawNeeds,`${rateNum} ${esc(rname(resId))}/${unitLbl}`,null,resEl);
+    const header=isPowerRes(resId)
+      ?`⚡ ${fmt(rateNum/unit,rateNum/unit>=100?0:1)} MW ${esc(rname(resId))}`
+      :`${rateNum} ${esc(rname(resId))}/${unitLbl}`;
+    renderResults(resId,nodes,rawNeeds,header,null,resEl);
   } else {
     const targetId=document.getElementById('pl-inp-target').value;
     if(!targetId)return resEl.innerHTML='<div class="alert ae">Select a target resource.</div>';
@@ -2165,7 +2205,7 @@ function runPlanner(){
     const res=computeFromInputs(targetId,inputMap);
     if(res.error)return resEl.innerHTML=`<div class="alert ae">${res.error}</div>`;
     lastPlan={nodes:res.nodes};
-    renderResults(targetId,res.nodes,res.rawNeeds,`max ${rfmt(res.achievable,3)} ${esc(rname(targetId))}`,res,resEl);
+    renderResults(targetId,res.nodes,res.rawNeeds,`max ${rateStr(targetId,res.achievable,3)} ${esc(rname(targetId))}`,res,resEl);
   }
 }
 
@@ -2178,7 +2218,21 @@ function renderResults(targetResId, nodes, rawNeeds, header, inputMeta, el){
 
   if(inputMeta){
     const bName=inputMeta.bottleneckRes?esc(rname(inputMeta.bottleneckRes)):'?';
-    left+=`<div class="ach-banner">Bottleneck: <strong>${bName}</strong> · achievable: <strong>${rfmt(inputMeta.achievable,3)}</strong></div>`;
+    left+=`<div class="ach-banner">Bottleneck: <strong>${bName}</strong> · achievable: <strong>${rateStr(targetResId,inputMeta.achievable,3)}</strong></div>`;
+  }
+
+  // ── Total power draw across all stages (installed: ceiled machines × MW) ──
+  const totalMW=nodes.reduce((s,n)=>{
+    const p=n.rec.machineId?(activeTier(n.rec.machineId)?.power||0):0;
+    return s+Math.ceil(n.exact)*p;
+  },0);
+  if(totalMW>0){
+    const genRes=resources.find(r=>r.isPower&&resUnlocked(r)&&r.recipes.some(recipeAvailable));
+    const canPlanGen=genRes&&!isPowerRes(targetResId);
+    left+=`<div class="ach-banner" style="background:#2a2210;border-color:#5a4a1a;color:#e8b84a;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      <span>⚡ Total power: <strong>${fmt(totalMW,totalMW>=100?0:1)} MW</strong></span>
+      ${canPlanGen?`<button class="bb bsm" onclick="planPowerGeneration(${totalMW})" title="Plan generators and their fuel chains to supply this factory">Plan generation →</button>`:''}
+    </div>`;
   }
 
   nodes.forEach(n=>{
@@ -2204,23 +2258,23 @@ function renderResults(targetResId, nodes, rawNeeds, header, inputMeta, el){
       <div class="ri-l">
         <div class="rm"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${m?machColor(m.id):'#555'};margin-right:6px"></span>${m?esc(m.name):'(no machine)'}${tier?` <span style="color:#6a8090;font-size:11px">${esc(tier)}</span>`:''}</div>
         <div class="rr">${esc(rec.name)}</div>
-        <div class="ro">${rfmt(actualRate,3)} <span style="color:${resColor(resId)}">${esc(rname(resId))}</span>${fromInputs&&!atCapacity?` <span style="color:#c07030">(${effPct}% capacity · max ${rfmt(fullRate,3)})</span>`:''}</div>
+        <div class="ro">${rateStr(resId,actualRate,3)} <span style="color:${resColor(resId)}">${esc(rname(resId))}</span>${fromInputs&&!atCapacity?` <span style="color:#c07030">(${effPct}% capacity · max ${rateStr(resId,fullRate,3)})</span>`:''}</div>
         ${n.beltCapped?`<div class="rr" style="color:#c07030">⚠ output belt-limited to ${rfmt(n.perMach,2)} per machine (would be ${rfmt(n.fullPerMach,2)})</div>`:''}
       </div>
       <div class="ri-r">
         <div class="ri-cnt">${count}</div>
         <div class="ri-ex">${fmt(exact,2)} exact</div>
+        ${m&&(activeTier(m.id)?.power||0)>0?`<div class="ri-ex" style="color:#b8963a">⚡ ${fmt(count*(activeTier(m.id).power),0)} MW</div>`:''}
       </div></div>`;
   });
 
   if(Object.keys(rawNeeds).length){
     left+=`<div class="sl" style="margin-top:12px">Raw inputs</div>`;
     Object.entries(rawNeeds).forEach(([rid,rate])=>{
-      const bf=flowFor(rate,isFluidRes(rid));
-      const beltStr=bf?`${bf.count>1?bf.count+'× ':''}${bf.belt.name}`:'';
+      const beltStr=beltLabel(rate,rid);
       left+=`<div class="raw-i">
         <span class="raw-n"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${resColor(rid)};margin-right:6px"></span>${esc(rname(rid))}</span>
-        <div class="ri-r"><div class="raw-v">${rfmt(rate,3)}</div>${beltStr?`<div class="raw-s">${esc(beltStr)}</div>`:''}</div>
+        <div class="ri-r"><div class="raw-v">${rateStr(rid,rate,3)}</div>${beltStr?`<div class="raw-s">${esc(beltStr)}</div>`:''}</div>
       </div>`;
     });
   }
@@ -2396,9 +2450,9 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
       const dx=Math.max(20,(bx-x1)*0.5);
       path=`M${x1},${y1} C${x1+dx},${y1} ${bx-dx},${y2} ${bx},${y2} L${x2-7},${y2}`;
     }
-    const beltStr=beltLabel(e.rate,isFluidRes(e.resId));
-    const tip=`${rname(e.resId)} — ${rfmt(e.rate,2)}${beltStr?' · '+beltStr:''}\n${e.fromLabel} → ${e.toLabel}`;
-    const rateTxt=cfmt(e.rate);
+    const beltStr=beltLabel(e.rate,e.resId);
+    const tip=`${rname(e.resId)} — ${rateStr(e.resId,e.rate,2)}${beltStr?' · '+beltStr:''}\n${e.fromLabel} → ${e.toLabel}`;
+    const rateTxt=crateStr(e.resId,e.rate);
     const pw=rateTxt.length*5.4+8;
     edges+=`<g class="fe">
       <title>${esc(tip)}</title>
@@ -2414,11 +2468,11 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
   // ── Raw material boxes (border tinted by the resource's flow colour) ──
   rawEntries.forEach(([rid,rate])=>{
     const p=posRaw[rid];
-    const rawBelt=beltLabel(rate,isFluidRes(rid));
+    const rawBelt=beltLabel(rate,rid);
     raws+=`<rect x="${p.x}" y="${p.y}" width="${RW}" height="${RH}" rx="6" fill="#111a11" stroke="${resColor(rid,45,40)}" stroke-width="1.5" stroke-dasharray="5 3"/>
       <text x="${p.x+RW/2}" y="${p.y+18}" text-anchor="middle" font-size="12" font-weight="600" fill="${resColor(rid,55,68)}">${esc(rname(rid))}</text>
       <line x1="${p.x+8}" y1="${p.y+24}" x2="${p.x+RW-8}" y2="${p.y+24}" stroke="#2a4a2a" stroke-width="1"/>
-      <text x="${p.x+RW/2}" y="${p.y+38}" text-anchor="middle" font-size="10" fill="#3a7a4a">${rfmt(rate,3)}</text>
+      <text x="${p.x+RW/2}" y="${p.y+38}" text-anchor="middle" font-size="10" fill="#3a7a4a">${rateStr(rid,rate,3)}</text>
       ${rawBelt?`<text x="${p.x+RW/2}" y="${p.y+51}" text-anchor="middle" font-size="10" fill="#2a6a3a">${esc(rawBelt)}</text>`:''}`;
   });
 
@@ -2440,6 +2494,7 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
     const eff=n.exact/count;
     const atCap=eff>0.999;
     const machLine=(m?m.name:'no machine')+(tier?` · ${tier}`:'')+(n.beltCapped?' ⚠':'');
+    const nodeMW=m?(activeTier(m.id)?.power||0)*count:0;
     // In from-inputs mode show efficiency band when not at 100%
     const effBand=fromInputs&&!atCap
       ?`<rect x="${p.x+1}" y="${p.y+NH-12}" width="${Math.round((NW-2)*eff)}" height="10" rx="0 0 6 6" fill="#c0702040"/>
@@ -2450,7 +2505,8 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
       <text x="${p.x+NW/2}" y="${p.y+33}" text-anchor="middle" font-size="10" fill="#5a7888">${esc(n.rec.name)}</text>
       <line x1="${p.x+10}" y1="${p.y+40}" x2="${p.x+NW-10}" y2="${p.y+40}" stroke="#1e3040" stroke-width="1"/>
       <text x="${p.x+NW/2}" y="${p.y+66}" text-anchor="middle" font-size="26" font-weight="900" fill="${cCol}">${count}</text>
-      <text x="${p.x+NW-7}" y="${p.y+NH-(fromInputs&&!atCap?15:5)}" text-anchor="end" font-size="9" fill="${resColor(n.resId,45,52)}">${rfmt(actualRate,2)} ${esc(rname(n.resId))}</text>
+      ${nodeMW>0?`<text x="${p.x+7}" y="${p.y+NH-(fromInputs&&!atCap?15:5)}" text-anchor="start" font-size="9" fill="#b8963a">⚡${fmt(nodeMW,0)} MW</text>`:''}
+      <text x="${p.x+NW-7}" y="${p.y+NH-(fromInputs&&!atCap?15:5)}" text-anchor="end" font-size="9" fill="${resColor(n.resId,45,52)}">${rateStr(n.resId,actualRate,2)} ${esc(rname(n.resId))}</text>
       ${effBand}`;
   });
 
@@ -3359,6 +3415,29 @@ function updateLyCost(){
   // Build cost per type/tier + totals
   const totalRes={};
   let html='';
+
+  // ── Power: total draw of placed machines + max generation capacity ──
+  let drawMW=0;
+  const genRates={}; // machineId → best MW/machine across its power recipes
+  resources.filter(r=>r.isPower).forEach(r=>(r.recipes||[]).forEach(rec=>{
+    if(!rec.machineId)return;
+    genRates[rec.machineId]=Math.max(genRates[rec.machineId]||0,(rec.outputAmount??1)/rec.cycleTime);
+  }));
+  let genMW=0;
+  ly.instances.forEach(inst=>{
+    const m=machines.find(m=>m.id===inst.machineId);
+    if(!m)return;
+    drawMW+=instTier(inst,m)?.power||0;
+    genMW+=genRates[inst.machineId]||0;
+  });
+  if(drawMW>0||genMW>0){
+    html+=`<div class="lcost-group"><div class="lcost-name" style="color:#e8b84a">⚡ Power</div>
+      ${drawMW>0?`<div class="lcost-row">Draw: ${fmt(drawMW,drawMW>=100?0:1)} MW</div>`:''}
+      ${genMW>0?`<div class="lcost-row">Generation: up to ${fmt(genMW,genMW>=100?0:1)} MW</div>`:''}
+      ${genMW>0&&drawMW>0?`<div class="lcost-row" style="color:${genMW>=drawMW?'#5aaa6a':'#cc7070'}">Balance: ${genMW>=drawMW?'+':''}${fmt(genMW-drawMW,1)} MW</div>`:''}
+    </div>`;
+  }
+
   Object.entries(counts).forEach(([key,count])=>{
     const [machId,tierId]=key.split('|');
     const m=machines.find(m=>m.id===machId);
@@ -3591,6 +3670,7 @@ function buildPlanLayout(){
     cons.n.rec.inputs.forEach((inp,ri)=>{
       const prod=byRes[inp.resourceId];
       if(!prod||prod===cons)return;
+      if(isPowerRes(inp.resourceId))return; // power runs over power lines, not belts
       const fluid=isFluidRes(inp.resourceId);
       const tiers=fluid?plannerPipes():plannerBelts();
       const cap=tiers.length?tiers[tiers.length-1].speed:Infinity;

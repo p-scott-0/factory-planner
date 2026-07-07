@@ -16,7 +16,7 @@ The tool is fully configurable — users define their own machines, resources, a
 ### Machines
 A machine is a building that processes resources. Machines have:
 - A **name**
-- One or more **tiers** — named variants with a speed multiplier relative to the base (e.g. Mk1 ×1.0, Mk2 ×2.5). Tier selection affects how many machines the planner recommends. Each tier has its own optional **build cost** — resources and quantities required to construct one machine of that tier (higher tiers typically cost more). Used for the layout cost tracker.
+- One or more **tiers** — named variants with a speed multiplier relative to the base (e.g. Mk1 ×1.0, Mk2 ×2.5). Tier selection affects how many machines the planner recommends. Each tier has its own optional **build cost** — resources and quantities required to construct one machine of that tier (higher tiers typically cost more) — and an optional **power draw in MW** per machine. Both feed the planner totals and the layout cost tracker.
 - A **footprint** — width and height in grid cells, for layout purposes
 - **I/O ports** — each port has a type (input or output), a side (top/right/bottom/left), a position offset along that side, and a flow kind (items or fluid). Used for belt/pipe routing in the layout editor and for the machine-output throughput cap.
 
@@ -46,6 +46,13 @@ Research tiers are an ordered, user-defined progression ladder (e.g. Tier 0 … 
 Belt tiers are named belt speeds (e.g. Belt Mk1 = 60/min), optionally research-gated. **Pipe tiers** are the same concept for fluids: resources marked as *fluid* flow through pipes instead of belts, and machine I/O ports declare whether they carry items or fluids (fluid ports render as squares, item ports as circles). The planner labels every flow-diagram edge and raw input with the **lowest allowed belt/pipe tier that can carry the rate**, or "N× fastest" when even the fastest tier needs parallel lanes. **Max belt tier** and **max pipe tier** settings in the planner further cap which tiers are considered, below the research unlock. In the layout editor a belts & pipes palette selects what new connections are drawn as; belts and pipes are colour-coded by kind and tier and the cost tracker counts segments per tier.
 
 Belt speeds also cap machine throughput: a machine cannot output more than (number of output ports × best allowed belt speed) — one output port can only feed one belt. Belt-capped stages run below full speed, need proportionally more machines, consume inputs at the reduced rate, and are flagged with a warning in the results and diagram. Machines with no output ports defined are never capped.
+
+### Power
+Machine tiers declare a **power draw in MW**. The planner shows per-stage draw (installed: ceiled machine count × MW) and a **total power banner** for every plan, in the results and on diagram nodes; the layout cost tracker totals the draw of placed machines.
+
+**Power generation is planned with the same recipe engine.** A resource can be flagged as **Power**: its per-second rate *is* megawatts, it displays as "X MW" regardless of the rate-unit toggle, and it travels over power lines — never belt/pipe capped or routed. Generator machines produce it through ordinary recipes that burn fuel (e.g. Coal Generator: 0.25 coal + 0.75 water per second → 75 MW), so generator counts are ceiled, fuel chains are planned recursively, alternate sources (coal vs fuel vs …) participate in recipe toggles and automatic cheapest-chain selection, research tiers gate them, from-inputs mode answers "how many MW from this much coal", and Build in Layout places generators with their fuel belts and pipes.
+
+The total-power banner includes a **Plan generation →** button that targets the profile's Power resource at the required MW — one click from "my factory needs 528 MW" to a complete generator + fuel plan (whose own residual power draw, e.g. water extractors, is then shown for iteration). The layout cost tracker shows **Draw**, maximum **Generation** of placed generators, and the resulting **Balance**.
 
 ---
 

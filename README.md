@@ -29,7 +29,7 @@ Existing data from before profiles were added is automatically migrated into a "
 
 The [`profiles/`](profiles/) folder ships two ready-made profiles that double as reference examples for building your own:
 
-- [`satisfactory.json`](profiles/satisfactory.json) — Satisfactory Tiers 0–8: nine machines (Miner Mk1–3, Smelter, Constructor, Assembler, Foundry, Water/Oil Extractors, Refinery, Manufacturer), 41 resources up to Space Elevator Phase 3 parts (Assembly Director System), belt tiers Mk1–Mk5, research-tier gating throughout, and four alternate recipes shipped toggled off (Cast Screw, Steel Screw, Iron Wire, Caterium Wire).
+- [`satisfactory.json`](profiles/satisfactory.json) — Satisfactory Tiers 0–8: eleven machines (Miner Mk1–3, Smelter, Constructor, Assembler, Foundry, Water/Oil Extractors, Refinery, Manufacturer, Coal & Fuel Generators) with real per-tier power draws, 43 resources up to Space Elevator Phase 3 parts plus a Power resource with coal/fuel generation recipes, belt tiers Mk1–Mk5, pipes, research-tier gating throughout, and four alternate recipes shipped toggled off (Cast Screw, Steel Screw, Iron Wire, Caterium Wire).
 - [`factorio.json`](profiles/factorio.json) — Factorio early game: burner/electric drills, stone/steel/electric furnaces, assembling machines 1–3, yellow/red/blue belts, up to Automation Science Packs.
 
 On the hosted version (or any local server) load them with the **Samples** buttons in the Profiles panel. When opening `index.html` directly from disk, use **Import Profile** and pick the JSON file instead (browsers block `fetch` on `file://`).
@@ -62,6 +62,7 @@ A profile file is what **Export Profile** produces:
       "tiers": [
         {
           "id": "tier-x", "name": "Mk1", "speedMult": 1,
+          "power": 4,                                // MW drawn per machine (optional)
           "researchTierId": "rt0",                   // tiers can be gated individually
           "buildCost": [ { "resourceId": "res-x", "amount": 5 } ]   // per tier
         }
@@ -75,6 +76,7 @@ A profile file is what **Export Profile** produces:
       "id": "res-x", "name": "Iron Plate", "categoryId": "cat-x",
       "researchTierId": "rt0",                       // optional gate (null = always)
       "isFluid": false,                              // fluids flow through pipes
+      "isPower": false,                              // power: per-second rate = MW, no belts/pipes
       "recipes": [
         {
           "id": "rec-x", "name": "Smelt iron",
