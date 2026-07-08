@@ -59,6 +59,7 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
 .badge{display:inline-block;border-radius:4px;padding:2px 7px;font-size:11px;margin:2px 3px 2px 0}
 .bi{background:#2a1818;color:#cc7070}.bo{background:#182818;color:#5aaa6a}
 .bm{background:#181828;color:var(--blu)}.bdef-badge{background:#182a18;color:#4aaa5a;border:1px solid #2a5a2a}
+.bp{background:#2a2010;color:#e8982a}
 .alert{padding:9px 12px;border-radius:5px;font-size:12px;margin-top:10px}
 .ae{background:#2e1515;border:1px solid #662020;color:#e07070}
 .aw{background:#2a2010;border:1px solid #665500;color:#ddaa30}
@@ -83,6 +84,12 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
 .tier-sel-row select{flex:0 0 min(160px,100%)}
 .inp-row{display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap;min-width:0}
 .inp-row select,.inp-row input{flex:1;min-width:80px}.inp-row .inp-unit{flex:0 0 80px}.inp-row button{flex-shrink:0}
+.tgt-row{display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap;min-width:0}
+.tgt-row .tgt-num{flex:0 0 18px;text-align:center;font-size:11px;color:var(--dim);font-weight:700}
+.tgt-row .tgt-res{flex:2;min-width:130px}
+.tgt-row .tgt-rate{flex:1;min-width:90px}
+.tgt-row .tgt-unit{flex:0 0 90px}
+.tgt-row button{flex-shrink:0}
 .rec-override-row{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap}
 .rec-override-row span{flex:0 0 auto;min-width:80px;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rec-override-row select{flex:1;min-width:120px}
@@ -90,7 +97,6 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
 .flow-card svg text{font-family:'Segoe UI',system-ui,sans-serif}
 .flow-card svg g.fe .vis{transition:stroke-width .1s,stroke-opacity .1s}
 .flow-card svg g.fe:hover .vis{stroke-width:3.5;stroke-opacity:1}
-.flow-card svg g.fe:hover text{font-weight:700}
 .ach-banner{background:#182818;border:1px solid #2a5a2a;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#5aaa6a}
 .rtree{overflow-x:auto;margin-top:10px;border-top:1px solid var(--b);padding-top:10px}
 .rtree svg{display:block;font-family:'Segoe UI',system-ui,sans-serif}
@@ -304,6 +310,9 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
         <div class="sl">Inputs per cycle</div>
         <div id="rf-inputs"></div>
         <button class="bb bsm" onclick="addIO('rf-inputs')">+ Input</button>
+        <div class="sl" style="margin-top:9px">Byproducts per cycle <span style="color:#555;text-transform:none;letter-spacing:0;font-size:11px">(optional — extra outputs alongside the primary)</span></div>
+        <div id="rf-byproducts"></div>
+        <button class="bb bsm" onclick="addIO('rf-byproducts')">+ Byproduct</button>
       </div>
 
       <div id="rf-err"></div>
@@ -340,6 +349,9 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
       <div class="sl">Inputs per cycle</div>
       <div id="rec-inputs"></div>
       <button class="bb bsm" onclick="addIO('rec-inputs')">+ Input</button>
+      <div class="sl" style="margin-top:9px">Byproducts per cycle <span style="color:#555;text-transform:none;letter-spacing:0;font-size:11px">(optional — extra outputs alongside the primary)</span></div>
+      <div id="rec-byproducts"></div>
+      <button class="bb bsm" onclick="addIO('rec-byproducts')">+ Byproduct</button>
       <div id="rec-err"></div>
       <div class="act">
         <button class="ba" onclick="saveRecipe()">Save Recipe</button>
@@ -386,13 +398,8 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
 
     <!-- Target mode -->
     <div id="pl-tgt">
-      <div class="r2" style="align-items:flex-end;gap:10px;flex-wrap:wrap">
-        <div style="flex:2;min-width:120px"><label>Target resource</label><select id="pl-res"><option value="">— select —</option></select></div>
-        <div style="flex:1;min-width:80px"><label>Amount</label><input id="pl-rate" type="number" min="0" step="any" placeholder="60"></div>
-        <div style="flex:1;min-width:80px"><label>Per</label>
-          <select id="pl-unit"><option value="60">minute</option><option value="1">second</option><option value="3600">hour</option></select>
-        </div>
-      </div>
+      <div class="sl">Targets <span style="color:#555;text-transform:none;letter-spacing:0;font-size:11px">— in priority order. Leave the amount blank on a later target to make as much of it as possible from an earlier target's byproducts.</span></div>
+      <div id="pl-tgt-rows"></div>
     </div>
 
     <!-- Inputs mode -->
@@ -584,6 +591,7 @@ function migrateData(){
   });
   resources.forEach((r,i)=>{
     if(r.hue===undefined)r.hue=Math.round(i*137.5+60)%360;
+    (r.recipes||[]).forEach(rec=>{if(!rec.byproducts)rec.byproducts=[];});
   });
 }
 
@@ -757,7 +765,10 @@ function importProfile(e){
 // over HTTP (GitHub Pages, local server) — fetch of local files fails on file://.
 async function loadSampleProfile(key){
   try{
-    const res=await fetch(`profiles/${key}.json`);
+    // no-store: a returning visitor's browser may otherwise hang on to a
+    // stale copy of the bundled sample from a previous visit, hiding
+    // updates that ship in later versions of the app.
+    const res=await fetch(`profiles/${key}.json`,{cache:'no-store'});
     if(!res.ok)throw new Error(res.status);
     const d=await res.json();
     saveActiveProfile();
@@ -1191,8 +1202,11 @@ function buildResOpts(selectedId='', exclude=''){
 }
 
 function addIO(listId,resourceId='',amount=''){
-  // Only exclude selResId for the recipe-editor input list, not the resource-form input list
-  const excl=listId==='rec-inputs'?(selResId||''):'';
+  // Only exclude selResId for the recipe-editor's own input/byproduct lists —
+  // a recipe shouldn't list its own resource as one of its ingredients or
+  // byproducts. The resource-form list (rf-*) has no existing resource to
+  // exclude yet.
+  const excl=(listId==='rec-inputs'||listId==='rec-byproducts')?(selResId||''):'';
   const row=document.createElement('div');
   row.className='io-row';
   row.innerHTML=`<input type="number" class="io-amt" min="0" step="any" placeholder="Qty" value="${amount}">
@@ -1511,8 +1525,9 @@ function saveResource(){
     const ct=parseFloat(document.getElementById('rf-time').value);
     const outAmt=parseFloat(document.getElementById('rf-outamt').value)||1;
     const inputs=getIORows('rf-inputs');
+    const byproducts=getIORows('rf-byproducts');
     if(!isNaN(ct)&&ct>0){
-      const rec={id:uid(),name:machId?`${mname(machId)} recipe`:`${name} recipe`,machineId:machId||null,cycleTime:ct,outputAmount:outAmt,inputs};
+      const rec={id:uid(),name:machId?`${mname(machId)} recipe`:`${name} recipe`,machineId:machId||null,cycleTime:ct,outputAmount:outAmt,inputs,byproducts};
       newRes.recipes.push(rec);
       newRes.defaultRecipeId=rec.id;
     }
@@ -1533,6 +1548,7 @@ function cancelResource(){
   document.getElementById('rf-time').value='';
   document.getElementById('rf-outamt').value='1';
   document.getElementById('rf-inputs').innerHTML='';
+  document.getElementById('rf-byproducts').innerHTML='';
   document.getElementById('rf-recipe-section').style.display='';
   setErr('rf-err','');
 }
@@ -1742,6 +1758,7 @@ function saveRecipe(){
   const ct      = parseFloat(document.getElementById('rec-time').value);
   const outAmt  = parseFloat(document.getElementById('rec-outamt').value)||1;
   const inputs  = getIORows('rec-inputs');
+  const byproducts = getIORows('rec-byproducts');
   if(isNaN(ct)||ct<=0)return setErr('rec-err','Cycle time must be > 0.');
   setErr('rec-err','');
   const res=resources.find(r=>r.id===selResId);
@@ -1752,7 +1769,8 @@ function saveRecipe(){
     machineId:machId||null,
     cycleTime:ct,
     outputAmount:outAmt,
-    inputs
+    inputs,
+    byproducts
   };
   if(editRecId){
     const i=res.recipes.findIndex(r=>r.id===editRecId);
@@ -1772,6 +1790,7 @@ function cancelRecipe(){
   document.getElementById('rec-time').value='';
   document.getElementById('rec-outamt').value='1';
   document.getElementById('rec-inputs').innerHTML='';
+  document.getElementById('rec-byproducts').innerHTML='';
   document.getElementById('rec-form-lbl').textContent='Add Recipe';
   setErr('rec-err','');
   addIO('rec-inputs');
@@ -1792,6 +1811,8 @@ function editRecipe(recId, resId){
   document.getElementById('rec-inputs').innerHTML='';
   rec.inputs.forEach(i=>addIO('rec-inputs',i.resourceId,i.amount));
   if(!rec.inputs.length)addIO('rec-inputs');
+  document.getElementById('rec-byproducts').innerHTML='';
+  (rec.byproducts||[]).forEach(b=>addIO('rec-byproducts',b.resourceId,b.amount));
   document.getElementById('rec-form-lbl').textContent='Edit Recipe';
 }
 
@@ -1817,6 +1838,7 @@ function renderRecipesForResource(resId){
     const isDef=rec.id===res.defaultRecipeId;
     const inBadges=rec.inputs.map(i=>`<span class="badge bi">${i.amount}× ${esc(rname(i.resourceId))}</span>`).join('');
     const outBadge=`<span class="badge bo">${rec.outputAmount??1}× ${esc(res.name)}</span>`;
+    const byBadges=(rec.byproducts||[]).map(b=>`<span class="badge bp" title="Byproduct">+${b.amount}× ${esc(rname(b.resourceId))}</span>`).join('');
     return`<div class="litem" style="${isDef?'border-color:#2a5a2a;background:#151e15':''}">
       <div class="lh">
         <div>
@@ -1830,7 +1852,7 @@ function renderRecipesForResource(resId){
           <button class="bx" onclick="delRecipe('${rec.id}','${resId}')">Del</button>
         </div>
       </div>
-      <div style="margin-top:6px">${inBadges}${inBadges?'<span style="color:#333;margin:0 4px">→</span>':''}${outBadge}</div>
+      <div style="margin-top:6px">${inBadges}${inBadges?'<span style="color:#333;margin:0 4px">→</span>':''}${outBadge}${byBadges?' '+byBadges:''}</div>
       <div class="ls">${rec.cycleTime}s cycle · ${rfmt((rec.outputAmount??1)/rec.cycleTime,3)} per machine${m?` · ${esc(m.name)}`:''}</div>
     </div>`;
   }).join('');
@@ -1845,17 +1867,22 @@ function setPlanMode(mode){
   document.getElementById('pl-inp').style.display  = mode==='inputs'?'':'none';
   document.getElementById('mode-tgt').classList.toggle('active', mode==='target');
   document.getElementById('mode-inp').classList.toggle('active', mode==='inputs');
+  if(mode==='target'&&typeof ensureTrailingBlankTargetRow==='function')ensureTrailingBlankTargetRow();
 }
 
 function renderPlannerControls(){
   // Populate target selects (grouped by category, alphabetical, unlock-filtered)
-  const opts='<option value="">— select —</option>'+buildResOpts('');
-  ['pl-res','pl-inp-target'].forEach(id=>{
-    const el=document.getElementById(id);
-    if(!el)return;
-    const cur=el.value;
-    el.innerHTML=opts;
-    if(cur)el.value=cur;
+  const inpTgt=document.getElementById('pl-inp-target');
+  if(inpTgt){
+    const cur=inpTgt.value;
+    inpTgt.innerHTML='<option value="">— select —</option>'+buildResOpts('');
+    if(cur)inpTgt.value=cur;
+  }
+  // Refresh options in every existing target row, preserving each selection
+  document.querySelectorAll('#pl-tgt-rows .tgt-res').forEach(sel=>{
+    const cur=sel.value;
+    sel.innerHTML='<option value="">— select —</option>'+buildResOpts(cur);
+    sel.value=cur;
   });
 
   // Max machine tier selectors — only machines with more than one unlocked
@@ -1943,10 +1970,53 @@ function planPowerGeneration(mw){
   const pr=resources.find(r=>r.isPower&&resUnlocked(r)&&r.recipes.some(recipeAvailable));
   if(!pr)return alert('No Power resource with generator recipes is available — create one in Resources (⚡ Power) and give it recipes on your generator machines.');
   setPlanMode('target');
-  document.getElementById('pl-res').value=pr.id;
-  document.getElementById('pl-rate').value=String(Math.ceil(mw));
-  document.getElementById('pl-unit').value='1'; // MW = per-second rate
+  document.getElementById('pl-tgt-rows').innerHTML='';
+  addTargetRow(pr.id,String(Math.ceil(mw)),'1'); // MW = per-second rate
+  ensureTrailingBlankTargetRow();
   runPlanner();
+}
+
+// ── Target rows (Target Output mode) ──
+// Targets are entered in priority order. The first always needs an amount;
+// later rows can be left blank to mean "make as much of this as possible
+// from an earlier target's byproducts" (see runMultiTargetPlan). A fresh
+// blank row auto-appears whenever the current last row gets a resource, so
+// the list grows as you fill it in rather than starting cluttered.
+function addTargetRow(resId='',rate='',unit='60'){
+  const row=document.createElement('div');
+  row.className='tgt-row';
+  row.innerHTML=`<span class="tgt-num"></span>
+    <select class="tgt-res">${'<option value="">— select —</option>'+buildResOpts(resId)}</select>
+    <input type="number" class="tgt-rate" min="0" step="any" value="${rate}">
+    <select class="tgt-unit"><option value="60">minute</option><option value="1">second</option><option value="3600">hour</option></select>
+    <button class="bx" onclick="removeTargetRow(this)">✕</button>`;
+  row.querySelector('.tgt-res').value=resId;
+  row.querySelector('.tgt-unit').value=unit;
+  row.querySelector('.tgt-res').addEventListener('change',()=>{
+    const rows=[...document.getElementById('pl-tgt-rows').children];
+    if(row===rows[rows.length-1]&&row.querySelector('.tgt-res').value)addTargetRow();
+  });
+  document.getElementById('pl-tgt-rows').appendChild(row);
+  renumberTargetRows();
+  return row;
+}
+function removeTargetRow(btn){
+  const container=document.getElementById('pl-tgt-rows');
+  if(container.children.length<=1)return; // always keep at least one row
+  btn.closest('.tgt-row').remove();
+  renumberTargetRows();
+  ensureTrailingBlankTargetRow();
+}
+function renumberTargetRows(){
+  [...document.getElementById('pl-tgt-rows').children].forEach((row,i)=>{
+    row.querySelector('.tgt-num').textContent=(i+1)+'.';
+    row.querySelector('.tgt-rate').placeholder=i===0?'60':'optional — from byproduct';
+  });
+}
+function ensureTrailingBlankTargetRow(){
+  const container=document.getElementById('pl-tgt-rows');
+  const rows=[...container.children];
+  if(!rows.length||rows[rows.length-1].querySelector('.tgt-res').value)addTargetRow();
 }
 
 // ── Planner query persistence (per profile) ──
@@ -1955,9 +2025,10 @@ function savePlannerQuery(){
   if(!p)return;
   p.planner={
     mode:planMode,
-    targetId:document.getElementById('pl-res').value,
-    rate:document.getElementById('pl-rate').value,
-    unit:document.getElementById('pl-unit').value,
+    targets:[...document.querySelectorAll('#pl-tgt-rows .tgt-row')].flatMap(row=>{
+      const resId=row.querySelector('.tgt-res').value;
+      return resId?[{resId,rate:row.querySelector('.tgt-rate').value,unit:row.querySelector('.tgt-unit').value}]:[];
+    }),
     inpTargetId:document.getElementById('pl-inp-target').value,
     inputs:[...document.querySelectorAll('#pl-inp-rows .inp-row')].map(row=>{
       const[s,i,u]=row.querySelectorAll('select,input');
@@ -1968,11 +2039,18 @@ function savePlannerQuery(){
 // Returns true when the restored query is complete enough to auto-run
 function restorePlannerQuery(){
   const q=profiles.find(p=>p.id===activeProfileId)?.planner;
-  if(!q)return false;
+  if(!q){
+    // No saved query yet (fresh profile / first-ever load) — still make sure
+    // the target-rows container isn't left empty.
+    document.getElementById('pl-tgt-rows').innerHTML='';
+    ensureTrailingBlankTargetRow();
+    return false;
+  }
   setPlanMode(q.mode==='inputs'?'inputs':'target');
-  document.getElementById('pl-res').value=q.targetId||'';
-  document.getElementById('pl-rate').value=q.rate||'';
-  document.getElementById('pl-unit').value=q.unit||'60';
+  document.getElementById('pl-tgt-rows').innerHTML='';
+  const savedTargets=q.targets&&q.targets.length?q.targets:[];
+  savedTargets.forEach(t=>addTargetRow(t.resId||'',t.rate||'',t.unit||'60'));
+  ensureTrailingBlankTargetRow();
   document.getElementById('pl-inp-target').value=q.inpTargetId||'';
   const rows=document.getElementById('pl-inp-rows');
   rows.innerHTML='';
@@ -1984,7 +2062,7 @@ function restorePlannerQuery(){
   });
   return q.mode==='inputs'
     ? !!(q.inpTargetId&&(q.inputs||[]).length)
-    : !!(q.targetId&&parseFloat(q.rate)>0);
+    : !!(savedTargets.length&&savedTargets[0].resId&&parseFloat(savedTargets[0].rate)>0);
 }
 
 function addInputRow(){
@@ -2191,39 +2269,216 @@ function computeFromInputs(targetResId, inputMap){
   const{nodes,rawNeeds}=computeChain(targetResId,achievable,inputSet,false);
 
   // Anything in the plan that isn't producible purely from the supplied
-  // inputs — e.g. Concrete pulled in by an Encased Industrial Beam recipe
-  // when only Steel Beams were supplied, and the Limestone/Miners under it.
+  // inputs — e.g. Compacted Coal pulled in by a Turbofuel recipe when only
+  // Crude Oil was supplied (Turbofuel = Fuel [from Crude Oil, reachable] +
+  // Compacted Coal [not]). Reported at the point the chain first crosses out
+  // of the supplied side: a recipe that combines something reachable (or the
+  // target) with something that isn't. Pure single-input pass-throughs to an
+  // unreachable resource (e.g. Steel Beam → Steel Ingot) are walked straight
+  // through rather than reported, so the actual missing ingredient shows up
+  // (Coal, found one level inside Steel Ingot) instead of the intermediate
+  // that's merely blocked by it. A branch that never reconnects with supply
+  // at all (e.g. Concrete → Limestone, both fully disconnected from an
+  // Iron-Ore-only supply) is reported at its own top — walking it further
+  // down to raw ore/water would just be noise.
   const reachable=reachableFromInputs(inputSet);
-  const extras={};
-  nodes.forEach(n=>{
-    if(n.resId===targetResId||reachable(n.resId))return; // the target is the plan, not an "extra"
-    const res=resources.find(r=>r.id===n.resId);
-    extras[n.resId]={rate:n.exact*n.perMach,recipeName:n.rec.name,
-      machineName:n.rec.machineId?mname(n.rec.machineId):null,
-      isAlt:!!res&&!!res.defaultRecipeId&&res.defaultRecipeId!==n.rec.id};
-  });
-  Object.entries(rawNeeds).forEach(([id,rate])=>{
-    if(id===targetResId||inputSet.has(id)||extras[id])return;
-    extras[id]={rate,recipeName:null,machineName:null,isAlt:false};
+  const nodeByResId={};
+  nodes.forEach(n=>{nodeByResId[n.resId]=n;});
+  function subtreeTouchesSupply(id,visited){
+    if(reachable(id))return true;
+    if(visited.has(id))return false;
+    visited.add(id);
+    const n=nodeByResId[id];
+    if(!n||!n.rec.inputs.length)return false;
+    return n.rec.inputs.some(inp=>subtreeTouchesSupply(inp.resourceId,visited));
+  }
+  function resolveExtraIds(id,visited){
+    if(visited.has(id))return[];
+    visited.add(id);
+    const n=nodeByResId[id];
+    if(!n||!n.rec.inputs.length)return[id]; // raw/mined dead end — report it
+    if(n.rec.inputs.some(inp=>reachable(inp.resourceId))){
+      // Mixes a supplied-side ingredient with an unsupplied one — the boundary.
+      return n.rec.inputs.filter(inp=>!reachable(inp.resourceId)).map(inp=>inp.resourceId);
+    }
+    if(!n.rec.inputs.some(inp=>subtreeTouchesSupply(inp.resourceId,new Set(visited)))){
+      return[id]; // wholly disconnected sub-chain — report it, don't drill further
+    }
+    // Doesn't mix directly, but a descendant does — unwrap this pass-through.
+    return n.rec.inputs.filter(inp=>!reachable(inp.resourceId))
+      .flatMap(inp=>resolveExtraIds(inp.resourceId,visited));
+  }
+  const targetNode=nodeByResId[targetResId];
+  const extraIds=new Set();
+  (targetNode?.rec.inputs||[]).forEach(inp=>{
+    if(reachable(inp.resourceId))return;
+    resolveExtraIds(inp.resourceId,new Set()).forEach(id=>extraIds.add(id));
   });
 
-  // Tag which extras are "top level" — the first point an unsupplied
-  // ingredient enters the chain (consumed directly by the target or by
-  // something already producible from supply). Deeper requirements under an
-  // extra (e.g. Limestone under Concrete) are only ever consumed by other
-  // extras, so they're left un-tagged: still full stages in the results and
-  // diagram, just not repeated in the summary popup to keep it short for
-  // complex parts with long dependency chains.
-  const consumersOf={};
-  nodes.forEach(n=>n.rec.inputs.forEach(inp=>{
-    (consumersOf[inp.resourceId]=consumersOf[inp.resourceId]||new Set()).add(n.resId);
-  }));
-  Object.keys(extras).forEach(id=>{
-    const consumers=consumersOf[id];
-    extras[id].topLevel=!consumers||[...consumers].some(c=>c===targetResId||reachable(c));
+  const extras={};
+  extraIds.forEach(id=>{
+    const n=nodeByResId[id];
+    if(n){
+      const res=resources.find(r=>r.id===id);
+      extras[id]={rate:n.exact*n.perMach,recipeName:n.rec.name,
+        machineName:n.rec.machineId?mname(n.rec.machineId):null,
+        isAlt:!!res&&!!res.defaultRecipeId&&res.defaultRecipeId!==n.rec.id};
+    } else {
+      extras[id]={rate:rawNeeds[id]||0,recipeName:null,machineName:null,isAlt:false};
+    }
   });
 
   return{nodes,rawNeeds,achievable,bottleneckRes,extras};
+}
+
+// ══════════════════════════════════════════════════════
+// MULTI-TARGET PLANNING (Target Output mode, with byproduct crediting)
+// ══════════════════════════════════════════════════════
+// Targets are processed strictly in the order they were entered. Each one
+// either has a fixed amount — an independent, ceiled target-mode plan — or,
+// if left blank, is planned via the SAME from-inputs machinery already used
+// for supplied-input plans, except its "supply" is the pool of byproducts
+// produced by EARLIER targets (so it also gets automatic extras/alternate
+// selection for anything the byproduct alone doesn't cover). A byproduct
+// target always draws down 100% of whichever pool resource ends up as its
+// bottleneck (by definition of "achievable"), and any of ITS OWN new
+// byproducts are added to the pool for targets after it. Byproduct crediting
+// is deliberately NOT applied within a single target's own chain — only
+// across separate rows — so the well-tested single-target math never changes.
+function runMultiTargetPlan(targets, resEl){
+  const pool={}; // resourceId -> available surplus, per second
+  const results=[]; // {resId, error?, nodes?, rawNeeds?, achievable?, bottleneckRes?, extras?, fromByproduct, poolSuppliedIds?}
+
+  targets.forEach(t=>{
+    if(t.rate!=null){
+      const{nodes,rawNeeds}=computeChain(t.resId,t.rate,new Set(),true);
+      if(!nodes.length){
+        results.push({resId:t.resId,fromByproduct:false,
+          error:`No recipe produces "${esc(rname(t.resId))}". Add one in Resources.`});
+        return;
+      }
+      nodes.forEach(n=>{n.fromInputs=false;});
+      results.push({resId:t.resId,fromByproduct:false,nodes,rawNeeds});
+      nodes.forEach(n=>{
+        const ct=effectiveCycleTime(n.rec);
+        (n.rec.byproducts||[]).forEach(bp=>{
+          pool[bp.resourceId]=(pool[bp.resourceId]||0)+Math.ceil(n.exact)*(bp.amount/ct);
+        });
+      });
+    } else {
+      const supply=Object.entries(pool).filter(([,v])=>v>1e-9);
+      if(!supply.length){
+        results.push({resId:t.resId,fromByproduct:true,
+          error:'No byproduct available yet — give this target an amount, or move it after a target that produces one of its ingredients.'});
+        return;
+      }
+      const res=computeFromInputs(t.resId,Object.fromEntries(supply));
+      if(res.error){
+        results.push({resId:t.resId,fromByproduct:true,error:res.error});
+        return;
+      }
+      res.nodes.forEach(n=>{n.fromInputs=true;});
+      const poolSuppliedIds=supply.map(([id])=>id);
+      results.push({resId:t.resId,fromByproduct:true,nodes:res.nodes,rawNeeds:res.rawNeeds,
+        achievable:res.achievable,bottleneckRes:res.bottleneckRes,extras:res.extras,poolSuppliedIds});
+      // Whatever was actually drawn from the pool for this target's chain —
+      // computeChain records supplied-resource consumption directly in
+      // rawNeeds, so this is exact even when a resource wasn't the bottleneck.
+      poolSuppliedIds.forEach(id=>{pool[id]=Math.max(0,(pool[id]||0)-(res.rawNeeds[id]||0));});
+      res.nodes.forEach(n=>{
+        const ct=effectiveCycleTime(n.rec);
+        (n.rec.byproducts||[]).forEach(bp=>{
+          pool[bp.resourceId]=(pool[bp.resourceId]||0)+n.exact*(bp.amount/ct);
+        });
+      });
+    }
+  });
+
+  renderMultiTargetResults(targets,results,pool,resEl);
+}
+
+// Merge each target's independently-computed node set into one combined
+// plan (summing demand when two targets land on the exact same resource AND
+// recipe), and combine raw-input needs — excluding any resource that was
+// actually supplied to a byproduct-driven target from an earlier target's
+// pool, since that's produced internally, not something the user must supply.
+function mergeTargetNodes(results){
+  const merged={}, order=[], rawNeeds={};
+  const internalIds=new Set();
+  results.forEach(r=>{(r.poolSuppliedIds||[]).forEach(id=>internalIds.add(id));});
+  results.forEach(r=>{
+    if(r.error)return;
+    (r.nodes||[]).forEach(n=>{
+      const key=n.resId+'|'+n.rec.id;
+      if(merged[key]){
+        merged[key].exact+=n.exact;
+        merged[key].fromInputs=merged[key].fromInputs||n.fromInputs;
+      } else {
+        merged[key]={...n};
+        order.push(key);
+      }
+    });
+    Object.entries(r.rawNeeds||{}).forEach(([id,rate])=>{
+      if(internalIds.has(id))return;
+      rawNeeds[id]=(rawNeeds[id]??0)+rate;
+    });
+  });
+  return{nodes:order.map(k=>merged[k]),rawNeeds};
+}
+
+function renderMultiTargetResults(targets, results, pool, el){
+  let top='';
+  results.forEach((r,i)=>{
+    const t=targets[i];
+    const num=`${i+1}.`;
+    if(r.error){
+      top+=`<div class="alert ae" style="margin-bottom:10px"><strong>${num} ${esc(rname(t.resId))}:</strong> ${esc(r.error)}</div>`;
+      return;
+    }
+    const mt=i?'margin-top:14px':'margin-top:0';
+    if(!r.fromByproduct){
+      const header=isPowerRes(t.resId)
+        ?`⚡ ${fmt(t.rate,t.rate>=100?0:1)} MW ${esc(rname(t.resId))}`
+        :`${t.rawRate} ${esc(rname(t.resId))}/${t.unitLbl}`;
+      top+=`<div class="card-title" style="${mt}">${num} ${header}</div>`;
+    } else {
+      top+=`<div class="card-title" style="${mt}">${num} ${esc(rname(t.resId))} <span style="color:#555;text-transform:none;letter-spacing:0">— from byproduct</span></div>`;
+      const bName=r.bottleneckRes?esc(rname(r.bottleneckRes)):'?';
+      top+=`<div class="ach-banner">Bottleneck: <strong>${bName}</strong> · achievable: <strong>${rateStr(t.resId,r.achievable,3)}</strong></div>`;
+      const extraEntries=Object.entries(r.extras||{});
+      if(extraEntries.length){
+        const rows=extraEntries.map(([id,ex])=>{
+          const via=ex.recipeName
+            ?` — via <strong>${esc(ex.recipeName)}</strong>${ex.machineName?` (${esc(ex.machineName)})`:''}${ex.isAlt?' <span style="color:#e8982a">· alternate recipe — disable it in Recipe Toggles below if you don\'t want this</span>':''}`
+            :'';
+          return`<li>${rateStr(id,ex.rate,3)} <strong>${esc(rname(id))}</strong>${via}</li>`;
+        }).join('');
+        top+=`<div class="ach-banner" style="background:#2a2010;border-color:#665500;color:#ddaa30">
+          ⚠ Extra requirements calculated automatically — these weren't covered by the byproduct and will also be needed (full chain below):
+          <ul style="margin:6px 0 0 18px;padding:0">${rows}</ul>
+        </div>`;
+      }
+    }
+  });
+
+  // Byproduct produced somewhere in the plan but never claimed by a later
+  // target — informational, so nothing that's actually happening is hidden.
+  const leftover=Object.entries(pool).filter(([,v])=>v>1e-6);
+  if(leftover.length){
+    const rows=leftover.map(([id,rate])=>`<li>${rateStr(id,rate,3)} <strong>${esc(rname(id))}</strong></li>`).join('');
+    top+=`<div class="ach-banner" style="background:#161c26;border-color:#2a3a4a;color:#7aa0c0;margin-top:14px">
+      Unused byproduct surplus — not claimed by any target:
+      <ul style="margin:6px 0 0 18px;padding:0">${rows}</ul>
+    </div>`;
+  }
+
+  const{nodes,rawNeeds}=mergeTargetNodes(results);
+  if(!nodes.length){
+    el.innerHTML=top||'<div class="alert ae">No valid targets.</div>';
+    return;
+  }
+  lastPlan={nodes};
+  renderPlanBody(new Set(targets.map(t=>t.resId)),nodes,rawNeeds,top,el);
 }
 
 // ══════════════════════════════════════════════════════
@@ -2234,19 +2489,19 @@ function runPlanner(){
   savePlannerQuery(); saveState();
 
   if(planMode==='target'){
-    const resId  =document.getElementById('pl-res').value;
-    const rateNum=parseFloat(document.getElementById('pl-rate').value);
-    const unit   =parseFloat(document.getElementById('pl-unit').value);
-    const unitLbl=document.getElementById('pl-unit').selectedOptions[0].text;
-    if(!resId)      return resEl.innerHTML='<div class="alert ae">Select a target resource.</div>';
-    if(!rateNum||rateNum<=0)return resEl.innerHTML='<div class="alert ae">Enter a positive rate.</div>';
-    const{nodes,rawNeeds}=computeChain(resId,rateNum/unit,new Set(),true);
-    if(!nodes.length)return resEl.innerHTML=`<div class="alert ae">No recipe produces "${esc(rname(resId))}". Add one in Resources.</div>`;
-    lastPlan={nodes};
-    const header=isPowerRes(resId)
-      ?`⚡ ${fmt(rateNum/unit,rateNum/unit>=100?0:1)} MW ${esc(rname(resId))}`
-      :`${rateNum} ${esc(rname(resId))}/${unitLbl}`;
-    renderResults(resId,nodes,rawNeeds,header,null,resEl);
+    const rows=[...document.querySelectorAll('#pl-tgt-rows .tgt-row')];
+    const targets=[];
+    rows.forEach(row=>{
+      const resId=row.querySelector('.tgt-res').value;
+      if(!resId)return; // skip blank rows (e.g. the trailing auto-added one)
+      const rawRate=parseFloat(row.querySelector('.tgt-rate').value);
+      const unit=parseFloat(row.querySelector('.tgt-unit').value);
+      const unitLbl=row.querySelector('.tgt-unit').selectedOptions[0].text;
+      targets.push({resId,rawRate,unitLbl,rate:(!isNaN(rawRate)&&rawRate>0)?rawRate/unit:null});
+    });
+    if(!targets.length)return resEl.innerHTML='<div class="alert ae">Select at least one target resource.</div>';
+    if(targets[0].rate==null)return resEl.innerHTML='<div class="alert ae">Enter an amount for the first (primary) target.</div>';
+    runMultiTargetPlan(targets,resEl);
   } else {
     const targetId=document.getElementById('pl-inp-target').value;
     if(!targetId)return resEl.innerHTML='<div class="alert ae">Select a target resource.</div>';
@@ -2271,39 +2526,18 @@ function runPlanner(){
   }
 }
 
-function renderResults(targetResId, nodes, rawNeeds, header, inputMeta, el){
-  const fromInputs=!!inputMeta;
-  let left=`<div class="card-title">${header}</div>`;
+// Shared results renderer: stage list + raw inputs + power banner + flow
+// diagram. `targetIds` is a Set (a single from-inputs target, or every
+// target in a multi-target plan). `topHtml` is caller-supplied content
+// (header, bottleneck/extras banners, etc.) inserted above the stage list.
+// Each node's OWN `.fromInputs` flag (set by the caller) controls whether
+// its efficiency band shows, since a merged multi-target plan can mix
+// ceiled target-mode stages with byproduct-constrained ones.
+function renderPlanBody(targetIds, nodes, rawNeeds, topHtml, el){
+  let left=topHtml;
   left+=`<div class="act" style="margin:0 0 12px">
     <button class="bb bsm" onclick="planToLayout()" title="Place the calculated machines in the layout editor, one column per stage">Build in Layout →</button>
   </div>`;
-
-  if(inputMeta){
-    const bName=inputMeta.bottleneckRes?esc(rname(inputMeta.bottleneckRes)):'?';
-    left+=`<div class="ach-banner">Bottleneck: <strong>${bName}</strong> · achievable: <strong>${rateStr(targetResId,inputMeta.achievable,3)}</strong></div>`;
-
-    // Extra requirements: resources the chain needs that weren't in the
-    // supplied inputs. Computed automatically at the optimum ratio rather
-    // than blocking the plan — surfaced here so it's obvious they'll also
-    // be needed, plus which recipe pulled them in (in case an alternate
-    // should be disabled to route around them). Only the top-level entry
-    // points are listed (e.g. Concrete, not the Limestone under it) so this
-    // stays short for deep chains; the full chain is still in the results
-    // list and diagram below as ordinary stages.
-    const extraEntries=Object.entries(inputMeta.extras||{}).filter(([,ex])=>ex.topLevel);
-    if(extraEntries.length){
-      const rows=extraEntries.map(([id,ex])=>{
-        const via=ex.recipeName
-          ?` — via <strong>${esc(ex.recipeName)}</strong>${ex.machineName?` (${esc(ex.machineName)})`:''}${ex.isAlt?' <span style="color:#e8982a">· alternate recipe — disable it in Recipe Toggles below if you don\'t want this</span>':''}`
-          :'';
-        return`<li>${rateStr(id,ex.rate,3)} <strong>${esc(rname(id))}</strong>${via}</li>`;
-      }).join('');
-      left+=`<div class="ach-banner" style="background:#2a2010;border-color:#665500;color:#ddaa30">
-        ⚠ Extra requirements calculated automatically — these weren't in your supplied inputs and will also be needed, on top of what you gave (full chain below):
-        <ul style="margin:6px 0 0 18px;padding:0">${rows}</ul>
-      </div>`;
-    }
-  }
 
   // ── Total power draw across all stages (installed: ceiled machines × MW) ──
   const totalMW=nodes.reduce((s,n)=>{
@@ -2312,7 +2546,7 @@ function renderResults(targetResId, nodes, rawNeeds, header, inputMeta, el){
   },0);
   if(totalMW>0){
     const genRes=resources.find(r=>r.isPower&&resUnlocked(r)&&r.recipes.some(recipeAvailable));
-    const canPlanGen=genRes&&!isPowerRes(targetResId);
+    const canPlanGen=genRes&&![...targetIds].some(isPowerRes);
     left+=`<div class="ach-banner" style="background:#2a2210;border-color:#5a4a1a;color:#e8b84a;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
       <span>⚡ Total power: <strong>${fmt(totalMW,totalMW>=100?0:1)} MW</strong></span>
       ${canPlanGen?`<button class="bb bsm" onclick="planPowerGeneration(${totalMW})" title="Plan generators and their fuel chains to supply this factory">Plan generation →</button>`:''}
@@ -2322,7 +2556,7 @@ function renderResults(targetResId, nodes, rawNeeds, header, inputMeta, el){
   nodes.forEach(n=>{
     const {rec,exact,resId}=n;
     const count=Math.ceil(exact);
-    const isTgt=resId===targetResId;
+    const isTgt=targetIds.has(resId);
     const m=rec.machineId?machines.find(m=>m.id===rec.machineId):null;
     const tier=activeTierName(rec);
     const ct=effectiveCycleTime(rec);
@@ -2337,13 +2571,17 @@ function renderResults(targetResId, nodes, rawNeeds, header, inputMeta, el){
     const eff        = exact/count;                         // 0–1
     const effPct     = (eff*100).toFixed(1);
     const atCapacity = eff>0.999;
+    const byproducts=(rec.byproducts||[]).map(b=>
+      `<span class="badge bp" title="Byproduct">+${rateStr(b.resourceId,(b.amount/ct)*exact,2)} ${esc(rname(b.resourceId))}</span>`
+    ).join(' ');
 
     left+=`<div class="ri${isTgt?' tgt':''}">
       <div class="ri-l">
         <div class="rm"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${m?machColor(m.id):'#555'};margin-right:6px"></span>${m?esc(m.name):'(no machine)'}${tier?` <span style="color:#6a8090;font-size:11px">${esc(tier)}</span>`:''}</div>
         <div class="rr">${esc(rec.name)}</div>
-        <div class="ro">${rateStr(resId,actualRate,3)} <span style="color:${resColor(resId)}">${esc(rname(resId))}</span>${fromInputs&&!atCapacity?` <span style="color:#c07030">(${effPct}% capacity · max ${rateStr(resId,fullRate,3)})</span>`:''}</div>
+        <div class="ro">${rateStr(resId,actualRate,3)} <span style="color:${resColor(resId)}">${esc(rname(resId))}</span>${n.fromInputs&&!atCapacity?` <span style="color:#c07030">(${effPct}% capacity · max ${rateStr(resId,fullRate,3)})</span>`:''}</div>
         ${n.beltCapped?`<div class="rr" style="color:#c07030">⚠ output belt-limited to ${rfmt(n.perMach,2)} per machine (would be ${rfmt(n.fullPerMach,2)})</div>`:''}
+        ${byproducts?`<div style="margin-top:4px">${byproducts}</div>`:''}
       </div>
       <div class="ri-r">
         <div class="ri-cnt">${count}</div>
@@ -2365,8 +2603,45 @@ function renderResults(targetResId, nodes, rawNeeds, header, inputMeta, el){
 
   el.innerHTML=`<div class="plan-panels">
     <div class="card">${left}</div>
-    <div class="card flow-card"><div class="card-title">Flow diagram</div>${buildFlowSVG(targetResId,nodes,rawNeeds,fromInputs)}</div>
+    <div class="card flow-card"><div class="card-title">Flow diagram</div>${buildFlowSVG(targetIds,nodes,rawNeeds)}</div>
   </div>`;
+}
+
+// From-inputs mode's single-target results: header + bottleneck/extras
+// banners, then the shared body.
+function renderResults(targetResId, nodes, rawNeeds, header, inputMeta, el){
+  nodes.forEach(n=>{n.fromInputs=!!inputMeta;});
+  let top=`<div class="card-title">${header}</div>`;
+
+  if(inputMeta){
+    const bName=inputMeta.bottleneckRes?esc(rname(inputMeta.bottleneckRes)):'?';
+    top+=`<div class="ach-banner">Bottleneck: <strong>${bName}</strong> · achievable: <strong>${rateStr(targetResId,inputMeta.achievable,3)}</strong></div>`;
+
+    // Extra requirements: resources the chain needs that weren't in the
+    // supplied inputs. Computed automatically at the optimum ratio rather
+    // than blocking the plan — surfaced here so it's obvious they'll also
+    // be needed, plus which recipe pulled them in (in case an alternate
+    // should be disabled to route around them). Only the boundary point
+    // where the chain first needs something beyond supply is listed (e.g.
+    // Compacted Coal, not Turbofuel itself) — see computeFromInputs — so
+    // this stays short for deep chains; the full chain is still in the
+    // results list and diagram below as ordinary stages.
+    const extraEntries=Object.entries(inputMeta.extras||{});
+    if(extraEntries.length){
+      const rows=extraEntries.map(([id,ex])=>{
+        const via=ex.recipeName
+          ?` — via <strong>${esc(ex.recipeName)}</strong>${ex.machineName?` (${esc(ex.machineName)})`:''}${ex.isAlt?' <span style="color:#e8982a">· alternate recipe — disable it in Recipe Toggles below if you don\'t want this</span>':''}`
+          :'';
+        return`<li>${rateStr(id,ex.rate,3)} <strong>${esc(rname(id))}</strong>${via}</li>`;
+      }).join('');
+      top+=`<div class="ach-banner" style="background:#2a2010;border-color:#665500;color:#ddaa30">
+        ⚠ Extra requirements calculated automatically — these weren't in your supplied inputs and will also be needed, on top of what you gave (full chain below):
+        <ul style="margin:6px 0 0 18px;padding:0">${rows}</ul>
+      </div>`;
+    }
+  }
+
+  renderPlanBody(new Set([targetResId]),nodes,rawNeeds,top,el);
 }
 
 // ══════════════════════════════════════════════════════
@@ -2394,7 +2669,7 @@ function stageDepths(nodes){
   return dc;
 }
 
-function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
+function buildFlowSVG(targetIds, nodes, rawNeeds){
   if(!nodes.length)return'<div class="empty">Nothing to display.</div>';
 
   const byOut={};
@@ -2465,7 +2740,7 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
     return i>=0?palette[i%palette.length]:null;
   }
 
-  let edges='',raws='',boxes='';
+  let edges='',edgeLabels='',raws='',boxes='';
 
   // ── Edge collection ──
   // Each edge later gets its own entry/exit point along the node side, so
@@ -2536,13 +2811,20 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
     }
     const beltStr=beltLabel(e.rate,e.resId);
     const tip=`${rname(e.resId)} — ${rateStr(e.resId,e.rate,2)}${beltStr?' · '+beltStr:''}\n${e.fromLabel} → ${e.toLabel}`;
-    const rateTxt=crateStr(e.resId,e.rate);
-    const pw=rateTxt.length*5.4+8;
+    // Lines and their rate-pill labels are rendered in separate passes (see
+    // below) so that EVERY label paints on top of EVERY line, regardless of
+    // which edge is drawn first — otherwise a later-drawn line could cross
+    // over and cover an earlier edge's label.
     edges+=`<g class="fe">
       <title>${esc(tip)}</title>
       <path d="${path}" fill="none" stroke="rgba(0,0,0,0.001)" stroke-width="13"/>
       <path class="vis" d="${path}" fill="none" stroke="${col}" stroke-opacity="${isLong?0.5:0.65}" stroke-width="2"/>
       <polygon points="${x2},${y2} ${x2-8},${y2-4.2} ${x2-8},${y2+4.2}" fill="${col}"/>
+    </g>`;
+    const rateTxt=crateStr(e.resId,e.rate);
+    const pw=rateTxt.length*5.4+8;
+    edgeLabels+=`<g>
+      <title>${esc(tip)}</title>
       <rect x="${x2-10-pw}" y="${y2-16}" width="${pw}" height="12" rx="3" fill="#13151a" opacity=".9"/>
       <text x="${x2-14}" y="${y2-7}" text-anchor="end" font-size="9" fill="${col}">${rateTxt}</text>
     </g>`;
@@ -2565,7 +2847,7 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
     const p=posR[n.rec.id];
     if(!p)return;
     const count=Math.ceil(n.exact);
-    const isTgt=n.resId===targetResId;
+    const isTgt=targetIds.has(n.resId);
     const m=n.rec.machineId?machines.find(m=>m.id===n.rec.machineId):null;
     const tier=activeTierName(n.rec);
     const cc=catCol(n.resId);
@@ -2579,8 +2861,9 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
     const atCap=eff>0.999;
     const machLine=(m?m.name:'no machine')+(tier?` · ${tier}`:'')+(n.beltCapped?' ⚠':'');
     const nodeMW=m?(activeTier(m.id)?.power||0)*count:0;
-    // In from-inputs mode show efficiency band when not at 100%
-    const effBand=fromInputs&&!atCap
+    // Per-node flag: this node came from a byproduct/from-inputs-constrained
+    // computation, so show its efficiency band when it isn't at 100%.
+    const effBand=n.fromInputs&&!atCap
       ?`<rect x="${p.x+1}" y="${p.y+NH-12}" width="${Math.round((NW-2)*eff)}" height="10" rx="0 0 6 6" fill="#c0702040"/>
         <text x="${p.x+NW/2}" y="${p.y+NH-3}" text-anchor="middle" font-size="8" fill="#c07030">${(eff*100).toFixed(0)}%</text>`
       :'';
@@ -2589,12 +2872,14 @@ function buildFlowSVG(targetResId, nodes, rawNeeds, fromInputs=false){
       <text x="${p.x+NW/2}" y="${p.y+33}" text-anchor="middle" font-size="10" fill="#5a7888">${esc(n.rec.name)}</text>
       <line x1="${p.x+10}" y1="${p.y+40}" x2="${p.x+NW-10}" y2="${p.y+40}" stroke="#1e3040" stroke-width="1"/>
       <text x="${p.x+NW/2}" y="${p.y+66}" text-anchor="middle" font-size="26" font-weight="900" fill="${cCol}">${count}</text>
-      ${nodeMW>0?`<text x="${p.x+7}" y="${p.y+NH-(fromInputs&&!atCap?15:5)}" text-anchor="start" font-size="9" fill="#b8963a">⚡${fmt(nodeMW,0)} MW</text>`:''}
-      <text x="${p.x+NW-7}" y="${p.y+NH-(fromInputs&&!atCap?15:5)}" text-anchor="end" font-size="9" fill="${resColor(n.resId,45,52)}">${rateStr(n.resId,actualRate,2)} ${esc(rname(n.resId))}</text>
+      ${nodeMW>0?`<text x="${p.x+7}" y="${p.y+NH-(n.fromInputs&&!atCap?15:5)}" text-anchor="start" font-size="9" fill="#b8963a">⚡${fmt(nodeMW,0)} MW</text>`:''}
+      <text x="${p.x+NW-7}" y="${p.y+NH-(n.fromInputs&&!atCap?15:5)}" text-anchor="end" font-size="9" fill="${resColor(n.resId,45,52)}">${rateStr(n.resId,actualRate,2)} ${esc(rname(n.resId))}</text>
       ${effBand}`;
   });
 
-  return`<div style="overflow-x:auto"><svg width="${svgW}" height="${svgH}" xmlns="http://www.w3.org/2000/svg" style="display:block;font-family:'Segoe UI',system-ui,sans-serif">${edges}${raws}${boxes}</svg></div>`;
+  // Labels are the topmost layer of all — they must never be hidden behind
+  // a line OR a node box, regardless of draw order elsewhere in the diagram.
+  return`<div style="overflow-x:auto"><svg width="${svgW}" height="${svgH}" xmlns="http://www.w3.org/2000/svg" style="display:block;font-family:'Segoe UI',system-ui,sans-serif">${edges}${raws}${boxes}${edgeLabels}</svg></div>`;
 }
 
 // ══════════════════════════════════════════════════════

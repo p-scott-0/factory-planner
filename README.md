@@ -29,7 +29,7 @@ Existing data from before profiles were added is automatically migrated into a "
 
 The [`profiles/`](profiles/) folder ships two ready-made profiles that double as reference examples for building your own:
 
-- [`satisfactory.json`](profiles/satisfactory.json) — Satisfactory Tiers 0–8: fifteen machines (Miner Mk1–3, Smelter, Constructor, Assembler, Foundry, Water/Oil/Well Extractors, Refinery, Manufacturer, Blender, Particle Accelerator, Coal/Fuel Generators, Nuclear Power Plant) with real per-tier power draws, and 75 resources spanning the full progression — steel, oil, quartz, sulfur/turbofuel, caterium electronics, the aluminum chain, nitrogen parts, nuclear fuel rods, and all Space Elevator Phase 1–4 parts (through Nuclear Pasta and Thermal Propulsion Rockets). Power is plannable from four sources (coal, fuel, turbofuel, nuclear). Belt tiers Mk1–Mk5, pipes Mk1–2, research-tier gating throughout, and eight alternate recipes shipped toggled off (Cast/Steel Screw, Iron/Caterium Wire, Wet Concrete, Pure Iron/Copper Ingot, Solid Steel Ingot). Recipes are 1.0-accurate where the model allows; byproducts (e.g. refinery residue) are omitted.
+- [`satisfactory.json`](profiles/satisfactory.json) — Satisfactory Tiers 0–8: fifteen machines (Miner Mk1–3, Smelter, Constructor, Assembler, Foundry, Water/Oil/Well Extractors, Refinery, Manufacturer, Blender, Particle Accelerator, Coal/Fuel Generators, Nuclear Power Plant) with real per-tier power draws, and 76 resources spanning the full progression — steel, oil, quartz, sulfur/turbofuel, caterium electronics, the aluminum chain, nitrogen parts, nuclear fuel rods, and all Space Elevator Phase 1–4 parts (through Nuclear Pasta and Thermal Propulsion Rockets). Power is plannable from four sources (coal, fuel, turbofuel, nuclear). Belt tiers Mk1–Mk5, pipes Mk1–2, research-tier gating throughout, and nine alternate recipes shipped toggled off (Cast/Steel Screw, Iron/Caterium Wire, Wet Concrete, Pure Iron/Copper Ingot, Solid Steel Ingot, Residual Plastic). The Fuel recipe includes a real byproduct (Polymer Resin), which Residual Plastic consumes — a ready-made example for the planner's multi-target byproduct flow (see below). Recipes are 1.0-accurate where the model allows; most byproducts (e.g. refinery residue) are still omitted, since a recipe with two co-equal primary outputs isn't modelled — only single-output-plus-byproduct is.
 - [`factorio.json`](profiles/factorio.json) — Factorio early game: burner/electric drills, stone/steel/electric furnaces, assembling machines 1–3, yellow/red/blue belts, up to Automation Science Packs.
 
 On the hosted version (or any local server) load them with the **Samples** buttons in the Profiles panel. When opening `index.html` directly from disk, use **Import Profile** and pick the JSON file instead (browsers block `fetch` on `file://`).
@@ -83,7 +83,8 @@ A profile file is what **Export Profile** produces:
           "machineId": "mach-x",                     // null = raw/mined resource
           "cycleTime": 1.6,                          // seconds per cycle
           "outputAmount": 1,                         // output per cycle
-          "inputs": [ { "resourceId": "res-y", "amount": 1 } ]
+          "inputs": [ { "resourceId": "res-y", "amount": 1 } ],
+          "byproducts": [ { "resourceId": "res-z", "amount": 0.5 } ]  // optional extra output per cycle
         }
       ],
       "defaultRecipeId": "rec-x"                     // preferred on cost ties
@@ -95,6 +96,8 @@ A profile file is what **Export Profile** produces:
 ```
 
 The planner picks recipes automatically: for each resource it uses the cheapest enabled + unlocked recipe chain, measured in raw inputs per unit of output. Disable recipes you haven't found (e.g. alternates) via `recToggles` or the checkboxes in the Planner tab.
+
+Target Output mode accepts multiple targets in priority order. A target left without an amount is planned entirely from the byproducts of the targets before it (so a Turbofuel target that yields Polymer Resin as a byproduct can feed a second, amount-less Plastic target) — see the `satisfactory.json` sample's Fuel/Polymer Resin/Residual Plastic chain for a working example (enable the `rec-residual-plastic` toggle first, since it ships off by default).
 
 IDs just need to be unique strings within the profile — the readable slugs in the samples are a convention, not a requirement. A resource with no recipes (or whose recipe has no machine) is treated as a raw input.
 

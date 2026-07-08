@@ -33,6 +33,7 @@ A recipe represents one way to produce a resource. Recipes have:
 - A **cycle time** in seconds
 - An **output amount** per cycle
 - Zero or more **input resources**, each with an amount per cycle
+- Zero or more **byproducts** — extra output resources produced per cycle alongside the primary output (e.g. a Fuel recipe that also yields Polymer Resin). Byproducts are shown as badges on the recipe and, where a plan produces them, on the corresponding machine stage in planner results. They don't offset demand within the SAME target's own chain — see **Multiple Targets** below for how they're actually put to use.
 
 A resource with no recipe is treated as a raw input — something that must be supplied externally.
 
@@ -70,7 +71,7 @@ The planner state (tier selections, recipe overrides, layout) is also profile-sc
 ## Production Chain Calculator
 
 ### Target Mode
-The user specifies a target resource and a desired output rate (per second, minute, or hour). The planner works backwards through the dependency graph to produce a complete bill of machines and raw material inputs.
+The user specifies one or more target resources, each with a desired output rate (per second, minute, or hour), and the planner works backwards through the dependency graph to produce a complete bill of machines and raw material inputs.
 
 Key behaviours:
 - Uses the full dependency tree — if Iron Plates require Iron Ore, and Gears require Iron Plates, a target of Gears will surface all three stages.
@@ -79,6 +80,11 @@ Key behaviours:
 - Diamond dependencies (same resource demanded by multiple downstream stages) accumulate correctly — the tool does not double-count machines.
 - Recipes are toggled **enabled/disabled** rather than manually assigned: the planner automatically picks, per resource, the cheapest enabled and unlocked recipe chain, measured in raw-equivalent inputs per unit of output (raw resources and mining recipes count 1 per unit; ties go to the default recipe).
 
+#### Multiple Targets
+Targets are entered as a list in **priority order**, one per row; a fresh blank row appears automatically as soon as the current last row gets a resource, so the list grows as it's filled in rather than starting cluttered. The first target always needs an amount. Any target after it can be left with **no amount**, meaning "make as much of this as possible from an earlier target's byproducts" — the classic case being: target 1 = Turbofuel at a fixed rate (whose Fuel stage yields Polymer Resin as a byproduct), target 2 = Plastic with no amount, computed entirely from that leftover Polymer Resin (via whichever enabled Plastic recipe actually consumes it).
+
+Processing is strictly sequential and priority governs the outcome: each fixed-amount target is planned independently and its byproducts are added to a shared pool; each byproduct-driven target then plans itself against whatever's currently in that pool — using the same machinery as From-Inputs mode, including automatic extra-requirement calculation and alternate-recipe fallback for anything the byproduct alone doesn't cover — and draws down what it uses, so a target later in the list only sees the leftover. Swapping the order of two targets can change (or break) the outcome by design, since it changes what's in the pool when each one runs. Any byproduct never claimed by a later target is reported as unused surplus. A byproduct-driven target with nothing available in the pool yet shows its own inline error without blocking the other targets. Results, raw inputs, power total, and the flow diagram are combined across every target into one plan; **Build in Layout** places the whole thing together.
+
 ### From-Inputs Mode
 The user specifies a set of input resources and rates, and a target resource. The planner finds the maximum achievable output rate given the supply constraint, identifies the bottleneck resource, and shows each machine stage's efficiency (what fraction of full capacity it runs at).
 
@@ -86,7 +92,7 @@ Key behaviours:
 - Machine counts are fractional/exact — machines are not ceiled because the constraint is the input supply, not a round-number target.
 - Efficiency is displayed per stage so the user can see which machines are underutilised.
 - Recipe selection prefers chains that terminate at the supplied inputs, and automatically falls back to alternate recipes that work with what's available — but a chain is never blocked just because part of it needs something the user didn't list. Only the resources actually supplied constrain the achievable rate.
-- **Ingredients the chain needs beyond the supplied inputs are calculated automatically** at the optimum ratio (e.g. supplying only Steel Beams for Encased Industrial Beams computes how much Concrete — and the Limestone/Miners under it — is also required) rather than erroring. These are shown as full stages in the results and diagram like any other. A highlighted "extra requirements" banner additionally summarises just the **top-level** entry points (e.g. Concrete, not the Limestone underneath it) — the first ingredient not covered by supply, so the summary stays short even for deep chains — naming the resource, its rate, and the recipe/machine that produces it, and flagging when that recipe is a non-default alternate so the user knows what to disable if they'd rather supply that ingredient directly instead.
+- **Ingredients the chain needs beyond the supplied inputs are calculated automatically** at the optimum ratio (e.g. supplying only Steel Beams for Encased Industrial Beams computes how much Concrete — and the Limestone/Miners under it — is also required) rather than erroring. These are shown as full stages in the results and diagram like any other. A highlighted "extra requirements" banner additionally summarises just the resources at the **boundary** where the chain first needs something beyond supply: a recipe that combines something reachable from the given inputs with something that isn't (e.g. a Steel Ingot recipe mixing supplied Iron Ore with unsupplied Coal flags Coal, not the Steel Beam made from it two steps later), or, for a branch that never reconnects with the supply at all (e.g. Concrete's Limestone, when nothing supplied touches limestone), the point where that disconnected branch first attaches. This keeps the summary short even for deep chains while still naming the resource, its rate, and the recipe/machine producing it — flagging when that recipe is a non-default alternate so the user knows what to disable if they'd rather supply that ingredient directly instead.
 - The plan only errors when the target itself is impossible to produce at all (research-locked or a dependency cycle) or when none of the supplied inputs are actually consumed by the chain.
 
 ### Flow Diagram
@@ -96,7 +102,7 @@ Results are displayed as a visual graph alongside the machine list. The diagram 
 - Each flow into or out of a node gets its own entry/exit point spread along the node's edge, so multiple flows never converge on one midpoint
 - Every edge ends in a straight horizontal run so the line enters the back of its arrowhead
 - Edges are **colour-coded per resource** (the same material keeps one colour across the whole diagram, including its raw-input box) so flows can be traced at a glance
-- Each edge carries only a **compact rate pill** at its arrowhead (e.g. "360/min"); hovering the edge shows the full details — resource, exact rate, required belt/pipe tier, and producer → consumer — and thickens the line for tracing
+- Each edge carries only a **compact rate pill** at its arrowhead (e.g. "360/min"); hovering the edge shows the full details — resource, exact rate, required belt/pipe tier, and producer → consumer — and thickens the line for tracing. Every pill is rendered in its own layer above every line and node box in the diagram, so a crossing belt can never cover a label, regardless of draw order.
 - Raw input nodes at the far end of the graph
 - Nodes grouped left-to-right by dependency depth (raw inputs on the left, target on the right, following natural reading direction)
 - Nodes within each column sorted by category then name
