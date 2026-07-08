@@ -2207,6 +2207,22 @@ function computeFromInputs(targetResId, inputMap){
     extras[id]={rate,recipeName:null,machineName:null,isAlt:false};
   });
 
+  // Tag which extras are "top level" — the first point an unsupplied
+  // ingredient enters the chain (consumed directly by the target or by
+  // something already producible from supply). Deeper requirements under an
+  // extra (e.g. Limestone under Concrete) are only ever consumed by other
+  // extras, so they're left un-tagged: still full stages in the results and
+  // diagram, just not repeated in the summary popup to keep it short for
+  // complex parts with long dependency chains.
+  const consumersOf={};
+  nodes.forEach(n=>n.rec.inputs.forEach(inp=>{
+    (consumersOf[inp.resourceId]=consumersOf[inp.resourceId]||new Set()).add(n.resId);
+  }));
+  Object.keys(extras).forEach(id=>{
+    const consumers=consumersOf[id];
+    extras[id].topLevel=!consumers||[...consumers].some(c=>c===targetResId||reachable(c));
+  });
+
   return{nodes,rawNeeds,achievable,bottleneckRes,extras};
 }
 
@@ -2270,8 +2286,11 @@ function renderResults(targetResId, nodes, rawNeeds, header, inputMeta, el){
     // supplied inputs. Computed automatically at the optimum ratio rather
     // than blocking the plan — surfaced here so it's obvious they'll also
     // be needed, plus which recipe pulled them in (in case an alternate
-    // should be disabled to route around them).
-    const extraEntries=Object.entries(inputMeta.extras||{});
+    // should be disabled to route around them). Only the top-level entry
+    // points are listed (e.g. Concrete, not the Limestone under it) so this
+    // stays short for deep chains; the full chain is still in the results
+    // list and diagram below as ordinary stages.
+    const extraEntries=Object.entries(inputMeta.extras||{}).filter(([,ex])=>ex.topLevel);
     if(extraEntries.length){
       const rows=extraEntries.map(([id,ex])=>{
         const via=ex.recipeName
@@ -2280,7 +2299,7 @@ function renderResults(targetResId, nodes, rawNeeds, header, inputMeta, el){
         return`<li>${rateStr(id,ex.rate,3)} <strong>${esc(rname(id))}</strong>${via}</li>`;
       }).join('');
       left+=`<div class="ach-banner" style="background:#2a2010;border-color:#665500;color:#ddaa30">
-        ⚠ Extra requirements calculated automatically — these weren't in your supplied inputs and will also be needed, on top of what you gave:
+        ⚠ Extra requirements calculated automatically — these weren't in your supplied inputs and will also be needed, on top of what you gave (full chain below):
         <ul style="margin:6px 0 0 18px;padding:0">${rows}</ul>
       </div>`;
     }
