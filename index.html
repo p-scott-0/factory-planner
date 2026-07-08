@@ -2026,33 +2026,34 @@ function activeTierName(rec){
 // ── Automatic recipe selection ──
 // Picks, per resource, the cheapest available recipe chain measured in
 // "raw-equivalent" units: a raw resource (or a no-input recipe like mining)
-// costs 1 per unit, and a recipe costs the sum of its inputs' costs per unit
-// of output. Disabled recipes, research-locked recipes/machines/resources are
-// excluded. In from-inputs mode only the supplied resources count as raw —
-// any chain that needs something else is infeasible (Infinity), so the picker
-// automatically falls back to alternates that work with what you have.
-// Ties go to the resource's default recipe.
-function planRecipes(inputSet,inputsMode){
+// normally costs 1 per unit; anything in inputSet (from-inputs mode's
+// supplied resources) costs 0, so chains built from what the user already
+// has always beat chains that would need something extra, without ever
+// making those extra chains outright infeasible. This is what lets
+// from-inputs mode both auto-pick alternates that fit the given supply
+// (when one exists) AND gracefully compute additional required inputs
+// when no fully-supplied chain exists (computeFromInputs surfaces those as
+// "extras" for the user, rather than erroring). Disabled recipes and
+// research-locked recipes/machines/resources are excluded. Ties go to the
+// resource's default recipe. True infeasibility (Infinity) only happens for
+// a research-locked resource or a dependency cycle.
+function planRecipes(inputSet){
   const memo={}, choice={};
   function costOf(id,stack){
     if(memo[id]!==undefined)return memo[id];
-    if(inputSet.has(id))return memo[id]=1;
+    if(inputSet.has(id))return memo[id]=0;
     const res=resources.find(r=>r.id===id);
-    if(!res)return memo[id]=inputsMode?Infinity:1;
+    if(!res)return memo[id]=1;
     if(!resUnlocked(res))return memo[id]=Infinity;
     const recs=(res.recipes||[]).filter(recipeAvailable);
-    if(!recs.length)return memo[id]=inputsMode?Infinity:1;
+    if(!recs.length)return memo[id]=1; // no recipe defined — external raw input
     if(stack.has(id))return Infinity; // cycle guard (not memoised)
     stack.add(id);
     let best=Infinity,bestRec=null;
     for(const rec of recs){
       const out=rec.outputAmount??1;
-      let c=0;
-      // Zero-input recipes (mining/extraction) cost 1 raw-equivalent per unit.
-      // In from-inputs mode nothing may be conjured from nothing — every chain
-      // must terminate at a supplied input, so mining is infeasible.
-      if(!rec.inputs.length)c=inputsMode?Infinity:1;
-      else for(const inp of rec.inputs){
+      let c=rec.inputs.length?0:1; // zero-input (mining/extraction) costs 1 raw-equivalent
+      for(const inp of rec.inputs){
         c+=(inp.amount/out)*costOf(inp.resourceId,stack);
         if(!isFinite(c))break;
       }
@@ -2060,14 +2061,35 @@ function planRecipes(inputSet,inputsMode){
       if(c<best-1e-9||(Math.abs(c-best)<=1e-9&&isDef)){best=c;bestRec=rec;}
     }
     stack.delete(id);
-    if(!bestRec||!isFinite(best)){
-      // No feasible recipe: raw in target mode, infeasible in from-inputs mode
-      return memo[id]=inputsMode?Infinity:1;
-    }
+    if(!bestRec||!isFinite(best))return memo[id]=1; // nothing usable — treat as external raw
     memo[id]=best; choice[id]=bestRec;
     return best;
   }
   return{costOf:id=>costOf(id,new Set()),choice};
+}
+
+// Which resources are producible purely from the supplied inputs (recursively
+// — an intermediate counts only if every one of its recipe's inputs does too;
+// raw/mined resources never count unless directly supplied). Used only to
+// flag "extra requirement" resources in from-inputs results — it does not
+// affect which recipe gets chosen, that's always the cheapest chain from
+// planRecipes.
+function reachableFromInputs(inputSet){
+  const memo={};
+  function ok(id,stack){
+    if(memo[id]!==undefined)return memo[id];
+    if(inputSet.has(id))return memo[id]=true;
+    if(stack.has(id))return false; // cycle guard, not memoised
+    const res=resources.find(r=>r.id===id);
+    if(!res||!resUnlocked(res))return memo[id]=false;
+    const recs=(res.recipes||[]).filter(recipeAvailable);
+    if(!recs.length)return memo[id]=false;
+    stack.add(id);
+    const feasible=recs.some(rec=>rec.inputs.length>0&&rec.inputs.every(inp=>ok(inp.resourceId,stack)));
+    stack.delete(id);
+    return memo[id]=feasible;
+  }
+  return id=>ok(id,new Set());
 }
 
 // Core chain: topological sort → propagate demand
@@ -2075,9 +2097,9 @@ function planRecipes(inputSet,inputsMode){
 //                                   machine is fully supplied and runs at 100% capacity.
 // useCeil=false (from-inputs mode): propagate fractional exact demand; machines may run
 //                                   below 100% when inputs are the binding constraint.
-function computeChain(targetResId, targetRatePerSec, inputSet=new Set(), useCeil=false, inputsMode=false){
-  const {costOf,choice}=planRecipes(inputSet,inputsMode);
-  if(inputsMode&&!isFinite(costOf(targetResId)))return{nodes:[],rawNeeds:{},infeasible:true};
+function computeChain(targetResId, targetRatePerSec, inputSet=new Set(), useCeil=false){
+  const {costOf,choice}=planRecipes(inputSet);
+  if(!isFinite(costOf(targetResId)))return{nodes:[],rawNeeds:{},infeasible:true};
   const seen={}, depsOf={};
   function explore(id){
     if(seen[id])return; seen[id]=1;
@@ -2141,27 +2163,51 @@ function computeChain(targetResId, targetRatePerSec, inputSet=new Set(), useCeil
 // Input-constrained mode: find max achievable rate then compute chain.
 // Uses exact (non-ceil) propagation throughout — inputs are the constraint so we
 // work within them precisely and show per-machine efficiency in the results.
+//
+// Recipe selection (planRecipes) prices supplied inputs at 0, so the cheapest
+// chain always prefers using what's given — but a chain is never blocked just
+// because it also needs something the user didn't list. Anything the chosen
+// chain needs beyond the supplied inputs is computed and returned as "extras"
+// (with the recipe used, so an unwanted alternate can be spotted and toggled
+// off) instead of erroring the whole plan.
 function computeFromInputs(targetResId, inputMap){
   const inputSet=new Set(Object.keys(inputMap));
   // Rate-1 pass with exact math to find proportional raw needs for bottleneck calc
-  const{nodes:n1,rawNeeds:rn1,infeasible}=computeChain(targetResId,1,inputSet,false,true);
-  if(infeasible)return{error:'No unlocked & enabled recipe chain can produce this target from the given inputs.'};
-
-  const missing=Object.keys(rn1).filter(id=>!inputMap[id]);
-  if(missing.length)return{error:`Required resources not in inputs: ${missing.map(id=>esc(rname(id))).join(', ')}`};
+  const{nodes:n1,rawNeeds:rn1,infeasible}=computeChain(targetResId,1,inputSet,false);
+  if(infeasible)return{error:'This target isn\'t currently producible — its recipe chain is research-locked or cyclic.'};
   if(!Object.keys(rn1).length&&!n1.length)return{error:'No recipe found for target resource.'};
 
+  // Only the resources the user actually supplied constrain the achievable
+  // rate; anything else the chain needs is treated as auto-suppliable.
   let achievable=Infinity, bottleneckRes=null;
   Object.entries(rn1).forEach(([id,need])=>{
-    if(need<=0)return;
+    if(need<=0||!inputSet.has(id))return;
     const a=(inputMap[id]??0)/need;
     if(a<achievable){achievable=a;bottleneckRes=id;}
   });
   if(!isFinite(achievable)||achievable<=0)return{error:'The recipe chain does not consume any of the given inputs, so nothing constrains the rate. Use Target mode instead.'};
 
-  // Final pass at achievable rate — still exact so raw needs match available inputs
-  const{nodes,rawNeeds}=computeChain(targetResId,achievable,inputSet,false,true);
-  return{nodes,rawNeeds,achievable,bottleneckRes};
+  // Final pass at achievable rate — still exact so consumption matches the inputs
+  const{nodes,rawNeeds}=computeChain(targetResId,achievable,inputSet,false);
+
+  // Anything in the plan that isn't producible purely from the supplied
+  // inputs — e.g. Concrete pulled in by an Encased Industrial Beam recipe
+  // when only Steel Beams were supplied, and the Limestone/Miners under it.
+  const reachable=reachableFromInputs(inputSet);
+  const extras={};
+  nodes.forEach(n=>{
+    if(n.resId===targetResId||reachable(n.resId))return; // the target is the plan, not an "extra"
+    const res=resources.find(r=>r.id===n.resId);
+    extras[n.resId]={rate:n.exact*n.perMach,recipeName:n.rec.name,
+      machineName:n.rec.machineId?mname(n.rec.machineId):null,
+      isAlt:!!res&&!!res.defaultRecipeId&&res.defaultRecipeId!==n.rec.id};
+  });
+  Object.entries(rawNeeds).forEach(([id,rate])=>{
+    if(id===targetResId||inputSet.has(id)||extras[id])return;
+    extras[id]={rate,recipeName:null,machineName:null,isAlt:false};
+  });
+
+  return{nodes,rawNeeds,achievable,bottleneckRes,extras};
 }
 
 // ══════════════════════════════════════════════════════
@@ -2219,6 +2265,25 @@ function renderResults(targetResId, nodes, rawNeeds, header, inputMeta, el){
   if(inputMeta){
     const bName=inputMeta.bottleneckRes?esc(rname(inputMeta.bottleneckRes)):'?';
     left+=`<div class="ach-banner">Bottleneck: <strong>${bName}</strong> · achievable: <strong>${rateStr(targetResId,inputMeta.achievable,3)}</strong></div>`;
+
+    // Extra requirements: resources the chain needs that weren't in the
+    // supplied inputs. Computed automatically at the optimum ratio rather
+    // than blocking the plan — surfaced here so it's obvious they'll also
+    // be needed, plus which recipe pulled them in (in case an alternate
+    // should be disabled to route around them).
+    const extraEntries=Object.entries(inputMeta.extras||{});
+    if(extraEntries.length){
+      const rows=extraEntries.map(([id,ex])=>{
+        const via=ex.recipeName
+          ?` — via <strong>${esc(ex.recipeName)}</strong>${ex.machineName?` (${esc(ex.machineName)})`:''}${ex.isAlt?' <span style="color:#e8982a">· alternate recipe — disable it in Recipe Toggles below if you don\'t want this</span>':''}`
+          :'';
+        return`<li>${rateStr(id,ex.rate,3)} <strong>${esc(rname(id))}</strong>${via}</li>`;
+      }).join('');
+      left+=`<div class="ach-banner" style="background:#2a2010;border-color:#665500;color:#ddaa30">
+        ⚠ Extra requirements calculated automatically — these weren't in your supplied inputs and will also be needed, on top of what you gave:
+        <ul style="margin:6px 0 0 18px;padding:0">${rows}</ul>
+      </div>`;
+    }
   }
 
   // ── Total power draw across all stages (installed: ceiled machines × MW) ──

@@ -85,8 +85,9 @@ The user specifies a set of input resources and rates, and a target resource. Th
 Key behaviours:
 - Machine counts are fractional/exact — machines are not ceiled because the constraint is the input supply, not a round-number target.
 - Efficiency is displayed per stage so the user can see which machines are underutilised.
-- Recipe selection considers only chains that terminate at the supplied inputs — nothing may be mined or conjured from outside the supply, and the planner automatically falls back to alternate recipes that work with what's available.
-- All stages that can't be satisfied by the given inputs are surfaced as an error.
+- Recipe selection prefers chains that terminate at the supplied inputs, and automatically falls back to alternate recipes that work with what's available — but a chain is never blocked just because part of it needs something the user didn't list. Only the resources actually supplied constrain the achievable rate.
+- **Ingredients the chain needs beyond the supplied inputs are calculated automatically** at the optimum ratio (e.g. supplying only Steel Beams for Encased Industrial Beams computes how much Concrete — and the Limestone/Miners under it — is also required) rather than erroring. These are shown as full stages in the results and diagram like any other, plus summarised in a highlighted "extra requirements" banner naming each resource, its rate, and the recipe/machine that produces it — flagging when that recipe is a non-default alternate so the user knows what to disable if they'd rather supply that ingredient directly instead.
+- The plan only errors when the target itself is impossible to produce at all (research-locked or a dependency cycle) or when none of the supplied inputs are actually consumed by the chain.
 
 ### Flow Diagram
 Results are displayed as a visual graph alongside the machine list. The diagram shows:
