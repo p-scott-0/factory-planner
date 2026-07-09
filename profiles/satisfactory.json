@@ -32,7 +32,8 @@
     "rec-pure-iron-ingot": false,
     "rec-pure-copper-ingot": false,
     "rec-solid-steel-ingot": false,
-    "rec-residual-plastic": false
+    "rec-residual-plastic": false,
+    "rec-residual-fuel": false
   },
   "categories": [
     { "id": "cat-ores", "name": "Ores" },
@@ -224,9 +225,12 @@
       "recipes": [ { "id": "rec-crude-oil", "name": "Extract Crude Oil (normal node)", "machineId": "mach-oil-extractor", "cycleTime": 0.5, "outputAmount": 1, "inputs": [] } ],
       "defaultRecipeId": "rec-crude-oil" },
     { "id": "res-fuel", "name": "Fuel", "categoryId": "cat-fluids", "researchTierId": "rt5", "isFluid": true,
-      "recipes": [ { "id": "rec-fuel", "name": "Fuel", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 4,
-        "inputs": [ { "resourceId": "res-crude-oil", "amount": 6 } ],
-        "byproducts": [ { "resourceId": "res-polymer-resin", "amount": 3 } ] } ],
+      "recipes": [
+        { "id": "rec-fuel", "name": "Fuel", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 4,
+          "inputs": [ { "resourceId": "res-crude-oil", "amount": 6 } ],
+          "byproducts": [ { "resourceId": "res-polymer-resin", "amount": 3 } ] },
+        { "id": "rec-residual-fuel", "name": "Alternate: Residual Fuel", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 4, "inputs": [ { "resourceId": "res-heavy-oil-residue", "amount": 6 } ] }
+      ],
       "defaultRecipeId": "rec-fuel" },
     { "id": "res-polymer-resin", "name": "Polymer Resin", "categoryId": "cat-oil", "researchTierId": "rt5",
       "recipes": [],

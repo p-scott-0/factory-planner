@@ -27,6 +27,7 @@ body{background:var(--bg);color:var(--tx);font-family:'Segoe UI',system-ui,sans-
 @media(max-width:820px){.two-col{grid-template-columns:1fr}}
 .card{background:var(--surf);border:1px solid var(--b);border-radius:8px;padding:16px}
 .card+.card{margin-top:14px}
+.plan-panels>.card+.card{margin-top:0} /* side-by-side in the grid: gap handles spacing, not the stacked-card margin */
 .card-title{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-bottom:12px}
 label{display:block;font-size:12px;color:var(--dim);margin:9px 0 3px}
 label:first-of-type{margin-top:0}
@@ -2287,7 +2288,7 @@ function computeFromInputs(targetResId, inputMap){
     const a=(inputMap[id]??0)/need;
     if(a<achievable){achievable=a;bottleneckRes=id;}
   });
-  if(!isFinite(achievable)||achievable<=0)return{error:'The recipe chain does not consume any of the given inputs, so nothing constrains the rate. Use Target mode instead.'};
+  if(!isFinite(achievable)||achievable<=0)return{noConsume:true,error:'The recipe chain does not consume any of the given inputs, so nothing constrains the rate. Use Target mode instead.'};
 
   // Final pass at achievable rate — still exact so consumption matches the inputs
   const{nodes,rawNeeds}=computeChain(targetResId,achievable,inputSet,false);
@@ -2407,7 +2408,16 @@ function planSecondaryTarget(t,pool){
   if(!supply.length)return{resId:t.resId,achievableStyle:true,sourceLabel:'the byproduct',
     error:'No byproduct available yet — give this target an amount, or move it after a target that produces one of its ingredients.'};
   const res=computeFromInputs(t.resId,Object.fromEntries(supply));
-  if(res.error)return{resId:t.resId,achievableStyle:true,sourceLabel:'the byproduct',error:res.error};
+  if(res.error){
+    // "Nothing constrains the rate" here means no enabled recipe chain for
+    // this target consumes any of the pooled byproducts — rephrase from the
+    // from-inputs wording (whose "use Target mode instead" makes no sense
+    // for a byproduct row) and name what was actually available.
+    const msg=res.noConsume
+      ? `None of the available byproducts (${supply.map(([id])=>rname(id)).join(', ')}) feed into any enabled recipe for ${rname(t.resId)} — give this target an amount instead, or enable a recipe that consumes one of them.`
+      : res.error;
+    return{resId:t.resId,achievableStyle:true,sourceLabel:'the byproduct',error:msg};
+  }
   res.nodes.forEach(n=>{n.fromInputs=true;});
   const poolSuppliedIds=supply.map(([id])=>id);
   // Whatever was actually drawn from the pool for this target's chain —
@@ -2740,7 +2750,7 @@ function buildFlowSVG(targetIds, nodes, rawNeeds){
 
   // ── Dimensions ──
   // LANE_H: vertical space reserved above and below the node area for highway routing
-  const NW=196, NH=88, HGAP=128, VGAP=22, RW=150, RH=60, PAD=24, LANE_H=52, LANE_STEP=16;
+  const NW=196, NH=96, HGAP=128, VGAP=22, RW=150, RH=60, PAD=24, LANE_H=52, LANE_STEP=16;
   const rawEntries=Object.entries(rawNeeds);
   const rawZone=rawEntries.length?RW+HGAP:0;
   const STEP=NW+HGAP;
@@ -2760,26 +2770,30 @@ function buildFlowSVG(targetIds, nodes, rawNeeds){
   rawEntries.forEach(([rid],i)=>{posRaw[rid]={x:PAD,y:nodeTop+i*(RH+VGAP)};});
 
   // ── Byproduct positions ──
-  // Small satellite boxes branching off their producer, tucked into the gap
-  // before the next column (never widens the diagram). Drawn for every
-  // recipe with byproducts whether or not anything downstream in this plan
-  // claims them — an unclaimed one is dashed, like a raw box, flagging it as
-  // surplus. If the same resource also has its own primary producer in this
-  // plan (e.g. a dedicated extraction recipe chosen elsewhere), that primary
-  // node wins for any consumer edge — see byOut lookup below — so the
-  // byproduct box then correctly shows as unclaimed.
+  // Small satellite boxes branching off their producer, sitting in the gap
+  // to its right (toward the consumer column). Drawn for every recipe with
+  // byproducts whether or not anything downstream in this plan claims them —
+  // an unclaimed one is dashed, like a raw box, flagging it as surplus. If
+  // the same resource also has its own primary producer in this plan (e.g. a
+  // dedicated extraction recipe chosen elsewhere), that primary node wins for
+  // any consumer edge — see byOut lookup below — so the byproduct box then
+  // correctly shows as unclaimed. A byproduct off the target node (rightmost
+  // column) sticks out past it, so svgW is widened to keep it in view.
   const BW=104, BH=42, BGAP=6;
   const posBy={};
+  let maxByRight=0;
   nodes.forEach(n=>{
     const p=posR[n.rec.id];
     if(!p||!(n.rec.byproducts||[]).length)return;
     const bct=effectiveCycleTime(n.rec);
     n.rec.byproducts.forEach((bp,i)=>{
-      posBy[bp.resourceId]={x:p.x+NW+10,y:p.y+i*(BH+BGAP),producer:n,rate:(bp.amount/bct)*n.exact};
+      const bx=p.x+NW+10;
+      posBy[bp.resourceId]={x:bx,y:p.y+i*(BH+BGAP),producer:n,rate:(bp.amount/bct)*n.exact};
+      if(bx+BW>maxByRight)maxByRight=bx+BW;
     });
   });
 
-  const svgW=colX(0)+NW+PAD;
+  const svgW=Math.max(colX(0)+NW,maxByRight)+PAD;
   const svgH=totalH+nodeTop+PAD+LANE_H;
 
   // Highway lane y-coordinates (above = small y, below = large y)
