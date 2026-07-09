@@ -404,10 +404,12 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
 
     <!-- Inputs mode -->
     <div id="pl-inp" style="display:none">
-      <div style="max-width:320px"><label>Target resource</label><select id="pl-inp-target"><option value="">— select —</option></select></div>
+      <div style="max-width:320px"><label>Primary target resource</label><select id="pl-inp-target"><option value="">— select —</option></select></div>
       <div class="sl" style="margin-top:12px">Available inputs</div>
       <div id="pl-inp-rows"></div>
       <button class="bb bsm" onclick="addInputRow()">+ Add Input</button>
+      <div class="sl" style="margin-top:14px">Secondary targets <span style="color:#555;text-transform:none;letter-spacing:0;font-size:11px">— optional, in priority order after the primary target above. Leave the amount blank to make as much as possible from an earlier target's byproducts.</span></div>
+      <div id="pl-inp-tgt-rows"></div>
     </div>
   </div>
 
@@ -1867,7 +1869,10 @@ function setPlanMode(mode){
   document.getElementById('pl-inp').style.display  = mode==='inputs'?'':'none';
   document.getElementById('mode-tgt').classList.toggle('active', mode==='target');
   document.getElementById('mode-inp').classList.toggle('active', mode==='inputs');
-  if(mode==='target'&&typeof ensureTrailingBlankTargetRow==='function')ensureTrailingBlankTargetRow();
+  if(typeof ensureTrailingBlankTargetRow==='function'){
+    ensureTrailingBlankTargetRow('pl-tgt-rows');
+    ensureTrailingBlankTargetRow('pl-inp-tgt-rows');
+  }
 }
 
 function renderPlannerControls(){
@@ -1879,7 +1884,7 @@ function renderPlannerControls(){
     if(cur)inpTgt.value=cur;
   }
   // Refresh options in every existing target row, preserving each selection
-  document.querySelectorAll('#pl-tgt-rows .tgt-res').forEach(sel=>{
+  document.querySelectorAll('#pl-tgt-rows .tgt-res, #pl-inp-tgt-rows .tgt-res').forEach(sel=>{
     const cur=sel.value;
     sel.innerHTML='<option value="">— select —</option>'+buildResOpts(cur);
     sel.value=cur;
@@ -1971,18 +1976,23 @@ function planPowerGeneration(mw){
   if(!pr)return alert('No Power resource with generator recipes is available — create one in Resources (⚡ Power) and give it recipes on your generator machines.');
   setPlanMode('target');
   document.getElementById('pl-tgt-rows').innerHTML='';
-  addTargetRow(pr.id,String(Math.ceil(mw)),'1'); // MW = per-second rate
-  ensureTrailingBlankTargetRow();
+  addTargetRow('pl-tgt-rows',pr.id,String(Math.ceil(mw)),'1'); // MW = per-second rate
+  ensureTrailingBlankTargetRow('pl-tgt-rows');
   runPlanner();
 }
 
-// ── Target rows (Target Output mode) ──
-// Targets are entered in priority order. The first always needs an amount;
-// later rows can be left blank to mean "make as much of this as possible
-// from an earlier target's byproducts" (see runMultiTargetPlan). A fresh
-// blank row auto-appears whenever the current last row gets a resource, so
-// the list grows as you fill it in rather than starting cluttered.
-function addTargetRow(resId='',rate='',unit='60'){
+// ── Target rows (shared by Target Output mode and From-Inputs mode's
+// secondary targets) ──
+// Targets are entered in priority order. In the 'pl-tgt-rows' container
+// (Target mode) the first row always needs an amount; every row in
+// 'pl-inp-tgt-rows' (From-Inputs mode's secondary targets, which sit after
+// its primary target+supply UI) is always optional. Any row left blank
+// means "make as much of this as possible from an earlier target's
+// byproducts" (see planSecondaryTarget). A fresh blank row auto-appears
+// whenever the current last row gets a resource, so the list grows as you
+// fill it in rather than starting cluttered. containerId defaults to the
+// Target-mode container so existing call sites don't need updating.
+function addTargetRow(containerId='pl-tgt-rows',resId='',rate='',unit='60'){
   const row=document.createElement('div');
   row.className='tgt-row';
   row.innerHTML=`<span class="tgt-num"></span>
@@ -1992,48 +2002,56 @@ function addTargetRow(resId='',rate='',unit='60'){
     <button class="bx" onclick="removeTargetRow(this)">✕</button>`;
   row.querySelector('.tgt-res').value=resId;
   row.querySelector('.tgt-unit').value=unit;
+  row.dataset.container=containerId;
   row.querySelector('.tgt-res').addEventListener('change',()=>{
-    const rows=[...document.getElementById('pl-tgt-rows').children];
-    if(row===rows[rows.length-1]&&row.querySelector('.tgt-res').value)addTargetRow();
+    const rows=[...document.getElementById(containerId).children];
+    if(row===rows[rows.length-1]&&row.querySelector('.tgt-res').value)addTargetRow(containerId);
   });
-  document.getElementById('pl-tgt-rows').appendChild(row);
-  renumberTargetRows();
+  document.getElementById(containerId).appendChild(row);
+  renumberTargetRows(containerId);
   return row;
 }
 function removeTargetRow(btn){
-  const container=document.getElementById('pl-tgt-rows');
-  if(container.children.length<=1)return; // always keep at least one row
-  btn.closest('.tgt-row').remove();
-  renumberTargetRows();
-  ensureTrailingBlankTargetRow();
+  const row=btn.closest('.tgt-row');
+  const containerId=row.dataset.container||'pl-tgt-rows';
+  const container=document.getElementById(containerId);
+  // Target mode always keeps at least one row (the primary target); From-Inputs
+  // mode's secondary-target list is entirely optional and can go to zero.
+  if(containerId==='pl-tgt-rows'&&container.children.length<=1)return;
+  row.remove();
+  renumberTargetRows(containerId);
+  ensureTrailingBlankTargetRow(containerId);
 }
-function renumberTargetRows(){
-  [...document.getElementById('pl-tgt-rows').children].forEach((row,i)=>{
+function renumberTargetRows(containerId='pl-tgt-rows'){
+  [...document.getElementById(containerId).children].forEach((row,i)=>{
     row.querySelector('.tgt-num').textContent=(i+1)+'.';
-    row.querySelector('.tgt-rate').placeholder=i===0?'60':'optional — from byproduct';
+    const requiresAmount=containerId==='pl-tgt-rows'&&i===0;
+    row.querySelector('.tgt-rate').placeholder=requiresAmount?'60':'optional — from byproduct';
   });
 }
-function ensureTrailingBlankTargetRow(){
-  const container=document.getElementById('pl-tgt-rows');
+function ensureTrailingBlankTargetRow(containerId='pl-tgt-rows'){
+  const container=document.getElementById(containerId);
   const rows=[...container.children];
-  if(!rows.length||rows[rows.length-1].querySelector('.tgt-res').value)addTargetRow();
+  if(!rows.length||rows[rows.length-1].querySelector('.tgt-res').value)addTargetRow(containerId);
 }
 
 // ── Planner query persistence (per profile) ──
 function savePlannerQuery(){
   const p=profiles.find(p=>p.id===activeProfileId);
   if(!p)return;
+  const rowsToTargets=sel=>[...document.querySelectorAll(sel)].flatMap(row=>{
+    const resId=row.querySelector('.tgt-res').value;
+    return resId?[{resId,rate:row.querySelector('.tgt-rate').value,unit:row.querySelector('.tgt-unit').value}]:[];
+  });
   p.planner={
     mode:planMode,
-    targets:[...document.querySelectorAll('#pl-tgt-rows .tgt-row')].flatMap(row=>{
-      const resId=row.querySelector('.tgt-res').value;
-      return resId?[{resId,rate:row.querySelector('.tgt-rate').value,unit:row.querySelector('.tgt-unit').value}]:[];
-    }),
+    targets:rowsToTargets('#pl-tgt-rows .tgt-row'),
     inpTargetId:document.getElementById('pl-inp-target').value,
     inputs:[...document.querySelectorAll('#pl-inp-rows .inp-row')].map(row=>{
       const[s,i,u]=row.querySelectorAll('select,input');
       return{resourceId:s.value,rate:i.value,unit:u.value};
-    })
+    }),
+    inpSecondaryTargets:rowsToTargets('#pl-inp-tgt-rows .tgt-row')
   };
 }
 // Returns true when the restored query is complete enough to auto-run
@@ -2041,16 +2059,18 @@ function restorePlannerQuery(){
   const q=profiles.find(p=>p.id===activeProfileId)?.planner;
   if(!q){
     // No saved query yet (fresh profile / first-ever load) — still make sure
-    // the target-rows container isn't left empty.
+    // the target-rows containers aren't left empty.
     document.getElementById('pl-tgt-rows').innerHTML='';
-    ensureTrailingBlankTargetRow();
+    document.getElementById('pl-inp-tgt-rows').innerHTML='';
+    ensureTrailingBlankTargetRow('pl-tgt-rows');
+    ensureTrailingBlankTargetRow('pl-inp-tgt-rows');
     return false;
   }
   setPlanMode(q.mode==='inputs'?'inputs':'target');
   document.getElementById('pl-tgt-rows').innerHTML='';
   const savedTargets=q.targets&&q.targets.length?q.targets:[];
-  savedTargets.forEach(t=>addTargetRow(t.resId||'',t.rate||'',t.unit||'60'));
-  ensureTrailingBlankTargetRow();
+  savedTargets.forEach(t=>addTargetRow('pl-tgt-rows',t.resId||'',t.rate||'',t.unit||'60'));
+  ensureTrailingBlankTargetRow('pl-tgt-rows');
   document.getElementById('pl-inp-target').value=q.inpTargetId||'';
   const rows=document.getElementById('pl-inp-rows');
   rows.innerHTML='';
@@ -2060,6 +2080,10 @@ function restorePlannerQuery(){
     const[s,i,u]=row.querySelectorAll('select,input');
     s.value=inp.resourceId;i.value=inp.rate;u.value=inp.unit;
   });
+  document.getElementById('pl-inp-tgt-rows').innerHTML='';
+  const savedInpTargets=q.inpSecondaryTargets||[];
+  savedInpTargets.forEach(t=>addTargetRow('pl-inp-tgt-rows',t.resId||'',t.rate||'',t.unit||'60'));
+  ensureTrailingBlankTargetRow('pl-inp-tgt-rows');
   return q.mode==='inputs'
     ? !!(q.inpTargetId&&(q.inputs||[]).length)
     : !!(savedTargets.length&&savedTargets[0].resId&&parseFloat(savedTargets[0].rate)>0);
@@ -2332,69 +2356,106 @@ function computeFromInputs(targetResId, inputMap){
 }
 
 // ══════════════════════════════════════════════════════
-// MULTI-TARGET PLANNING (Target Output mode, with byproduct crediting)
+// MULTI-TARGET PLANNING (shared by Target Output and From-Inputs modes)
 // ══════════════════════════════════════════════════════
-// Targets are processed strictly in the order they were entered. Each one
-// either has a fixed amount — an independent, ceiled target-mode plan — or,
-// if left blank, is planned via the SAME from-inputs machinery already used
-// for supplied-input plans, except its "supply" is the pool of byproducts
-// produced by EARLIER targets (so it also gets automatic extras/alternate
-// selection for anything the byproduct alone doesn't cover). A byproduct
-// target always draws down 100% of whichever pool resource ends up as its
-// bottleneck (by definition of "achievable"), and any of ITS OWN new
-// byproducts are added to the pool for targets after it. Byproduct crediting
-// is deliberately NOT applied within a single target's own chain — only
-// across separate rows — so the well-tested single-target math never changes.
+// Both planner modes share one engine. A plan is a priority-ordered list of
+// targets; every target after the first is handled identically regardless
+// of mode: either it has a fixed amount (an independent, ceiled target-mode
+// plan) or, left blank, it's planned via the from-inputs machinery against
+// the pool of byproducts produced by EARLIER targets (so it also gets
+// automatic extras/alternate selection for anything the byproduct alone
+// doesn't cover). A byproduct target always draws down 100% of whichever
+// pool resource ends up as its bottleneck (by definition of "achievable"),
+// and any of ITS OWN new byproducts are added to the pool for targets after
+// it. Byproduct crediting is deliberately NOT applied within a single
+// target's own chain — only across separate rows.
+//
+// The two modes differ only in how the FIRST/primary target is computed —
+// "different bottleneck termination": Target mode fixes its rate and ceils
+// machine counts (computeChain direct); From-Inputs mode derives its
+// achievable rate from user-supplied inputs (computeFromInputs). See
+// runMultiTargetPlan / runFromInputsPlan below for that one difference —
+// everything else, including rendering, is identical.
+
+// Adds every byproduct produced by `nodes` into `pool` (resourceId -> rate,
+// per second). `ceiled` selects target-mode's "full built capacity" rate
+// (Math.ceil(exact)) vs from-inputs/byproduct-driven's exact demanded rate —
+// matching each mode's existing display convention for its own stages.
+function addByproductsToPool(pool,nodes,ceiled){
+  nodes.forEach(n=>{
+    const ct=effectiveCycleTime(n.rec);
+    (n.rec.byproducts||[]).forEach(bp=>{
+      const rate=(ceiled?Math.ceil(n.exact):n.exact)*(bp.amount/ct);
+      pool[bp.resourceId]=(pool[bp.resourceId]||0)+rate;
+    });
+  });
+}
+
+// Plans one target AFTER the first, against the shared byproduct pool.
+// Mutates `pool` (draws down what got consumed, adds this target's own new
+// byproducts). Returns a result object in the same shape for either case.
+function planSecondaryTarget(t,pool){
+  if(t.rate!=null){
+    const{nodes,rawNeeds}=computeChain(t.resId,t.rate,new Set(),true);
+    if(!nodes.length)return{resId:t.resId,achievableStyle:false,
+      error:`No recipe produces "${esc(rname(t.resId))}". Add one in Resources.`};
+    nodes.forEach(n=>{n.fromInputs=false;});
+    addByproductsToPool(pool,nodes,true);
+    return{resId:t.resId,achievableStyle:false,nodes,rawNeeds,rawRate:t.rawRate,unitLbl:t.unitLbl,rate:t.rate};
+  }
+  const supply=Object.entries(pool).filter(([,v])=>v>1e-9);
+  if(!supply.length)return{resId:t.resId,achievableStyle:true,sourceLabel:'the byproduct',
+    error:'No byproduct available yet — give this target an amount, or move it after a target that produces one of its ingredients.'};
+  const res=computeFromInputs(t.resId,Object.fromEntries(supply));
+  if(res.error)return{resId:t.resId,achievableStyle:true,sourceLabel:'the byproduct',error:res.error};
+  res.nodes.forEach(n=>{n.fromInputs=true;});
+  const poolSuppliedIds=supply.map(([id])=>id);
+  // Whatever was actually drawn from the pool for this target's chain —
+  // computeChain records supplied-resource consumption directly in
+  // rawNeeds, so this is exact even when a resource wasn't the bottleneck.
+  poolSuppliedIds.forEach(id=>{pool[id]=Math.max(0,(pool[id]||0)-(res.rawNeeds[id]||0));});
+  addByproductsToPool(pool,res.nodes,false);
+  return{resId:t.resId,achievableStyle:true,sourceLabel:'the byproduct',nodes:res.nodes,rawNeeds:res.rawNeeds,
+    achievable:res.achievable,bottleneckRes:res.bottleneckRes,extras:res.extras,poolSuppliedIds};
+}
+
+// Target mode entry point: target[0] has a fixed, user-specified rate.
 function runMultiTargetPlan(targets, resEl){
   const pool={}; // resourceId -> available surplus, per second
-  const results=[]; // {resId, error?, nodes?, rawNeeds?, achievable?, bottleneckRes?, extras?, fromByproduct, poolSuppliedIds?}
+  const first=targets[0];
+  const{nodes,rawNeeds}=computeChain(first.resId,first.rate,new Set(),true);
+  let results;
+  if(!nodes.length){
+    results=[{resId:first.resId,achievableStyle:false,
+      error:`No recipe produces "${esc(rname(first.resId))}". Add one in Resources.`}];
+  } else {
+    nodes.forEach(n=>{n.fromInputs=false;});
+    addByproductsToPool(pool,nodes,true);
+    results=[{resId:first.resId,achievableStyle:false,nodes,rawNeeds,rawRate:first.rawRate,unitLbl:first.unitLbl,rate:first.rate}];
+  }
+  targets.slice(1).forEach(t=>results.push(planSecondaryTarget(t,pool)));
+  renderMultiTargetResults(targets,results,resEl);
+}
 
-  targets.forEach(t=>{
-    if(t.rate!=null){
-      const{nodes,rawNeeds}=computeChain(t.resId,t.rate,new Set(),true);
-      if(!nodes.length){
-        results.push({resId:t.resId,fromByproduct:false,
-          error:`No recipe produces "${esc(rname(t.resId))}". Add one in Resources.`});
-        return;
-      }
-      nodes.forEach(n=>{n.fromInputs=false;});
-      results.push({resId:t.resId,fromByproduct:false,nodes,rawNeeds});
-      nodes.forEach(n=>{
-        const ct=effectiveCycleTime(n.rec);
-        (n.rec.byproducts||[]).forEach(bp=>{
-          pool[bp.resourceId]=(pool[bp.resourceId]||0)+Math.ceil(n.exact)*(bp.amount/ct);
-        });
-      });
-    } else {
-      const supply=Object.entries(pool).filter(([,v])=>v>1e-9);
-      if(!supply.length){
-        results.push({resId:t.resId,fromByproduct:true,
-          error:'No byproduct available yet — give this target an amount, or move it after a target that produces one of its ingredients.'});
-        return;
-      }
-      const res=computeFromInputs(t.resId,Object.fromEntries(supply));
-      if(res.error){
-        results.push({resId:t.resId,fromByproduct:true,error:res.error});
-        return;
-      }
-      res.nodes.forEach(n=>{n.fromInputs=true;});
-      const poolSuppliedIds=supply.map(([id])=>id);
-      results.push({resId:t.resId,fromByproduct:true,nodes:res.nodes,rawNeeds:res.rawNeeds,
-        achievable:res.achievable,bottleneckRes:res.bottleneckRes,extras:res.extras,poolSuppliedIds});
-      // Whatever was actually drawn from the pool for this target's chain —
-      // computeChain records supplied-resource consumption directly in
-      // rawNeeds, so this is exact even when a resource wasn't the bottleneck.
-      poolSuppliedIds.forEach(id=>{pool[id]=Math.max(0,(pool[id]||0)-(res.rawNeeds[id]||0));});
-      res.nodes.forEach(n=>{
-        const ct=effectiveCycleTime(n.rec);
-        (n.rec.byproducts||[]).forEach(bp=>{
-          pool[bp.resourceId]=(pool[bp.resourceId]||0)+n.exact*(bp.amount/ct);
-        });
-      });
-    }
-  });
-
-  renderMultiTargetResults(targets,results,pool,resEl);
+// From-Inputs mode entry point: the primary target's achievable rate is
+// derived from `inputMap` (user-supplied inputs) instead of a fixed rate —
+// the one place the two modes differ. Everything after it (secondaryTargets)
+// is planned exactly like Target mode's targets[1+], via the shared pool.
+function runFromInputsPlan(primaryResId, inputMap, secondaryTargets, resEl){
+  const pool={};
+  const res=computeFromInputs(primaryResId,inputMap);
+  let results;
+  if(res.error){
+    results=[{resId:primaryResId,achievableStyle:true,sourceLabel:'your supplied inputs',error:res.error}];
+  } else {
+    res.nodes.forEach(n=>{n.fromInputs=true;});
+    addByproductsToPool(pool,res.nodes,false);
+    results=[{resId:primaryResId,achievableStyle:true,sourceLabel:'your supplied inputs',nodes:res.nodes,rawNeeds:res.rawNeeds,
+      achievable:res.achievable,bottleneckRes:res.bottleneckRes,extras:res.extras}];
+  }
+  secondaryTargets.forEach(t=>results.push(planSecondaryTarget(t,pool)));
+  const allTargets=[{resId:primaryResId},...secondaryTargets];
+  renderMultiTargetResults(allTargets,results,resEl);
 }
 
 // Merge each target's independently-computed node set into one combined
@@ -2426,7 +2487,7 @@ function mergeTargetNodes(results){
   return{nodes:order.map(k=>merged[k]),rawNeeds};
 }
 
-function renderMultiTargetResults(targets, results, pool, el){
+function renderMultiTargetResults(targets, results, el){
   let top='';
   results.forEach((r,i)=>{
     const t=targets[i];
@@ -2436,13 +2497,14 @@ function renderMultiTargetResults(targets, results, pool, el){
       return;
     }
     const mt=i?'margin-top:14px':'margin-top:0';
-    if(!r.fromByproduct){
+    if(!r.achievableStyle){
       const header=isPowerRes(t.resId)
-        ?`⚡ ${fmt(t.rate,t.rate>=100?0:1)} MW ${esc(rname(t.resId))}`
-        :`${t.rawRate} ${esc(rname(t.resId))}/${t.unitLbl}`;
+        ?`⚡ ${fmt(r.rate,r.rate>=100?0:1)} MW ${esc(rname(t.resId))}`
+        :`${r.rawRate} ${esc(rname(t.resId))}/${r.unitLbl}`;
       top+=`<div class="card-title" style="${mt}">${num} ${header}</div>`;
     } else {
-      top+=`<div class="card-title" style="${mt}">${num} ${esc(rname(t.resId))} <span style="color:#555;text-transform:none;letter-spacing:0">— from byproduct</span></div>`;
+      const fromByLbl=r.sourceLabel==='the byproduct'?' <span style="color:#555;text-transform:none;letter-spacing:0">— from byproduct</span>':'';
+      top+=`<div class="card-title" style="${mt}">${num} ${esc(rname(t.resId))}${fromByLbl}</div>`;
       const bName=r.bottleneckRes?esc(rname(r.bottleneckRes)):'?';
       top+=`<div class="ach-banner">Bottleneck: <strong>${bName}</strong> · achievable: <strong>${rateStr(t.resId,r.achievable,3)}</strong></div>`;
       const extraEntries=Object.entries(r.extras||{});
@@ -2454,23 +2516,12 @@ function renderMultiTargetResults(targets, results, pool, el){
           return`<li>${rateStr(id,ex.rate,3)} <strong>${esc(rname(id))}</strong>${via}</li>`;
         }).join('');
         top+=`<div class="ach-banner" style="background:#2a2010;border-color:#665500;color:#ddaa30">
-          ⚠ Extra requirements calculated automatically — these weren't covered by the byproduct and will also be needed (full chain below):
+          ⚠ Extra requirements calculated automatically — these weren't covered by ${r.sourceLabel} and will also be needed (full chain below):
           <ul style="margin:6px 0 0 18px;padding:0">${rows}</ul>
         </div>`;
       }
     }
   });
-
-  // Byproduct produced somewhere in the plan but never claimed by a later
-  // target — informational, so nothing that's actually happening is hidden.
-  const leftover=Object.entries(pool).filter(([,v])=>v>1e-6);
-  if(leftover.length){
-    const rows=leftover.map(([id,rate])=>`<li>${rateStr(id,rate,3)} <strong>${esc(rname(id))}</strong></li>`).join('');
-    top+=`<div class="ach-banner" style="background:#161c26;border-color:#2a3a4a;color:#7aa0c0;margin-top:14px">
-      Unused byproduct surplus — not claimed by any target:
-      <ul style="margin:6px 0 0 18px;padding:0">${rows}</ul>
-    </div>`;
-  }
 
   const{nodes,rawNeeds}=mergeTargetNodes(results);
   if(!nodes.length){
@@ -2519,10 +2570,17 @@ function runPlanner(){
     if(!Object.keys(inputMap).length)return resEl.innerHTML=hadTargetInput
       ?'<div class="alert ae">The target resource can\'t be its own only input — supply its ingredients instead.</div>'
       :'<div class="alert ae">No valid input rows.</div>';
-    const res=computeFromInputs(targetId,inputMap);
-    if(res.error)return resEl.innerHTML=`<div class="alert ae">${res.error}</div>`;
-    lastPlan={nodes:res.nodes};
-    renderResults(targetId,res.nodes,res.rawNeeds,`max ${rateStr(targetId,res.achievable,3)} ${esc(rname(targetId))}`,res,resEl);
+    const secRows=[...document.querySelectorAll('#pl-inp-tgt-rows .tgt-row')];
+    const secondaryTargets=[];
+    secRows.forEach(row=>{
+      const resId=row.querySelector('.tgt-res').value;
+      if(!resId)return;
+      const rawRate=parseFloat(row.querySelector('.tgt-rate').value);
+      const unit=parseFloat(row.querySelector('.tgt-unit').value);
+      const unitLbl=row.querySelector('.tgt-unit').selectedOptions[0].text;
+      secondaryTargets.push({resId,rawRate,unitLbl,rate:(!isNaN(rawRate)&&rawRate>0)?rawRate/unit:null});
+    });
+    runFromInputsPlan(targetId,inputMap,secondaryTargets,resEl);
   }
 }
 
@@ -2550,6 +2608,30 @@ function renderPlanBody(targetIds, nodes, rawNeeds, topHtml, el){
     left+=`<div class="ach-banner" style="background:#2a2210;border-color:#5a4a1a;color:#e8b84a;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
       <span>⚡ Total power: <strong>${fmt(totalMW,totalMW>=100?0:1)} MW</strong></span>
       ${canPlanGen?`<button class="bb bsm" onclick="planPowerGeneration(${totalMW})" title="Plan generators and their fuel chains to supply this factory">Plan generation →</button>`:''}
+    </div>`;
+  }
+
+  // ── Unused byproduct surplus ──
+  // Byproduct crediting only connects a byproduct to a LATER target row (or,
+  // in From-Inputs mode, a later secondary target) — it's never netted
+  // against a resource's own chain. So anything a plan's own recipes produce
+  // as a byproduct that no OTHER stage in the same plan consumes is genuine
+  // surplus, whether this is a single-target plan or a multi-target one.
+  const unclaimed={};
+  nodes.forEach(n=>{
+    const ct=effectiveCycleTime(n.rec);
+    (n.rec.byproducts||[]).forEach(bp=>{
+      const consumed=nodes.some(c=>c!==n&&c.rec.inputs.some(inp=>inp.resourceId===bp.resourceId));
+      if(consumed)return;
+      unclaimed[bp.resourceId]=(unclaimed[bp.resourceId]||0)+(bp.amount/ct)*n.exact;
+    });
+  });
+  const unclaimedEntries=Object.entries(unclaimed).filter(([,v])=>v>1e-9);
+  if(unclaimedEntries.length){
+    const rows=unclaimedEntries.map(([id,rate])=>`<li>${rateStr(id,rate,3)} <strong>${esc(rname(id))}</strong></li>`).join('');
+    left+=`<div class="ach-banner" style="background:#161c26;border-color:#2a3a4a;color:#7aa0c0">
+      Unused byproduct surplus — not consumed anywhere in this plan:
+      <ul style="margin:6px 0 0 18px;padding:0">${rows}</ul>
     </div>`;
   }
 
@@ -2605,43 +2687,6 @@ function renderPlanBody(targetIds, nodes, rawNeeds, topHtml, el){
     <div class="card">${left}</div>
     <div class="card flow-card"><div class="card-title">Flow diagram</div>${buildFlowSVG(targetIds,nodes,rawNeeds)}</div>
   </div>`;
-}
-
-// From-inputs mode's single-target results: header + bottleneck/extras
-// banners, then the shared body.
-function renderResults(targetResId, nodes, rawNeeds, header, inputMeta, el){
-  nodes.forEach(n=>{n.fromInputs=!!inputMeta;});
-  let top=`<div class="card-title">${header}</div>`;
-
-  if(inputMeta){
-    const bName=inputMeta.bottleneckRes?esc(rname(inputMeta.bottleneckRes)):'?';
-    top+=`<div class="ach-banner">Bottleneck: <strong>${bName}</strong> · achievable: <strong>${rateStr(targetResId,inputMeta.achievable,3)}</strong></div>`;
-
-    // Extra requirements: resources the chain needs that weren't in the
-    // supplied inputs. Computed automatically at the optimum ratio rather
-    // than blocking the plan — surfaced here so it's obvious they'll also
-    // be needed, plus which recipe pulled them in (in case an alternate
-    // should be disabled to route around them). Only the boundary point
-    // where the chain first needs something beyond supply is listed (e.g.
-    // Compacted Coal, not Turbofuel itself) — see computeFromInputs — so
-    // this stays short for deep chains; the full chain is still in the
-    // results list and diagram below as ordinary stages.
-    const extraEntries=Object.entries(inputMeta.extras||{});
-    if(extraEntries.length){
-      const rows=extraEntries.map(([id,ex])=>{
-        const via=ex.recipeName
-          ?` — via <strong>${esc(ex.recipeName)}</strong>${ex.machineName?` (${esc(ex.machineName)})`:''}${ex.isAlt?' <span style="color:#e8982a">· alternate recipe — disable it in Recipe Toggles below if you don\'t want this</span>':''}`
-          :'';
-        return`<li>${rateStr(id,ex.rate,3)} <strong>${esc(rname(id))}</strong>${via}</li>`;
-      }).join('');
-      top+=`<div class="ach-banner" style="background:#2a2010;border-color:#665500;color:#ddaa30">
-        ⚠ Extra requirements calculated automatically — these weren't in your supplied inputs and will also be needed, on top of what you gave (full chain below):
-        <ul style="margin:6px 0 0 18px;padding:0">${rows}</ul>
-      </div>`;
-    }
-  }
-
-  renderPlanBody(new Set([targetResId]),nodes,rawNeeds,top,el);
 }
 
 // ══════════════════════════════════════════════════════
@@ -2714,6 +2759,26 @@ function buildFlowSVG(targetIds, nodes, rawNeeds){
   const posRaw={};
   rawEntries.forEach(([rid],i)=>{posRaw[rid]={x:PAD,y:nodeTop+i*(RH+VGAP)};});
 
+  // ── Byproduct positions ──
+  // Small satellite boxes branching off their producer, tucked into the gap
+  // before the next column (never widens the diagram). Drawn for every
+  // recipe with byproducts whether or not anything downstream in this plan
+  // claims them — an unclaimed one is dashed, like a raw box, flagging it as
+  // surplus. If the same resource also has its own primary producer in this
+  // plan (e.g. a dedicated extraction recipe chosen elsewhere), that primary
+  // node wins for any consumer edge — see byOut lookup below — so the
+  // byproduct box then correctly shows as unclaimed.
+  const BW=104, BH=42, BGAP=6;
+  const posBy={};
+  nodes.forEach(n=>{
+    const p=posR[n.rec.id];
+    if(!p||!(n.rec.byproducts||[]).length)return;
+    const bct=effectiveCycleTime(n.rec);
+    n.rec.byproducts.forEach((bp,i)=>{
+      posBy[bp.resourceId]={x:p.x+NW+10,y:p.y+i*(BH+BGAP),producer:n,rate:(bp.amount/bct)*n.exact};
+    });
+  });
+
   const svgW=colX(0)+NW+PAD;
   const svgH=totalH+nodeTop+PAD+LANE_H;
 
@@ -2770,9 +2835,18 @@ function buildFlowSVG(targetIds, nodes, rawNeeds){
           fromLabel:'Raw input',
           toLabel,
           isLong:dc[consumer.rec.id]<maxD});
+      } else if(posBy[inp.resourceId]){
+        const bp=posBy[inp.resourceId];
+        edgeList.push({fromKey:'b'+inp.resourceId,toKey:'n'+consumer.rec.id,
+          fx:bp.x+BW,fyBase:bp.y,fH:BH,tx:cp.x,tyBase:cp.y,
+          rate,resId:inp.resourceId,
+          fromLabel:`${bp.producer.rec.machineId?mname(bp.producer.rec.machineId):'(no machine)'} (byproduct)`,
+          toLabel,
+          isLong:(dc[bp.producer.rec.id]-dc[consumer.rec.id])>1});
       }
     });
   });
+  const claimedByproducts=new Set(edgeList.filter(e=>e.fromKey[0]==='b').map(e=>e.resId));
   // Exit points: spread along the producer's right edge, ordered by target height
   const byFrom={};
   edgeList.forEach(e=>{(byFrom[e.fromKey]=byFrom[e.fromKey]||[]).push(e);});
@@ -2840,6 +2914,26 @@ function buildFlowSVG(targetIds, nodes, rawNeeds){
       <line x1="${p.x+8}" y1="${p.y+24}" x2="${p.x+RW-8}" y2="${p.y+24}" stroke="#2a4a2a" stroke-width="1"/>
       <text x="${p.x+RW/2}" y="${p.y+38}" text-anchor="middle" font-size="10" fill="#3a7a4a">${rateStr(rid,rate,3)}</text>
       ${rawBelt?`<text x="${p.x+RW/2}" y="${p.y+51}" text-anchor="middle" font-size="10" fill="#2a6a3a">${esc(rawBelt)}</text>`:''}`;
+  });
+
+  // ── Byproduct boxes — small, dashed-connector satellite off the producer.
+  // Solid border when something in this plan draws from it, dashed (like a
+  // raw box) when it's unclaimed surplus. ──
+  Object.entries(posBy).forEach(([resId,bp])=>{
+    const pp=posR[bp.producer.rec.id];
+    if(!pp)return;
+    const claimed=claimedByproducts.has(resId);
+    const col=resColor(resId);
+    const midY=bp.y+BH/2;
+    const tip=`${rname(resId)} — byproduct of ${bp.producer.rec.name}, ${rateStr(resId,bp.rate,3)}${claimed?'':' — not used elsewhere in this plan'}`;
+    boxes+=`<g>
+      <title>${esc(tip)}</title>
+      <path d="M${pp.x+NW},${midY} L${bp.x},${midY}" fill="none" stroke="${col}" stroke-width="1.3" stroke-dasharray="2 3" opacity="0.6"/>
+      <rect x="${bp.x}" y="${bp.y}" width="${BW}" height="${BH}" rx="5" fill="#1a140e" stroke="${col}" stroke-width="1.3"${claimed?'':' stroke-dasharray="4 2"'}/>
+      <text x="${bp.x+BW/2}" y="${bp.y+11}" text-anchor="middle" font-size="7.5" font-weight="700" fill="${col}" opacity="0.85">BYPRODUCT</text>
+      <text x="${bp.x+BW/2}" y="${bp.y+23}" text-anchor="middle" font-size="8.5" fill="${col}">${esc(rname(resId))}</text>
+      <text x="${bp.x+BW/2}" y="${bp.y+34}" text-anchor="middle" font-size="8" fill="${col}" opacity="0.75">${rateStr(resId,bp.rate,2)}</text>
+    </g>`;
   });
 
   // ── Recipe boxes ──

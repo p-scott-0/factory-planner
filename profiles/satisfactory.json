@@ -313,12 +313,12 @@
 
     { "id": "res-plastic", "name": "Plastic", "categoryId": "cat-oil", "researchTierId": "rt5",
       "recipes": [
-        { "id": "rec-plastic", "name": "Plastic", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 2, "inputs": [ { "resourceId": "res-crude-oil", "amount": 3 } ] },
-        { "id": "rec-residual-plastic", "name": "Alternate: Residual Plastic", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 2, "inputs": [ { "resourceId": "res-polymer-resin", "amount": 6 }, { "resourceId": "res-water", "amount": 6 } ] }
+        { "id": "rec-plastic", "name": "Plastic", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 2, "inputs": [ { "resourceId": "res-crude-oil", "amount": 3 } ], "byproducts": [ { "resourceId": "res-heavy-oil-residue", "amount": 1 } ] },
+        { "id": "rec-residual-plastic", "name": "Alternate: Residual Plastic", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 2, "inputs": [ { "resourceId": "res-polymer-resin", "amount": 6 }, { "resourceId": "res-water", "amount": 2 } ] }
       ],
       "defaultRecipeId": "rec-plastic" },
     { "id": "res-rubber", "name": "Rubber", "categoryId": "cat-oil", "researchTierId": "rt5",
-      "recipes": [ { "id": "rec-rubber", "name": "Rubber", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 2, "inputs": [ { "resourceId": "res-crude-oil", "amount": 3 } ] } ],
+      "recipes": [ { "id": "rec-rubber", "name": "Rubber", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 2, "inputs": [ { "resourceId": "res-crude-oil", "amount": 3 } ], "byproducts": [ { "resourceId": "res-heavy-oil-residue", "amount": 2 } ] } ],
       "defaultRecipeId": "rec-rubber" },
 
     { "id": "res-reinforced-iron-plate", "name": "Reinforced Iron Plate", "categoryId": "cat-industrial", "researchTierId": "rt2",
@@ -440,6 +440,8 @@
     { "id": "res-uranium-fuel-rod", "name": "Uranium Fuel Rod", "categoryId": "cat-nuclear", "researchTierId": "rt8",
       "recipes": [ { "id": "rec-uranium-fuel-rod", "name": "Uranium Fuel Rod", "machineId": "mach-manufacturer", "cycleTime": 150, "outputAmount": 1, "inputs": [ { "resourceId": "res-encased-uranium-cell", "amount": 50 }, { "resourceId": "res-encased-industrial-beam", "amount": 3 }, { "resourceId": "res-electromagnetic-control-rod", "amount": 5 } ] } ],
       "defaultRecipeId": "rec-uranium-fuel-rod" },
+    { "id": "res-uranium-waste", "name": "Uranium Waste", "categoryId": "cat-nuclear", "researchTierId": "rt8",
+      "recipes": [], "defaultRecipeId": null },
 
     { "id": "res-magnetic-field-generator", "name": "Magnetic Field Generator", "categoryId": "cat-elevator", "researchTierId": "rt8",
       "recipes": [ { "id": "rec-magnetic-field-generator", "name": "Magnetic Field Generator", "machineId": "mach-assembler", "cycleTime": 120, "outputAmount": 2, "inputs": [ { "resourceId": "res-versatile-framework", "amount": 5 }, { "resourceId": "res-electromagnetic-control-rod", "amount": 2 } ] } ],
@@ -456,7 +458,7 @@
         { "id": "rec-power-coal", "name": "Coal Generator", "machineId": "mach-coal-gen", "cycleTime": 1, "outputAmount": 75, "inputs": [ { "resourceId": "res-coal", "amount": 0.25 }, { "resourceId": "res-water", "amount": 0.75 } ] },
         { "id": "rec-power-fuel", "name": "Fuel Generator", "machineId": "mach-fuel-gen", "cycleTime": 1, "outputAmount": 250, "inputs": [ { "resourceId": "res-fuel", "amount": 0.33333 } ] },
         { "id": "rec-power-turbofuel", "name": "Fuel Generator (Turbofuel)", "machineId": "mach-fuel-gen", "cycleTime": 1, "outputAmount": 250, "inputs": [ { "resourceId": "res-turbofuel", "amount": 0.125 } ] },
-        { "id": "rec-power-nuclear", "name": "Nuclear Power Plant", "machineId": "mach-nuclear-plant", "cycleTime": 1, "outputAmount": 2500, "inputs": [ { "resourceId": "res-uranium-fuel-rod", "amount": 0.003333 }, { "resourceId": "res-water", "amount": 4 } ] }
+        { "id": "rec-power-nuclear", "name": "Nuclear Power Plant", "machineId": "mach-nuclear-plant", "cycleTime": 1, "outputAmount": 2500, "inputs": [ { "resourceId": "res-uranium-fuel-rod", "amount": 0.003333 }, { "resourceId": "res-water", "amount": 4 } ], "byproducts": [ { "resourceId": "res-uranium-waste", "amount": 0.16667 } ] }
       ],
       "defaultRecipeId": "rec-power-coal" }
   ],

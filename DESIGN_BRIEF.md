@@ -33,7 +33,7 @@ A recipe represents one way to produce a resource. Recipes have:
 - A **cycle time** in seconds
 - An **output amount** per cycle
 - Zero or more **input resources**, each with an amount per cycle
-- Zero or more **byproducts** — extra output resources produced per cycle alongside the primary output (e.g. a Fuel recipe that also yields Polymer Resin). Byproducts are shown as badges on the recipe and, where a plan produces them, on the corresponding machine stage in planner results. They don't offset demand within the SAME target's own chain — see **Multiple Targets** below for how they're actually put to use.
+- Zero or more **byproducts** — extra output resources produced per cycle alongside the primary output (e.g. a Fuel recipe that also yields Polymer Resin; Plastic and Rubber both yield Heavy Oil Residue; the Nuclear Power Plant recipe yields Uranium Waste). Byproducts are shown as badges on the recipe and, where a plan produces them, on the corresponding machine stage in planner results and as a small satellite box in the flow diagram. They don't offset demand within the SAME target's own chain — see **Multi-Target Planning** below for how they're actually put to use.
 
 A resource with no recipe is treated as a raw input — something that must be supplied externally.
 
@@ -80,13 +80,8 @@ Key behaviours:
 - Diamond dependencies (same resource demanded by multiple downstream stages) accumulate correctly — the tool does not double-count machines.
 - Recipes are toggled **enabled/disabled** rather than manually assigned: the planner automatically picks, per resource, the cheapest enabled and unlocked recipe chain, measured in raw-equivalent inputs per unit of output (raw resources and mining recipes count 1 per unit; ties go to the default recipe).
 
-#### Multiple Targets
-Targets are entered as a list in **priority order**, one per row; a fresh blank row appears automatically as soon as the current last row gets a resource, so the list grows as it's filled in rather than starting cluttered. The first target always needs an amount. Any target after it can be left with **no amount**, meaning "make as much of this as possible from an earlier target's byproducts" — the classic case being: target 1 = Turbofuel at a fixed rate (whose Fuel stage yields Polymer Resin as a byproduct), target 2 = Plastic with no amount, computed entirely from that leftover Polymer Resin (via whichever enabled Plastic recipe actually consumes it).
-
-Processing is strictly sequential and priority governs the outcome: each fixed-amount target is planned independently and its byproducts are added to a shared pool; each byproduct-driven target then plans itself against whatever's currently in that pool — using the same machinery as From-Inputs mode, including automatic extra-requirement calculation and alternate-recipe fallback for anything the byproduct alone doesn't cover — and draws down what it uses, so a target later in the list only sees the leftover. Swapping the order of two targets can change (or break) the outcome by design, since it changes what's in the pool when each one runs. Any byproduct never claimed by a later target is reported as unused surplus. A byproduct-driven target with nothing available in the pool yet shows its own inline error without blocking the other targets. Results, raw inputs, power total, and the flow diagram are combined across every target into one plan; **Build in Layout** places the whole thing together.
-
 ### From-Inputs Mode
-The user specifies a set of input resources and rates, and a target resource. The planner finds the maximum achievable output rate given the supply constraint, identifies the bottleneck resource, and shows each machine stage's efficiency (what fraction of full capacity it runs at).
+The user specifies a set of input resources and rates, and a primary target resource. The planner finds the maximum achievable output rate given the supply constraint, identifies the bottleneck resource, and shows each machine stage's efficiency (what fraction of full capacity it runs at).
 
 Key behaviours:
 - Machine counts are fractional/exact — machines are not ceiled because the constraint is the input supply, not a round-number target.
@@ -94,6 +89,17 @@ Key behaviours:
 - Recipe selection prefers chains that terminate at the supplied inputs, and automatically falls back to alternate recipes that work with what's available — but a chain is never blocked just because part of it needs something the user didn't list. Only the resources actually supplied constrain the achievable rate.
 - **Ingredients the chain needs beyond the supplied inputs are calculated automatically** at the optimum ratio (e.g. supplying only Steel Beams for Encased Industrial Beams computes how much Concrete — and the Limestone/Miners under it — is also required) rather than erroring. These are shown as full stages in the results and diagram like any other. A highlighted "extra requirements" banner additionally summarises just the resources at the **boundary** where the chain first needs something beyond supply: a recipe that combines something reachable from the given inputs with something that isn't (e.g. a Steel Ingot recipe mixing supplied Iron Ore with unsupplied Coal flags Coal, not the Steel Beam made from it two steps later), or, for a branch that never reconnects with the supply at all (e.g. Concrete's Limestone, when nothing supplied touches limestone), the point where that disconnected branch first attaches. This keeps the summary short even for deep chains while still naming the resource, its rate, and the recipe/machine producing it — flagging when that recipe is a non-default alternate so the user knows what to disable if they'd rather supply that ingredient directly instead.
 - The plan only errors when the target itself is impossible to produce at all (research-locked or a dependency cycle) or when none of the supplied inputs are actually consumed by the chain.
+
+### Multi-Target Planning (both modes)
+Target mode and From-Inputs mode share one planning engine and are, beyond the primary target, **the same feature**: a priority-ordered list of targets where every target after the first can be planned entirely from the byproducts of the targets before it. The two modes differ only in how the *primary* (first) target's rate is determined — "different bottleneck termination":
+- **Target mode**: the primary target has a fixed, user-specified rate; its machine count is ceiled.
+- **From-Inputs mode**: the primary target's rate is derived from the user-supplied inputs (the achievable-rate/bottleneck computation described above); its machine counts are exact/fractional.
+
+From that point on both modes behave identically. Secondary targets are entered as a list in **priority order**, one per row (Target mode's rows sit below the primary target; From-Inputs mode gets its own "Secondary targets" row list below its inputs list) — a fresh blank row appears automatically as soon as the current last row gets a resource. Every secondary target can either have its own fixed amount (planned independently, exactly like a primary target-mode target) or be left with **no amount**, meaning "make as much of this as possible from an earlier target's byproducts" — the classic case being: primary target = Fuel at a fixed rate (which yields Polymer Resin as a byproduct), secondary target = Plastic with no amount, computed entirely from that Polymer Resin via the "Alternate: Residual Plastic" recipe.
+
+Processing is strictly sequential and priority governs the outcome: the primary target is planned first and its byproducts are added to a shared pool; each byproduct-driven secondary target then plans itself against whatever's currently in that pool — using the from-inputs machinery, including automatic extra-requirement calculation and alternate-recipe fallback for anything the byproduct alone doesn't cover — and draws down what it uses, so a target later in the list only sees the leftover; a fixed-amount secondary target adds its own byproducts to the pool the same way the primary target did. Swapping the order of two targets can change (or break) the outcome by design, since it changes what's in the pool when each one runs. A byproduct-driven target with nothing available in the pool yet shows its own inline error without blocking the other targets. Results, raw inputs, power total, and the flow diagram are combined across every target into one plan; **Build in Layout** places the whole thing together.
+
+Any byproduct produced anywhere in the combined plan that nothing else in that same plan consumes is reported as an **unused byproduct surplus** banner — this applies uniformly to a single-target plan (in either mode) whose own recipe happens to produce something unused, and to multi-target plans with leftover after every target has run, since crediting only ever connects a byproduct to a *different* target's chain, never nets it against the producing chain's own needs.
 
 ### Flow Diagram
 Results are displayed as a visual graph alongside the machine list. The diagram shows:
@@ -109,6 +115,7 @@ Results are displayed as a visual graph alongside the machine list. The diagram 
 - Edges that skip columns (long-range dependencies) routed via horizontal highway lanes above or below the node area so they don't overlap node boxes
 - Category-based colour coding on node borders
 - Efficiency bands on nodes in from-inputs mode
+- **Byproducts** branch off their producing node as a small, visually distinct satellite box (smaller than a machine box, tucked into the gap before the next column) labelled with the resource and rate. If another stage in the same plan consumes that byproduct, a normal edge runs from the satellite box to it; if nothing in the plan claims it, the box is dashed like a raw-input box to flag it as unused surplus
 
 ---
 
@@ -199,7 +206,7 @@ Manages the research-tier ladder: add, rename, reorder, and delete tiers. Each t
 
 ### Planner Tab
 Two sub-panels:
-- Left: mode switcher (target / from-inputs), inputs for the chosen mode, a **Max Machine Tiers** card (tier selectors only for machines that actually have multiple unlocked tiers, plus a max-belt-tier cap), enable/disable checkboxes for resources with multiple recipes, and the machine result list
+- Left: mode switcher (target / from-inputs), inputs for the chosen mode (both include a secondary-targets row list, per Multi-Target Planning above), a **Max Machine Tiers** card (tier selectors only for machines that actually have multiple unlocked tiers, plus a max-belt-tier cap), enable/disable checkboxes for resources with multiple recipes, and the machine result list
 - Right: the flow diagram
 
 ### Layout Tab
