@@ -33,7 +33,9 @@
     "rec-pure-copper-ingot": false,
     "rec-solid-steel-ingot": false,
     "rec-residual-plastic": false,
-    "rec-residual-fuel": false
+    "rec-residual-fuel": false,
+    "rec-polymeric-hor": false,
+    "rec-turbo-heavy-fuel": false
   },
   "categories": [
     { "id": "cat-ores", "name": "Ores" },
@@ -236,10 +238,16 @@
       "recipes": [],
       "defaultRecipeId": null },
     { "id": "res-heavy-oil-residue", "name": "Heavy Oil Residue", "categoryId": "cat-fluids", "researchTierId": "rt5", "isFluid": true,
-      "recipes": [ { "id": "rec-heavy-oil-residue", "name": "Heavy Oil Residue", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 4, "inputs": [ { "resourceId": "res-crude-oil", "amount": 3 } ] } ],
+      "recipes": [
+        { "id": "rec-heavy-oil-residue", "name": "Heavy Oil Residue", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 4, "inputs": [ { "resourceId": "res-crude-oil", "amount": 3 } ] },
+        { "id": "rec-polymeric-hor", "name": "Alternate: Polymeric Heavy Oil Residue", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 4, "inputs": [ { "resourceId": "res-crude-oil", "amount": 3 } ], "byproducts": [ { "resourceId": "res-polymer-resin", "amount": 2 } ] }
+      ],
       "defaultRecipeId": "rec-heavy-oil-residue" },
     { "id": "res-turbofuel", "name": "Turbofuel", "categoryId": "cat-fluids", "researchTierId": "rt6", "isFluid": true,
-      "recipes": [ { "id": "rec-turbofuel", "name": "Turbofuel", "machineId": "mach-refinery", "cycleTime": 16, "outputAmount": 5, "inputs": [ { "resourceId": "res-fuel", "amount": 6 }, { "resourceId": "res-compacted-coal", "amount": 4 } ] } ],
+      "recipes": [
+        { "id": "rec-turbofuel", "name": "Turbofuel", "machineId": "mach-refinery", "cycleTime": 16, "outputAmount": 5, "inputs": [ { "resourceId": "res-fuel", "amount": 6 }, { "resourceId": "res-compacted-coal", "amount": 4 } ] },
+        { "id": "rec-turbo-heavy-fuel", "name": "Alternate: Turbo Heavy Fuel", "machineId": "mach-refinery", "cycleTime": 16, "outputAmount": 8, "inputs": [ { "resourceId": "res-heavy-oil-residue", "amount": 10 }, { "resourceId": "res-compacted-coal", "amount": 8 } ] }
+      ],
       "defaultRecipeId": "rec-turbofuel" },
     { "id": "res-alumina-solution", "name": "Alumina Solution", "categoryId": "cat-fluids", "researchTierId": "rt7", "isFluid": true,
       "recipes": [ { "id": "rec-alumina-solution", "name": "Alumina Solution", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 12, "inputs": [ { "resourceId": "res-bauxite", "amount": 12 }, { "resourceId": "res-water", "amount": 18 } ] } ],
