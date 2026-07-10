@@ -2702,9 +2702,33 @@ function renderPlanBody(targetIds, nodes, rawNeeds, topHtml, el){
 // ══════════════════════════════════════════════════════
 // FLOW DIAGRAM
 // ══════════════════════════════════════════════════════
+// Producer→consumer links carried by a BYPRODUCT rather than a primary
+// output: a node feeds another when it byproduces a resource the other
+// consumes that isn't produced as a primary output anywhere (nor drawn from
+// a raw box, when rawNeeds is supplied). Returns producerRecId → [consumerRecId…].
+// Used so depth assignment treats a byproduct like a real supply edge — a
+// target whose byproduct feeds a later target lands upstream (left) of it,
+// instead of the byproduct edge looping backward through the boxes.
+function byproductSupplyLinks(nodes, rawNeeds){
+  const primaryOut=new Set(nodes.map(n=>n.resId));
+  const raw=rawNeeds||{};
+  const links={};
+  nodes.forEach(consumer=>{
+    consumer.rec.inputs.forEach(inp=>{
+      const R=inp.resourceId;
+      if(primaryOut.has(R)||raw[R]!=null)return; // sourced from a node's primary output or a raw box
+      const producer=nodes.find(n=>n!==consumer&&(n.rec.byproducts||[]).some(bp=>bp.resourceId===R));
+      if(producer)(links[producer.rec.id]=links[producer.rec.id]||[]).push(consumer.rec.id);
+    });
+  });
+  return links;
+}
+
 // Depth assignment for plan stages (0 = target, N = N hops upstream).
 // Shared by the flow diagram and the planner → layout auto-placement.
-function stageDepths(nodes){
+// extraDeps adds producer→consumer edges beyond primary-output consumption
+// (see byproductSupplyLinks) so byproduct flows push their producer upstream.
+function stageDepths(nodes, extraDeps={}){
   const dc={};
   function nodeDepth(recId){
     if(dc[recId]!==undefined)return dc[recId];
@@ -2718,6 +2742,7 @@ function stageDepths(nodes){
         if(n.resId===inp.resourceId){const d=nodeDepth(c.rec.id);if(d>mx)mx=d;}
       });
     });
+    (extraDeps[recId]||[]).forEach(cid=>{const d=nodeDepth(cid);if(d>mx)mx=d;});
     return(dc[recId]=mx+1);
   }
   nodes.forEach(n=>nodeDepth(n.rec.id));
@@ -2730,7 +2755,7 @@ function buildFlowSVG(targetIds, nodes, rawNeeds){
   const byOut={};
   nodes.forEach(n=>{ byOut[n.resId]=n; });
 
-  const dc=stageDepths(nodes);
+  const dc=stageDepths(nodes,byproductSupplyLinks(nodes,rawNeeds));
   const maxD=Math.max(...nodes.map(n=>dc[n.rec.id]));
 
   // ── Group by depth; sort within each column by category then name ──
@@ -2853,7 +2878,7 @@ function buildFlowSVG(targetIds, nodes, rawNeeds){
         const bp=posBy[inp.resourceId];
         edgeList.push({fromKey:'b'+inp.resourceId,toKey:'n'+consumer.rec.id,
           fx:bp.x+BW,fyBase:bp.y,fH:BH,tx:cp.x,tyBase:cp.y,
-          rate,resId:inp.resourceId,
+          rate,resId:inp.resourceId,isByproduct:true,
           fromLabel:`${bp.producer.rec.machineId?mname(bp.producer.rec.machineId):'(no machine)'} (byproduct)`,
           toLabel,
           isLong:(dc[bp.producer.rec.id]-dc[consumer.rec.id])>1});
@@ -2885,7 +2910,10 @@ function buildFlowSVG(targetIds, nodes, rawNeeds){
   function drawEdge(e){
     const{x1,y1,x2,y2,isLong}=e;
     const col=resColor(e.resId);
-    const LEAD=26; // straight horizontal run into the arrowhead's back
+    // Byproduct boxes sit only ~14px from the consumer — a shorter arrowhead
+    // lead keeps the connector from having to curve back on itself in that
+    // tight gap. Regular edges keep the longer straight run into the arrow.
+    const LEAD=e.isByproduct?12:26;
     let path, laneY=null;
     if(isLong){
       // Highway routing: exit source → curve into lane → horizontal → curve out to target
@@ -2894,7 +2922,10 @@ function buildFlowSVG(targetIds, nodes, rawNeeds){
       path=`M${x1},${y1} C${x1+s},${y1} ${x1+s},${laneY} ${x1+s*2},${laneY} L${x2-s*2},${laneY} C${x2-s},${laneY} ${x2-s},${y2} ${x2-LEAD},${y2} L${x2-7},${y2}`;
     } else {
       const bx=x2-LEAD;
-      const dx=Math.max(20,(bx-x1)*0.5);
+      // Scale the bezier handle to the available horizontal run so a short
+      // gap gets a gentle curve instead of an overshooting S.
+      const span=bx-x1;
+      const dx=span>0?Math.min(Math.max(span*0.5,6),44):6;
       path=`M${x1},${y1} C${x1+dx},${y1} ${bx-dx},${y2} ${bx},${y2} L${x2-7},${y2}`;
     }
     const beltStr=beltLabel(e.rate,e.resId);
@@ -4099,7 +4130,7 @@ document.addEventListener('keydown',e=>{
 });
 function buildPlanLayout(){
   const nodes=lastPlan.nodes;
-  const dc=stageDepths(nodes);
+  const dc=stageDepths(nodes,byproductSupplyLinks(nodes));
   const maxD=Math.max(...nodes.map(n=>dc[n.rec.id]));
 
   // Stage list (one column per stage), raw side first. Within a depth, put

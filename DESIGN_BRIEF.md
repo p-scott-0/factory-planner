@@ -115,7 +115,7 @@ Results are displayed as a visual graph alongside the machine list. The diagram 
 - Edges that skip columns (long-range dependencies) routed via horizontal highway lanes above or below the node area so they don't overlap node boxes
 - Category-based colour coding on node borders
 - Efficiency bands on nodes in from-inputs mode
-- **Byproducts** branch off their producing node as a small, visually distinct satellite box (smaller than a machine box, tucked into the gap before the next column) labelled with the resource and rate. If another stage in the same plan consumes that byproduct, a normal edge runs from the satellite box to it; if nothing in the plan claims it, the box is dashed like a raw-input box to flag it as unused surplus
+- **Byproducts** branch off their producing node as a small, visually distinct satellite box (smaller than a machine box, tucked into the gap beside its producer) labelled with the resource and rate. If another stage in the same plan consumes that byproduct, a normal edge runs from the satellite box to it; if nothing in the plan claims it, the box is dashed like a raw-input box to flag it as unused surplus. Byproduct supply counts toward column placement just like a primary-output dependency, so a producer whose byproduct feeds another node is positioned upstream (left) of that consumer — the connection reads left-to-right like every other flow rather than looping backward, even when the producer is itself a target
 
 ---
 
