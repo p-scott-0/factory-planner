@@ -2477,15 +2477,21 @@ function mergeTargetNodes(results){
   const merged={}, order=[], rawNeeds={};
   const internalIds=new Set();
   results.forEach(r=>{(r.poolSuppliedIds||[]).forEach(id=>internalIds.add(id));});
-  results.forEach(r=>{
+  // The first target is the "main chain"; every later target (byproduct-driven
+  // or an additional fixed target) plus its own extra requirements is tagged
+  // "secondary" so the flow diagram can band it into its own row region. A
+  // node shared with the main chain stays main.
+  results.forEach((r,ri)=>{
     if(r.error)return;
+    const grp=ri===0?'main':'secondary';
     (r.nodes||[]).forEach(n=>{
       const key=n.resId+'|'+n.rec.id;
       if(merged[key]){
         merged[key].exact+=n.exact;
         merged[key].fromInputs=merged[key].fromInputs||n.fromInputs;
+        if(grp==='main')merged[key].group='main';
       } else {
-        merged[key]={...n};
+        merged[key]={...n,group:grp};
         order.push(key);
       }
     });
@@ -2781,15 +2787,30 @@ function buildFlowSVG(targetIds, nodes, rawNeeds){
   const STEP=NW+HGAP;
   // Reading direction: raw inputs on the far left, target output on the far right
   const colX=d=>PAD+rawZone+(maxD-d)*STEP;
-
-  const maxRows=Math.max(...Object.values(byD).map(a=>a.length),rawEntries.length,1);
-  const totalH=maxRows*(NH+VGAP)-VGAP;
   const nodeTop=PAD+LANE_H;   // y-offset where nodes begin
 
-  // ── Node positions — columns aligned to the top ──
+  // ── Split each column into the MAIN chain (primary target) and a SECONDARY
+  // band (byproduct-driven / additional secondary targets + their extra
+  // requirements), so the secondary work sits in its own row region beneath
+  // the main chain instead of interleaving with it. Nodes shared with the
+  // main chain stay up top (group==='main' wins during the merge).
+  const isSecondary=n=>n.group==='secondary';
+  const mainByD={}, secByD={};
+  for(let d=0;d<=maxD;d++){ mainByD[d]=byD[d].filter(n=>!isSecondary(n)); secByD[d]=byD[d].filter(isSecondary); }
+  const hasSecondary=Object.values(secByD).some(a=>a.length);
+  const BAND_GAP=hasSecondary?46:0;   // gutter + separator between the two bands
+  const mainMaxRows=Math.max(...Object.values(mainByD).map(a=>a.length),rawEntries.length,1);
+  const secMaxRows=hasSecondary?Math.max(...Object.values(secByD).map(a=>a.length),1):0;
+  const mainBandH=mainMaxRows*(NH+VGAP)-VGAP;
+  const secBandTop=nodeTop+mainBandH+BAND_GAP;
+  const secBandH=hasSecondary?secMaxRows*(NH+VGAP)-VGAP:0;
+  const totalH=hasSecondary?(secBandTop-nodeTop)+secBandH:mainBandH;
+
+  // ── Node positions — main band up top, secondary band under the gutter ──
   const posR={};
   for(let d=0;d<=maxD;d++){
-    byD[d].forEach((n,i)=>{posR[n.rec.id]={x:colX(d),y:nodeTop+i*(NH+VGAP)};});
+    mainByD[d].forEach((n,i)=>{posR[n.rec.id]={x:colX(d),y:nodeTop+i*(NH+VGAP)};});
+    secByD[d].forEach((n,j)=>{posR[n.rec.id]={x:colX(d),y:secBandTop+j*(NH+VGAP)};});
   }
   const posRaw={};
   rawEntries.forEach(([rid],i)=>{posRaw[rid]={x:PAD,y:nodeTop+i*(RH+VGAP)};});
@@ -3016,9 +3037,20 @@ function buildFlowSVG(targetIds, nodes, rawNeeds){
       ${effBand}`;
   });
 
+  // ── Secondary-band backdrop + label (rendered first, behind everything) so
+  // the byproduct-driven / secondary-target work reads as its own region.
+  let bands='';
+  if(hasSecondary){
+    const top=secBandTop-BAND_GAP/2;                 // divider sits in the gutter
+    const bottom=secBandTop+secBandH+12;
+    const x0=PAD/2, x1=svgW-PAD/2;
+    bands=`<rect x="${x0}" y="${top}" width="${x1-x0}" height="${bottom-top}" rx="9" fill="#17130b" stroke="#4a3d22" stroke-width="1" stroke-dasharray="7 5" opacity="0.85"/>
+      <text x="${x0+11}" y="${top+15}" font-size="10" font-weight="700" fill="#9a854e" letter-spacing="0.6">BYPRODUCT &amp; SECONDARY TARGETS</text>`;
+  }
+
   // Labels are the topmost layer of all — they must never be hidden behind
   // a line OR a node box, regardless of draw order elsewhere in the diagram.
-  return`<div style="overflow-x:auto"><svg width="${svgW}" height="${svgH}" xmlns="http://www.w3.org/2000/svg" style="display:block;font-family:'Segoe UI',system-ui,sans-serif">${edges}${raws}${boxes}${edgeLabels}</svg></div>`;
+  return`<div style="overflow-x:auto"><svg width="${svgW}" height="${svgH}" xmlns="http://www.w3.org/2000/svg" style="display:block;font-family:'Segoe UI',system-ui,sans-serif">${bands}${edges}${raws}${boxes}${edgeLabels}</svg></div>`;
 }
 
 // ══════════════════════════════════════════════════════
