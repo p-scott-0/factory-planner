@@ -258,6 +258,9 @@
     { "id": "res-nitrogen-gas", "name": "Nitrogen Gas", "categoryId": "cat-fluids", "researchTierId": "rt8", "isFluid": true,
       "recipes": [ { "id": "rec-nitrogen-gas", "name": "Extract Nitrogen (resource well)", "machineId": "mach-well-extractor", "cycleTime": 1, "outputAmount": 1, "inputs": [] } ],
       "defaultRecipeId": "rec-nitrogen-gas" },
+    { "id": "res-nitric-acid", "name": "Nitric Acid", "categoryId": "cat-fluids", "researchTierId": "rt8", "isFluid": true,
+      "recipes": [ { "id": "rec-nitric-acid", "name": "Nitric Acid", "machineId": "mach-blender", "cycleTime": 6, "outputAmount": 3, "inputs": [ { "resourceId": "res-nitrogen-gas", "amount": 12 }, { "resourceId": "res-water", "amount": 3 }, { "resourceId": "res-iron-plate", "amount": 1 } ] } ],
+      "defaultRecipeId": "rec-nitric-acid" },
 
     { "id": "res-iron-ingot", "name": "Iron Ingot", "categoryId": "cat-ingots", "researchTierId": "rt0",
       "recipes": [
@@ -454,6 +457,20 @@
       "defaultRecipeId": "rec-uranium-fuel-rod" },
     { "id": "res-uranium-waste", "name": "Uranium Waste", "categoryId": "cat-nuclear", "researchTierId": "rt8",
       "recipes": [], "defaultRecipeId": null },
+    { "id": "res-non-fissile-uranium", "name": "Non-Fissile Uranium", "categoryId": "cat-nuclear", "researchTierId": "rt8",
+      "recipes": [ { "id": "rec-non-fissile-uranium", "name": "Non-Fissile Uranium", "machineId": "mach-blender", "cycleTime": 24, "outputAmount": 8, "inputs": [ { "resourceId": "res-uranium-waste", "amount": 15 }, { "resourceId": "res-silica", "amount": 10 }, { "resourceId": "res-nitric-acid", "amount": 6 }, { "resourceId": "res-sulfuric-acid", "amount": 6 } ], "byproducts": [ { "resourceId": "res-water", "amount": 6 } ] } ],
+      "defaultRecipeId": "rec-non-fissile-uranium" },
+    { "id": "res-plutonium-pellet", "name": "Plutonium Pellet", "categoryId": "cat-nuclear", "researchTierId": "rt8",
+      "recipes": [ { "id": "rec-plutonium-pellet", "name": "Plutonium Pellet", "machineId": "mach-particle-accelerator", "cycleTime": 60, "outputAmount": 30, "inputs": [ { "resourceId": "res-non-fissile-uranium", "amount": 100 }, { "resourceId": "res-uranium-waste", "amount": 25 } ] } ],
+      "defaultRecipeId": "rec-plutonium-pellet" },
+    { "id": "res-encased-plutonium-cell", "name": "Encased Plutonium Cell", "categoryId": "cat-nuclear", "researchTierId": "rt8",
+      "recipes": [ { "id": "rec-encased-plutonium-cell", "name": "Encased Plutonium Cell", "machineId": "mach-assembler", "cycleTime": 12, "outputAmount": 1, "inputs": [ { "resourceId": "res-plutonium-pellet", "amount": 2 }, { "resourceId": "res-concrete", "amount": 1 } ] } ],
+      "defaultRecipeId": "rec-encased-plutonium-cell" },
+    { "id": "res-plutonium-fuel-rod", "name": "Plutonium Fuel Rod", "categoryId": "cat-nuclear", "researchTierId": "rt8",
+      "recipes": [ { "id": "rec-plutonium-fuel-rod", "name": "Plutonium Fuel Rod", "machineId": "mach-manufacturer", "cycleTime": 240, "outputAmount": 1, "inputs": [ { "resourceId": "res-encased-plutonium-cell", "amount": 30 }, { "resourceId": "res-steel-beam", "amount": 18 }, { "resourceId": "res-electromagnetic-control-rod", "amount": 6 }, { "resourceId": "res-heat-sink", "amount": 10 } ] } ],
+      "defaultRecipeId": "rec-plutonium-fuel-rod" },
+    { "id": "res-plutonium-waste", "name": "Plutonium Waste", "categoryId": "cat-nuclear", "researchTierId": "rt8",
+      "recipes": [], "defaultRecipeId": null },
 
     { "id": "res-magnetic-field-generator", "name": "Magnetic Field Generator", "categoryId": "cat-elevator", "researchTierId": "rt8",
       "recipes": [ { "id": "rec-magnetic-field-generator", "name": "Magnetic Field Generator", "machineId": "mach-assembler", "cycleTime": 120, "outputAmount": 2, "inputs": [ { "resourceId": "res-versatile-framework", "amount": 5 }, { "resourceId": "res-electromagnetic-control-rod", "amount": 2 } ] } ],
@@ -470,7 +487,8 @@
         { "id": "rec-power-coal", "name": "Coal Generator", "machineId": "mach-coal-gen", "cycleTime": 1, "outputAmount": 75, "inputs": [ { "resourceId": "res-coal", "amount": 0.25 }, { "resourceId": "res-water", "amount": 0.75 } ] },
         { "id": "rec-power-fuel", "name": "Fuel Generator", "machineId": "mach-fuel-gen", "cycleTime": 1, "outputAmount": 250, "inputs": [ { "resourceId": "res-fuel", "amount": 0.33333 } ] },
         { "id": "rec-power-turbofuel", "name": "Fuel Generator (Turbofuel)", "machineId": "mach-fuel-gen", "cycleTime": 1, "outputAmount": 250, "inputs": [ { "resourceId": "res-turbofuel", "amount": 0.125 } ] },
-        { "id": "rec-power-nuclear", "name": "Nuclear Power Plant", "machineId": "mach-nuclear-plant", "cycleTime": 1, "outputAmount": 2500, "inputs": [ { "resourceId": "res-uranium-fuel-rod", "amount": 0.003333 }, { "resourceId": "res-water", "amount": 4 } ], "byproducts": [ { "resourceId": "res-uranium-waste", "amount": 0.16667 } ] }
+        { "id": "rec-power-nuclear", "name": "Nuclear Power Plant", "machineId": "mach-nuclear-plant", "cycleTime": 1, "outputAmount": 2500, "inputs": [ { "resourceId": "res-uranium-fuel-rod", "amount": 0.003333 }, { "resourceId": "res-water", "amount": 4 } ], "byproducts": [ { "resourceId": "res-uranium-waste", "amount": 0.16667 } ] },
+        { "id": "rec-power-plutonium", "name": "Nuclear Power Plant (Plutonium)", "machineId": "mach-nuclear-plant", "cycleTime": 1, "outputAmount": 2500, "inputs": [ { "resourceId": "res-plutonium-fuel-rod", "amount": 0.001667 }, { "resourceId": "res-water", "amount": 4 } ], "byproducts": [ { "resourceId": "res-plutonium-waste", "amount": 0.016667 } ] }
       ],
       "defaultRecipeId": "rec-power-coal" }
   ],
