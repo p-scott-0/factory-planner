@@ -250,7 +250,7 @@
       ],
       "defaultRecipeId": "rec-turbofuel" },
     { "id": "res-alumina-solution", "name": "Alumina Solution", "categoryId": "cat-fluids", "researchTierId": "rt7", "isFluid": true,
-      "recipes": [ { "id": "rec-alumina-solution", "name": "Alumina Solution", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 12, "inputs": [ { "resourceId": "res-bauxite", "amount": 12 }, { "resourceId": "res-water", "amount": 18 } ] } ],
+      "recipes": [ { "id": "rec-alumina-solution", "name": "Alumina Solution", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 12, "inputs": [ { "resourceId": "res-bauxite", "amount": 12 }, { "resourceId": "res-water", "amount": 18 } ], "byproducts": [ { "resourceId": "res-silica", "amount": 5 } ] } ],
       "defaultRecipeId": "rec-alumina-solution" },
     { "id": "res-sulfuric-acid", "name": "Sulfuric Acid", "categoryId": "cat-fluids", "researchTierId": "rt7", "isFluid": true,
       "recipes": [ { "id": "rec-sulfuric-acid", "name": "Sulfuric Acid", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 5, "inputs": [ { "resourceId": "res-sulfur", "amount": 5 }, { "resourceId": "res-water", "amount": 5 } ] } ],
@@ -410,7 +410,7 @@
       "defaultRecipeId": "rec-petroleum-coke" },
 
     { "id": "res-aluminum-scrap", "name": "Aluminum Scrap", "categoryId": "cat-alu", "researchTierId": "rt7",
-      "recipes": [ { "id": "rec-aluminum-scrap", "name": "Aluminum Scrap", "machineId": "mach-refinery", "cycleTime": 1, "outputAmount": 6, "inputs": [ { "resourceId": "res-alumina-solution", "amount": 4 }, { "resourceId": "res-coal", "amount": 2 } ] } ],
+      "recipes": [ { "id": "rec-aluminum-scrap", "name": "Aluminum Scrap", "machineId": "mach-refinery", "cycleTime": 1, "outputAmount": 6, "inputs": [ { "resourceId": "res-alumina-solution", "amount": 4 }, { "resourceId": "res-coal", "amount": 2 } ], "byproducts": [ { "resourceId": "res-water", "amount": 2 } ] } ],
       "defaultRecipeId": "rec-aluminum-scrap" },
     { "id": "res-aluminum-ingot", "name": "Aluminum Ingot", "categoryId": "cat-alu", "researchTierId": "rt7",
       "recipes": [ { "id": "rec-aluminum-ingot", "name": "Aluminum Ingot", "machineId": "mach-foundry", "cycleTime": 4, "outputAmount": 4, "inputs": [ { "resourceId": "res-aluminum-scrap", "amount": 6 }, { "resourceId": "res-silica", "amount": 5 } ] } ],

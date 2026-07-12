@@ -2242,44 +2242,71 @@ function computeChain(targetResId, targetRatePerSec, inputSet=new Set(), useCeil
   }
   topo(targetResId);
 
-  const demand={[targetResId]:targetRatePerSec};
-  const nodes=[], rawNeeds={};
-
-  for(const resId of order){
-    const d=demand[resId]??0;
-    if(d<=0)continue;
-    if(inputSet.has(resId)){rawNeeds[resId]=(rawNeeds[resId]??0)+d;continue;}
-    const rec=choice[resId];
-    if(!rec){rawNeeds[resId]=(rawNeeds[resId]??0)+d;continue;}
-    const ct=effectiveCycleTime(rec);
-    const outAmt=rec.outputAmount??1;
-    const fullPerMach=outAmt/ct;
-    // Belt cap: a machine can't push out more than (output ports × best
-    // allowed belt speed). A 600/min machine with one output on 480/min
-    // belts is capped to 480/min — you can't attach a second belt to one
-    // port. Machines with no output ports defined are not capped.
-    let perMach=fullPerMach, beltCapped=false;
-    const bm=rec.machineId?machines.find(m=>m.id===rec.machineId):null;
-    const fluidOut=isFluidRes(resId);
-    // Power flows over power lines — never belt/pipe capped
-    const outPorts=(bm&&!isPowerRes(resId))?(bm.ports||[]).filter(p=>p.type==='output'&&((p.flow||'item')===(fluidOut?'fluid':'item'))).length:0;
-    const pb=fluidOut?plannerPipes():plannerBelts();
-    if(outPorts>0&&pb.length){
-      const cap=outPorts*pb[pb.length-1].speed;
-      if(cap<fullPerMach-1e-9){perMach=cap;beltCapped=true;}
+  // Within-chain byproduct crediting: a recipe's byproducts offset same-chain
+  // demand for those resources — e.g. Alumina Solution's Silica byproduct covers
+  // part of an Aluminum Ingot chain's Silica need (so less is mined from Quartz),
+  // and Aluminum Scrap's Water byproduct offsets the Alumina Solution's water.
+  // A byproduct's producer can sit downstream of the consumer in topological
+  // order, so one pass can't credit it — iterate to a fixpoint, seeding each
+  // pass with the previous pass's byproduct supply. Real recipe graphs settle in
+  // one or two passes; the cap guards against a pathological feedback loop.
+  let credit={}, nodes=[], rawNeeds={}, byproductSupply={}, grossDemand={};
+  for(let iter=0;iter<24;iter++){
+    const demand={[targetResId]:targetRatePerSec};
+    nodes=[]; rawNeeds={}; byproductSupply={};
+    for(const resId of order){
+      const gross=demand[resId]??0;
+      const d=gross-(credit[resId]??0); // net demand after byproduct produced elsewhere
+      if(d<=1e-12)continue;             // fully covered by byproduct (or unused)
+      if(inputSet.has(resId)){rawNeeds[resId]=(rawNeeds[resId]??0)+d;continue;}
+      const rec=choice[resId];
+      if(!rec){rawNeeds[resId]=(rawNeeds[resId]??0)+d;continue;}
+      const ct=effectiveCycleTime(rec);
+      const outAmt=rec.outputAmount??1;
+      const fullPerMach=outAmt/ct;
+      // Belt cap: a machine can't push out more than (output ports × best
+      // allowed belt speed). A 600/min machine with one output on 480/min
+      // belts is capped to 480/min — you can't attach a second belt to one
+      // port. Machines with no output ports defined are not capped.
+      let perMach=fullPerMach, beltCapped=false;
+      const bm=rec.machineId?machines.find(m=>m.id===rec.machineId):null;
+      const fluidOut=isFluidRes(resId);
+      // Power flows over power lines — never belt/pipe capped
+      const outPorts=(bm&&!isPowerRes(resId))?(bm.ports||[]).filter(p=>p.type==='output'&&((p.flow||'item')===(fluidOut?'fluid':'item'))).length:0;
+      const pb=fluidOut?plannerPipes():plannerBelts();
+      if(outPorts>0&&pb.length){
+        const cap=outPorts*pb[pb.length-1].speed;
+        if(cap<fullPerMach-1e-9){perMach=cap;beltCapped=true;}
+      }
+      const capF=perMach/fullPerMach; // fraction of full speed the machine can actually run at
+      const exact=d/perMach;
+      // Each resource is processed exactly once in topological order, so one node per stage
+      nodes.push({rec,exact,resId,perMach,fullPerMach,capF,beltCapped});
+      // Propagate inputs for ceil (full capacity) or exact (constrained) depending
+      // on mode; belt-capped machines consume inputs at their reduced rate.
+      const propagate=(useCeil?Math.ceil(exact):exact)*capF;
+      rec.inputs.forEach(inp=>{
+        demand[inp.resourceId]=(demand[inp.resourceId]??0)+(inp.amount/ct)*propagate;
+      });
+      (rec.byproducts||[]).forEach(bp=>{
+        byproductSupply[bp.resourceId]=(byproductSupply[bp.resourceId]??0)+(bp.amount/ct)*propagate;
+      });
     }
-    const capF=perMach/fullPerMach; // fraction of full speed the machine can actually run at
-    const exact=d/perMach;
-    // Each resource is processed exactly once in topological order, so one node per stage
-    nodes.push({rec,exact,resId,perMach,fullPerMach,capF,beltCapped});
-    // Propagate inputs for ceil (full capacity) or exact (constrained) depending
-    // on mode; belt-capped machines consume inputs at their reduced rate.
-    const propagate=(useCeil?Math.ceil(exact):exact)*capF;
-    rec.inputs.forEach(inp=>{
-      demand[inp.resourceId]=(demand[inp.resourceId]??0)+(inp.amount/ct)*propagate;
-    });
+    grossDemand=demand;
+    // Converged once the byproduct supply stops changing between passes.
+    const keys=new Set([...Object.keys(byproductSupply),...Object.keys(credit)]);
+    let stable=true;
+    for(const k of keys){ if(Math.abs((byproductSupply[k]??0)-(credit[k]??0))>1e-9){stable=false;break;} }
+    credit=byproductSupply;
+    if(stable)break;
   }
-  return{nodes,rawNeeds};
+  // Byproduct produced beyond what the chain itself consumes — the true surplus.
+  const byproductSurplus={};
+  Object.keys(byproductSupply).forEach(k=>{
+    const s=(byproductSupply[k]??0)-(grossDemand[k]??0);
+    if(s>1e-9)byproductSurplus[k]=s;
+  });
+  return{nodes,rawNeeds,byproductSurplus};
 }
 
 // Input-constrained mode: find max achievable rate then compute chain.
@@ -2310,7 +2337,7 @@ function computeFromInputs(targetResId, inputMap){
   if(!isFinite(achievable)||achievable<=0)return{noConsume:true,error:'The recipe chain does not consume any of the given inputs, so nothing constrains the rate. Use Target mode instead.'};
 
   // Final pass at achievable rate — still exact so consumption matches the inputs
-  const{nodes,rawNeeds}=computeChain(targetResId,achievable,inputSet,false);
+  const{nodes,rawNeeds,byproductSurplus}=computeChain(targetResId,achievable,inputSet,false);
 
   // Anything in the plan that isn't producible purely from the supplied
   // inputs — e.g. Compacted Coal pulled in by a Turbofuel recipe when only
@@ -2372,7 +2399,7 @@ function computeFromInputs(targetResId, inputMap){
     }
   });
 
-  return{nodes,rawNeeds,achievable,bottleneckRes,extras};
+  return{nodes,rawNeeds,achievable,bottleneckRes,extras,byproductSurplus};
 }
 
 // ══════════════════════════════════════════════════════
@@ -2397,17 +2424,13 @@ function computeFromInputs(targetResId, inputMap){
 // runMultiTargetPlan / runFromInputsPlan below for that one difference —
 // everything else, including rendering, is identical.
 
-// Adds every byproduct produced by `nodes` into `pool` (resourceId -> rate,
-// per second). `ceiled` selects target-mode's "full built capacity" rate
-// (Math.ceil(exact)) vs from-inputs/byproduct-driven's exact demanded rate —
-// matching each mode's existing display convention for its own stages.
-function addByproductsToPool(pool,nodes,ceiled){
-  nodes.forEach(n=>{
-    const ct=effectiveCycleTime(n.rec);
-    (n.rec.byproducts||[]).forEach(bp=>{
-      const rate=(ceiled?Math.ceil(n.exact):n.exact)*(bp.amount/ct);
-      pool[bp.resourceId]=(pool[bp.resourceId]||0)+rate;
-    });
+// Adds a target's leftover byproducts into the shared `pool` (resourceId ->
+// rate, per second). computeChain already nets out whatever the target's own
+// chain consumed internally, so `surplus` is the true amount available to a
+// later target — no double-counting a byproduct that was used in-chain.
+function addSurplusToPool(pool,surplus){
+  Object.entries(surplus||{}).forEach(([id,rate])=>{
+    pool[id]=(pool[id]||0)+rate;
   });
 }
 
@@ -2416,11 +2439,11 @@ function addByproductsToPool(pool,nodes,ceiled){
 // byproducts). Returns a result object in the same shape for either case.
 function planSecondaryTarget(t,pool){
   if(t.rate!=null){
-    const{nodes,rawNeeds}=computeChain(t.resId,t.rate,new Set(),true);
+    const{nodes,rawNeeds,byproductSurplus}=computeChain(t.resId,t.rate,new Set(),true);
     if(!nodes.length)return{resId:t.resId,achievableStyle:false,
       error:`No recipe produces "${esc(rname(t.resId))}". Add one in Resources.`};
     nodes.forEach(n=>{n.fromInputs=false;});
-    addByproductsToPool(pool,nodes,true);
+    addSurplusToPool(pool,byproductSurplus);
     return{resId:t.resId,achievableStyle:false,nodes,rawNeeds,rawRate:t.rawRate,unitLbl:t.unitLbl,rate:t.rate};
   }
   const supply=Object.entries(pool).filter(([,v])=>v>1e-9);
@@ -2443,7 +2466,7 @@ function planSecondaryTarget(t,pool){
   // computeChain records supplied-resource consumption directly in
   // rawNeeds, so this is exact even when a resource wasn't the bottleneck.
   poolSuppliedIds.forEach(id=>{pool[id]=Math.max(0,(pool[id]||0)-(res.rawNeeds[id]||0));});
-  addByproductsToPool(pool,res.nodes,false);
+  addSurplusToPool(pool,res.byproductSurplus);
   return{resId:t.resId,achievableStyle:true,sourceLabel:'the byproduct',nodes:res.nodes,rawNeeds:res.rawNeeds,
     achievable:res.achievable,bottleneckRes:res.bottleneckRes,extras:res.extras,poolSuppliedIds};
 }
@@ -2452,14 +2475,14 @@ function planSecondaryTarget(t,pool){
 function runMultiTargetPlan(targets, resEl){
   const pool={}; // resourceId -> available surplus, per second
   const first=targets[0];
-  const{nodes,rawNeeds}=computeChain(first.resId,first.rate,new Set(),true);
+  const{nodes,rawNeeds,byproductSurplus}=computeChain(first.resId,first.rate,new Set(),true);
   let results;
   if(!nodes.length){
     results=[{resId:first.resId,achievableStyle:false,
       error:`No recipe produces "${esc(rname(first.resId))}". Add one in Resources.`}];
   } else {
     nodes.forEach(n=>{n.fromInputs=false;});
-    addByproductsToPool(pool,nodes,true);
+    addSurplusToPool(pool,byproductSurplus);
     results=[{resId:first.resId,achievableStyle:false,nodes,rawNeeds,rawRate:first.rawRate,unitLbl:first.unitLbl,rate:first.rate}];
   }
   targets.slice(1).forEach(t=>results.push(planSecondaryTarget(t,pool)));
@@ -2478,7 +2501,7 @@ function runFromInputsPlan(primaryResId, inputMap, secondaryTargets, resEl){
     results=[{resId:primaryResId,achievableStyle:true,sourceLabel:'your supplied inputs',error:res.error}];
   } else {
     res.nodes.forEach(n=>{n.fromInputs=true;});
-    addByproductsToPool(pool,res.nodes,false);
+    addSurplusToPool(pool,res.byproductSurplus);
     results=[{resId:primaryResId,achievableStyle:true,sourceLabel:'your supplied inputs',nodes:res.nodes,rawNeeds:res.rawNeeds,
       achievable:res.achievable,bottleneckRes:res.bottleneckRes,extras:res.extras}];
   }
@@ -2647,19 +2670,28 @@ function renderPlanBody(targetIds, nodes, rawNeeds, topHtml, el){
   }
 
   // ── Unused byproduct surplus ──
-  // Byproduct crediting only connects a byproduct to a LATER target row (or,
-  // in From-Inputs mode, a later secondary target) — it's never netted
-  // against a resource's own chain. So anything a plan's own recipes produce
-  // as a byproduct that no OTHER stage in the same plan consumes is genuine
-  // surplus, whether this is a single-target plan or a multi-target one.
-  const unclaimed={};
+  // Quantitative net across the whole plan: for each resource produced as a
+  // byproduct, surplus = everything the plan makes of it (primary stages +
+  // byproducts) minus everything the plan consumes. Byproducts partly used
+  // in-chain (e.g. Alumina Solution's Silica covering most of an Aluminum
+  // Ingot chain's Silica need) show only the true leftover, and something
+  // fully consumed shows nothing — while a pure unused byproduct still shows
+  // its full rate. Target outputs aren't "surplus".
+  const prod={}, cons={};
   nodes.forEach(n=>{
     const ct=effectiveCycleTime(n.rec);
-    (n.rec.byproducts||[]).forEach(bp=>{
-      const consumed=nodes.some(c=>c!==n&&c.rec.inputs.some(inp=>inp.resourceId===bp.resourceId));
-      if(consumed)return;
-      unclaimed[bp.resourceId]=(unclaimed[bp.resourceId]||0)+(bp.amount/ct)*n.exact;
-    });
+    const capF=n.capF??1;
+    prod[n.resId]=(prod[n.resId]||0)+n.exact*(n.perMach??((n.rec.outputAmount??1)/ct));
+    (n.rec.byproducts||[]).forEach(bp=>{ prod[bp.resourceId]=(prod[bp.resourceId]||0)+(bp.amount/ct)*n.exact*capF; });
+    n.rec.inputs.forEach(inp=>{ cons[inp.resourceId]=(cons[inp.resourceId]||0)+(inp.amount/ct)*n.exact*capF; });
+  });
+  const byproductResIds=new Set();
+  nodes.forEach(n=>(n.rec.byproducts||[]).forEach(bp=>byproductResIds.add(bp.resourceId)));
+  const unclaimed={};
+  byproductResIds.forEach(R=>{
+    if(targetIds.has(R))return;
+    const s=(prod[R]||0)-(cons[R]||0);
+    if(s>1e-6)unclaimed[R]=s;
   });
   const unclaimedEntries=Object.entries(unclaimed).filter(([,v])=>v>1e-9);
   if(unclaimedEntries.length){
@@ -2894,6 +2926,17 @@ function buildFlowSVG(targetIds, nodes, rawNeeds){
 
   let edges='',edgeLabels='',raws='',boxes='';
 
+  // A resource can be produced by BOTH a primary stage and as a byproduct
+  // (e.g. Silica from a Quartz constructor AND from Alumina Solution). Each
+  // consumer's demand is then split proportionally between the two sources so
+  // the drawn edge rates add up to what the stages actually make.
+  const byproductSupply={}, primaryOut={};
+  nodes.forEach(n=>{
+    const ct=effectiveCycleTime(n.rec);
+    primaryOut[n.resId]=(primaryOut[n.resId]||0)+n.exact*(n.perMach??((n.rec.outputAmount??1)/ct));
+    (n.rec.byproducts||[]).forEach(bp=>{ byproductSupply[bp.resourceId]=(byproductSupply[bp.resourceId]||0)+(bp.amount/ct)*n.exact*(n.capF??1); });
+  });
+
   // ── Edge collection ──
   // Each edge later gets its own entry/exit point along the node side, so
   // multiple flows into one machine no longer converge on a single midpoint.
@@ -2906,14 +2949,27 @@ function buildFlowSVG(targetIds, nodes, rawNeeds){
     consumer.rec.inputs.forEach(inp=>{
       const rate=(inp.amount/ct)*consumer.exact*(consumer.capF??1);
       const pn=byOut[inp.resourceId];
+      const byBox=posBy[inp.resourceId];
       if(pn&&posR[pn.rec.id]){
         const pp=posR[pn.rec.id];
+        // If the resource is also produced as a byproduct, split this consumer's
+        // draw between the primary stage and the byproduct box proportionally.
+        const bSup=byproductSupply[inp.resourceId]||0, pOut=primaryOut[inp.resourceId]||0;
+        const split=bSup>1e-9&&byBox&&pOut>1e-9;
         edgeList.push({fromKey:'n'+pn.rec.id,toKey:'n'+consumer.rec.id,
           fx:pp.x+NW,fyBase:pp.y,fH:NH,tx:cp.x,tyBase:cp.y,
-          rate,resId:inp.resourceId,
+          rate:split?rate*pOut/(pOut+bSup):rate,resId:inp.resourceId,
           fromLabel:pn.rec.machineId?mname(pn.rec.machineId):'(no machine)',
           toLabel,
           isLong:(dc[pn.rec.id]-dc[consumer.rec.id])>1});
+        if(split){
+          edgeList.push({fromKey:'b'+inp.resourceId,toKey:'n'+consumer.rec.id,
+            fx:byBox.x+BW,fyBase:byBox.y,fH:BH,tx:cp.x,tyBase:cp.y,
+            rate:rate*bSup/(pOut+bSup),resId:inp.resourceId,isByproduct:true,
+            fromLabel:`${byBox.producer.rec.machineId?mname(byBox.producer.rec.machineId):'(no machine)'} (byproduct)`,
+            toLabel,
+            isLong:(dc[byBox.producer.rec.id]-dc[consumer.rec.id])>1});
+        }
       } else if(posRaw[inp.resourceId]){
         const rp=posRaw[inp.resourceId];
         edgeList.push({fromKey:'r'+inp.resourceId,toKey:'n'+consumer.rec.id,
@@ -2922,8 +2978,8 @@ function buildFlowSVG(targetIds, nodes, rawNeeds){
           fromLabel:'Raw input',
           toLabel,
           isLong:dc[consumer.rec.id]<maxD});
-      } else if(posBy[inp.resourceId]){
-        const bp=posBy[inp.resourceId];
+      } else if(byBox){
+        const bp=byBox;
         edgeList.push({fromKey:'b'+inp.resourceId,toKey:'n'+consumer.rec.id,
           fx:bp.x+BW,fyBase:bp.y,fH:BH,tx:cp.x,tyBase:cp.y,
           rate,resId:inp.resourceId,isByproduct:true,
