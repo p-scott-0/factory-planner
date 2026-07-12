@@ -100,6 +100,7 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
 .flow-card svg g.fe .vis{transition:stroke-width .1s,stroke-opacity .1s}
 .flow-card svg g.fe:hover .vis{stroke-width:3.5;stroke-opacity:1}
 .flow-card svg [data-res]{cursor:pointer}
+.belt-marker{stroke:#fff;stroke-width:1.5;pointer-events:none;filter:drop-shadow(0 0 3px rgba(0,0,0,.65))}
 #flow-tip{position:fixed;z-index:1000;display:none;pointer-events:none;background:#0e1620;border:1px solid #29405a;border-radius:8px;padding:7px 10px;font-size:12px;box-shadow:0 6px 22px rgba(0,0,0,.55);max-width:300px;line-height:1.4}
 #flow-tip .ft-res{font-weight:700;font-size:12.5px}
 #flow-tip .ft-rate{color:#c8d8ec;margin-top:1px}
@@ -130,7 +131,7 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
 .prof-grid input{width:auto;flex:0 0 160px;font-size:12px;padding:5px 8px}
 .prof-grid button{font-size:12px;padding:5px 10px}
 /* Locked sample profiles: hide editing affordances, show the banner */
-#lock-banner{display:none;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:#221a0c;border-bottom:1px solid #4a3d1c;color:#c9a24a;padding:8px 16px;font-size:12.5px}
+#lock-banner{display:none;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:#221a0c;border:1px solid #4a3d1c;border-radius:6px;color:#c9a24a;padding:8px 12px;margin-top:10px;font-size:12.5px}
 body.sample-locked #lock-banner{display:flex}
 body.sample-locked .lock-hide{display:none!important}
 body.sample-locked .la{display:none!important}
@@ -205,12 +206,11 @@ body.sample-locked .la{display:none!important}
     <button class="bb bsm" onclick="loadSampleProfile('satisfactory')">Satisfactory</button>
     <button class="bb bsm" onclick="loadSampleProfile('factorio')">Factorio</button>
   </div>
-</div>
-
-<!-- Read-only banner for locked sample profiles -->
-<div id="lock-banner">
-  <span>🔒 <strong>Sample profile</strong> — read-only so it can stay up to date automatically. Duplicate it to make your own editable copy.</span>
-  <button class="bb bsm" onclick="duplicateProfile()">Duplicate to edit</button>
+  <!-- Read-only notice for locked sample profiles (only visible in this panel) -->
+  <div id="lock-banner">
+    <span>🔒 <strong>Sample profile</strong> — read-only so it can stay up to date automatically. Duplicate it to make your own editable copy.</span>
+    <button class="bb bsm" onclick="duplicateProfile()">Duplicate to edit</button>
+  </div>
 </div>
 
 <!-- ══ MACHINES ══════════════════════════════════════ -->
@@ -721,7 +721,7 @@ function saveState(){
 function renderProfileSelector(){
   const sel=document.getElementById('prof-sel');
   sel.innerHTML=profiles.map(p=>
-    `<option value="${p.id}"${p.id===activeProfileId?' selected':''}>${esc(p.name)}</option>`
+    `<option value="${p.id}"${p.id===activeProfileId?' selected':''}>${p.sample?'🔒 ':''}${esc(p.name)}</option>`
   ).join('');
 }
 
@@ -2911,31 +2911,76 @@ function stageDepths(nodes, extraDeps={}){
   return dc;
 }
 
-// Instant, cursor-tracking hover card for flow-diagram belts. One card element,
-// event-delegated on the results panel so it survives every re-render. Any
-// element carrying data-res (belts, rate pills, byproduct boxes) triggers it.
+// Instant hover card for flow-diagram belts. On a belt it drops a marker dot at
+// the nearest point ALONG the belt to the cursor and anchors the card there, so
+// the dot + card slide smoothly down the belt as you move — cleaner than
+// tracking the raw mouse, and it confirms exactly which belt you're on. Rate
+// pills and byproduct boxes (which have no path) just anchor near themselves.
+// One card, one marker, event-delegated on the results panel so both survive
+// every re-render.
 function initFlowTooltip(){
   if(document.getElementById('flow-tip'))return;
+  const SVGNS='http://www.w3.org/2000/svg';
   const tip=document.createElement('div'); tip.id='flow-tip'; document.body.appendChild(tip);
   const host=document.getElementById('pl-results');
+  let marker=null;
+  const hideMarker=()=>{ if(marker)marker.style.display='none'; };
+  const ensureMarker=svg=>{
+    if(!marker){
+      marker=document.createElementNS(SVGNS,'circle');
+      marker.setAttribute('class','belt-marker'); marker.setAttribute('r','5.5');
+    }
+    if(marker.ownerSVGElement!==svg)svg.appendChild(marker); // move into the live svg
+    return marker;
+  };
+  // Nearest point on an SVG path to (x,y), in the path's own user units — coarse
+  // scan then a local refine, cheap enough to run every mousemove.
+  const nearestOnPath=(path,x,y)=>{
+    const len=path.getTotalLength(); if(!len)return path.getPointAtLength(0);
+    const N=Math.min(160,Math.max(20,Math.round(len/8)));
+    const scan=(a,b,steps)=>{
+      let bl=a,bd=Infinity,bp=null;
+      for(let i=0;i<=steps;i++){ const l=a+(b-a)*i/steps; const p=path.getPointAtLength(l);
+        const dx=p.x-x,dy=p.y-y,d=dx*dx+dy*dy; if(d<bd){bd=d;bl=l;bp=p;} }
+      return{l:bl,p:bp};
+    };
+    const c=scan(0,len,N), step=len/N;
+    return scan(Math.max(0,c.l-step),Math.min(len,c.l+step),16).p;
+  };
+  // Anchor the card just above-right of a screen point, flipping near edges.
   const place=(x,y)=>{
-    const gap=15, w=tip.offsetWidth, h=tip.offsetHeight;
-    let px=x+gap, py=y+gap;
+    const gap=13, w=tip.offsetWidth, h=tip.offsetHeight;
+    let px=x+gap, py=y-gap-h;
     if(px+w>innerWidth-6)px=x-gap-w;
-    if(py+h>innerHeight-6)py=y-gap-h;
+    if(py<6)py=y+gap;
     tip.style.left=Math.max(6,px)+'px'; tip.style.top=Math.max(6,py)+'px';
   };
   host.addEventListener('mousemove',e=>{
     const g=e.target.closest('[data-res]');
-    if(!g){tip.style.display='none';return;}
+    if(!g){tip.style.display='none';hideMarker();return;}
     const b=g.dataset;
     tip.innerHTML=`<div class="ft-res" style="color:${b.col}">${esc(b.res)}</div>`+
       `<div class="ft-rate">${esc(b.rate)}${b.belt?` <span class="ft-belt">· ${esc(b.belt)}</span>`:''}</div>`+
       `<div class="ft-flow">${esc(b.from)} → ${esc(b.to)}</div>`;
     tip.style.display='block';
-    place(e.clientX,e.clientY);
+    const beltG=e.target.closest('g.fe');
+    const path=beltG&&beltG.querySelector('path.vis');
+    const svg=beltG&&beltG.ownerSVGElement, ctm=svg&&svg.getScreenCTM&&svg.getScreenCTM();
+    if(path&&path.getTotalLength&&ctm){
+      const sp=svg.createSVGPoint(); sp.x=e.clientX; sp.y=e.clientY;
+      const loc=sp.matrixTransform(ctm.inverse());
+      const cp=nearestOnPath(path,loc.x,loc.y);
+      const mk=ensureMarker(svg);
+      mk.setAttribute('cx',cp.x); mk.setAttribute('cy',cp.y); mk.setAttribute('fill',b.col); mk.style.display='';
+      const scr=cp.matrixTransform(ctm);
+      place(scr.x,scr.y);
+    } else {
+      hideMarker();
+      const r=g.getBoundingClientRect();
+      place(r.left+r.width/2, r.top+r.height/2);
+    }
   });
-  host.addEventListener('mouseleave',()=>{tip.style.display='none';});
+  host.addEventListener('mouseleave',()=>{tip.style.display='none';hideMarker();});
 }
 
 function buildFlowSVG(targetIds, nodes, rawNeeds){
