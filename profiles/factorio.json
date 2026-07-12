@@ -1,5 +1,6 @@
 {
   "name": "Factorio (starter)",
+  "version": 1,
   "researchTiers": [],
   "unlockedTierId": null,
   "beltTiers": [

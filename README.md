@@ -34,6 +34,8 @@ The [`profiles/`](profiles/) folder ships two ready-made profiles that double as
 
 On the hosted version (or any local server) load them with the **Samples** buttons in the Profiles panel. When opening `index.html` directly from disk, use **Import Profile** and pick the JSON file instead (browsers block `fetch` on `file://`).
 
+Sample profiles are **locked (read-only)** so they can **self-update**: each carries a `version`, and on load the app re-fetches the bundled copy and refreshes the definition (machines/resources/recipes) if a newer version has shipped — while keeping your own usage (recipe toggles, tier picks, planner query, layout). So when the bundled sample changes you get the update automatically instead of having to delete and reload the profile. To customise a sample, hit **Duplicate to edit** (or **Duplicate Current**) — the copy is a normal, editable profile. The app version is shown next to the logo in the nav bar.
+
 Numbers are approximate where the games don't map 1:1 onto this tool's model (e.g. footprints are in meters/tiles, miner rates assume normal-purity nodes).
 
 ### Profile JSON structure
@@ -43,6 +45,7 @@ A profile file is what **Export Profile** produces:
 ```jsonc
 {
   "name": "My Game",
+  "version": 1,                                      // bundled samples only: bump to push a self-update
   "researchTiers": [ { "id": "rt0", "name": "Tier 0" } ],  // ordered progression ladder
   "unlockedTierId": null,                            // highest unlocked tier (null = all)
   "maxBeltTierId": null,                             // planner belt cap (null = fastest unlocked)

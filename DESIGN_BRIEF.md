@@ -66,6 +66,8 @@ All machine, resource, recipe, and category data is scoped to a named **profile*
 
 The planner state (tier selections, recipe overrides, layout) is also profile-scoped.
 
+**Locked, self-updating sample profiles.** A profile loaded from a bundled sample is marked as a locked sample (it stores the sample key and a version). Locked profiles are read-only — the definition-editing UI (add/edit/delete machines, resources, recipes, categories, tiers, belts) is hidden and guarded, and a banner explains why — but usage (recipe toggles, tier picks, planner query, layout) stays editable. On load the app best-effort re-fetches each locked sample's bundled copy and, if it carries a newer version, refreshes the definition from it while preserving the user's usage (recipe toggles merge bundle defaults under the user's choices). This means a bundled sample can be improved and existing users pick up the change automatically, instead of having to delete and reload the profile. To customise a sample, **Duplicate** it — the copy is an ordinary editable profile with the lock cleared. There is one canonical locked copy per sample key, so re-loading a sample switches to and refreshes the existing one rather than piling up duplicates. The current app version is shown next to the logo in the nav.
+
 ---
 
 ## Production Chain Calculator
@@ -108,7 +110,8 @@ Results are displayed as a visual graph alongside the machine list. The diagram 
 - Each flow into or out of a node gets its own entry/exit point spread along the node's edge, so multiple flows never converge on one midpoint
 - Every edge ends in a straight horizontal run so the line enters the back of its arrowhead
 - Edges are **colour-coded per resource** (the same material keeps one colour across the whole diagram, including its raw-input box) so flows can be traced at a glance
-- Each edge carries only a **compact rate pill** at its arrowhead (e.g. "360/min"); hovering the edge shows the full details — resource, exact rate, required belt/pipe tier, and producer → consumer — and thickens the line for tracing. Every pill is rendered in its own layer above every line and node box in the diagram, so a crossing belt can never cover a label, regardless of draw order.
+- Each edge carries only a **compact rate pill** at its arrowhead (e.g. "360/min"); hovering the edge (or its pill, or a byproduct box) pops an **instant, styled tooltip card** that tracks the cursor and shows the full details — resource (in its colour), exact rate, required belt/pipe tier, and producer → consumer. The card appears immediately and follows the mouse, rather than waiting on a slow native tooltip. Every pill is rendered in its own layer above every line and node box in the diagram, so a crossing belt can never cover a label, regardless of draw order.
+- When byproduct satellite boxes are present, the inter-column gap widens so the boxes have room to read instead of being squished against the next machine box.
 - Raw input nodes at the far end of the graph
 - Nodes grouped left-to-right by dependency depth (raw inputs on the left, target on the right, following natural reading direction)
 - Nodes within each column sorted by category then name

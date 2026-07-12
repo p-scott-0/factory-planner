@@ -18,7 +18,8 @@ body{background:var(--bg);color:var(--tx);font-family:'Segoe UI',system-ui,sans-
 ::-webkit-scrollbar-thumb:hover{background:#454b52}
 ::-webkit-scrollbar-corner{background:#141618}
 .nav{display:flex;align-items:center;flex-wrap:wrap;background:#111315;border-bottom:1px solid var(--b);padding:0 16px;gap:0}
-.nav-logo{color:var(--acc);font-weight:800;font-size:14px;padding:12px 0;margin-right:14px;letter-spacing:-.02em;white-space:nowrap}
+.nav-logo{color:var(--acc);font-weight:800;font-size:14px;padding:12px 0;margin-right:8px;letter-spacing:-.02em;white-space:nowrap}
+.nav-ver{color:#4a5560;font-size:10px;font-weight:600;padding:12px 0;margin-right:12px;white-space:nowrap;align-self:center}
 .nav-tab{padding:12px 13px;font-size:13px;color:var(--dim);cursor:pointer;border-bottom:2px solid transparent;transition:color .12s,border-color .12s;white-space:nowrap}
 .nav-tab:hover{color:var(--tx)}.nav-tab.active{color:var(--acc);border-bottom-color:var(--acc)}
 .tab{display:none;padding:16px}.tab.active{display:block}
@@ -98,6 +99,12 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
 .flow-card svg text{font-family:'Segoe UI',system-ui,sans-serif}
 .flow-card svg g.fe .vis{transition:stroke-width .1s,stroke-opacity .1s}
 .flow-card svg g.fe:hover .vis{stroke-width:3.5;stroke-opacity:1}
+.flow-card svg [data-res]{cursor:pointer}
+#flow-tip{position:fixed;z-index:1000;display:none;pointer-events:none;background:#0e1620;border:1px solid #29405a;border-radius:8px;padding:7px 10px;font-size:12px;box-shadow:0 6px 22px rgba(0,0,0,.55);max-width:300px;line-height:1.4}
+#flow-tip .ft-res{font-weight:700;font-size:12.5px}
+#flow-tip .ft-rate{color:#c8d8ec;margin-top:1px}
+#flow-tip .ft-belt{color:#7a90a4}
+#flow-tip .ft-flow{color:#6a8090;font-size:11px;margin-top:3px}
 .ach-banner{background:#182818;border:1px solid #2a5a2a;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#5aaa6a}
 .rtree{overflow-x:auto;margin-top:10px;border-top:1px solid var(--b);padding-top:10px}
 .rtree svg{display:block;font-family:'Segoe UI',system-ui,sans-serif}
@@ -122,6 +129,11 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
 .prof-grid{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .prof-grid input{width:auto;flex:0 0 160px;font-size:12px;padding:5px 8px}
 .prof-grid button{font-size:12px;padding:5px 10px}
+/* Locked sample profiles: hide editing affordances, show the banner */
+#lock-banner{display:none;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:#221a0c;border-bottom:1px solid #4a3d1c;color:#c9a24a;padding:8px 16px;font-size:12.5px}
+body.sample-locked #lock-banner{display:flex}
+body.sample-locked .lock-hide{display:none!important}
+body.sample-locked .la{display:none!important}
 .prof-item{display:inline-flex;align-items:center;gap:5px;background:var(--bg);border:1px solid var(--b);border-radius:5px;padding:4px 8px;font-size:12px}
 /* Tiers tab */
 .rt-card{margin-bottom:14px}
@@ -162,6 +174,7 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
 
 <nav class="nav">
   <span class="nav-logo">⚙ Factory Planner</span>
+  <span class="nav-ver" id="app-ver" title="App version"></span>
   <span class="nav-tab active" data-tab="machines">Machines</span>
   <span class="nav-tab" data-tab="resources">Resources</span>
   <span class="nav-tab" data-tab="tiers">Tiers</span>
@@ -194,10 +207,16 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
   </div>
 </div>
 
+<!-- Read-only banner for locked sample profiles -->
+<div id="lock-banner">
+  <span>🔒 <strong>Sample profile</strong> — read-only so it can stay up to date automatically. Duplicate it to make your own editable copy.</span>
+  <button class="bb bsm" onclick="duplicateProfile()">Duplicate to edit</button>
+</div>
+
 <!-- ══ MACHINES ══════════════════════════════════════ -->
 <div id="tab-machines" class="tab active">
 <div class="two-col">
-  <div class="card" style="align-self:start">
+  <div class="card lock-hide" style="align-self:start">
     <div class="card-title" id="mf-title">New Machine</div>
     <label>Machine name</label>
     <input id="mf-name" type="text" placeholder="e.g. Assembler">
@@ -267,7 +286,7 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
 <div id="tab-resources" class="tab">
 <div class="two-col">
   <div>
-    <div class="card" style="align-self:start">
+    <div class="card lock-hide" style="align-self:start">
       <div class="card-title" id="rf-title">New Resource</div>
       <label>Name</label>
       <input id="rf-name" type="text" placeholder="e.g. Iron Plate">
@@ -330,6 +349,7 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
       <!-- Existing recipes list -->
       <div id="rec-existing"></div>
 
+      <div class="lock-hide">
       <hr>
       <div class="sl" id="rec-form-lbl">Add Recipe</div>
       <label>Name <span style="color:#555">(optional)</span></label>
@@ -357,6 +377,7 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
       <div class="act">
         <button class="ba" onclick="saveRecipe()">Save Recipe</button>
         <button class="bb" onclick="closeEditor()">Cancel</button>
+      </div>
       </div>
     </div>
   </div>
@@ -543,9 +564,65 @@ let editResId     = null;
 let selResId      = null;
 let editRecId     = null;
 
+// App version — shown in the nav so you can tell whether you're on the latest
+// deploy. Bump on each release.
+const APP_VERSION = '1.0.0';
+
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
 let activeProfileId = null;
+
+// A sample-loaded profile is locked (read-only) so it can self-update from the
+// bundled copy without clobbering user edits — to change it, duplicate it first.
+function activeProfile(){ return profiles.find(p=>p.id===activeProfileId); }
+function sampleLocked(){ return !!activeProfile()?.sample; }
+function lockGuard(){
+  if(!sampleLocked())return false;
+  alert('This is a sample profile, kept read-only so it can stay up to date automatically.\n\nOpen the Profiles panel and use "Duplicate Current" to make your own editable copy.');
+  return true;
+}
+// Reflects the active profile's locked state on <body> so CSS can hide the
+// editing affordances and show the read-only banner.
+function applyLockUI(){ document.body.classList.toggle('sample-locked', sampleLocked()); }
+
+// Overwrites a locked profile's DEFINITION (machines/resources/etc.) from a
+// freshly-fetched bundle copy while keeping the user's USAGE (tier picks,
+// planner query, layout, blueprints). recToggles merge bundle defaults under
+// the user's choices so a newly-shipped alternate keeps its default.
+function applyBundleToProfile(p,d){
+  p.name=d.name||p.name;
+  p.machines=d.machines||[];
+  p.resources=d.resources||[];
+  p.categories=d.categories||[];
+  p.researchTiers=d.researchTiers||[];
+  p.beltTiers=d.beltTiers||[];
+  p.pipeTiers=d.pipeTiers||[];
+  p.recToggles={...(d.recToggles||{}),...(p.recToggles||{})};
+  p.sampleVersion=d.version||0;
+}
+
+// Best-effort self-update of every locked sample profile from its bundled copy.
+// Skips silently when offline or opened via file:// (fetch unavailable).
+async function syncSampleProfiles(){
+  const locked=profiles.filter(p=>p.sample);
+  if(!locked.length)return;
+  let changed=false, activeChanged=false;
+  for(const p of locked){
+    try{
+      const res=await fetch(`profiles/${p.sample}.json`,{cache:'no-store'});
+      if(!res.ok)continue;
+      const d=await res.json();
+      if((d.version||0)<=(p.sampleVersion||0))continue; // already current
+      applyBundleToProfile(p,d);
+      changed=true;
+      if(p.id===activeProfileId)activeChanged=true;
+    }catch{/* offline / file:// — keep the stored copy */}
+  }
+  if(!changed)return;
+  if(activeChanged)loadActiveProfile();
+  saveState();
+  if(activeChanged)reloadUI(); else renderProfileSelector();
+}
 
 function loadState(){
   try{profiles=JSON.parse(localStorage.getItem('fp_profiles')||'[]');}catch{profiles=[];}
@@ -658,6 +735,7 @@ function switchProfile(id){
 }
 
 function reloadUI(){
+  applyLockUI();
   renderProfileSelector();
   renderUnlockSelector(); renderTierTab(); refreshTierSelects(); renderBeltTiers(); renderPipeTiers();
   renderMachines(); renderResources();
@@ -701,6 +779,7 @@ function duplicateProfile(){
   const p=JSON.parse(JSON.stringify(src));
   p.id=crypto.randomUUID();
   p.name=src.name+' (copy)';
+  delete p.sample; delete p.sampleVersion; // the copy is a normal, editable profile
   profiles.push(p);
   activeProfileId=p.id;
   loadActiveProfile();
@@ -778,29 +857,38 @@ async function loadSampleProfile(key){
     if(!res.ok)throw new Error(res.status);
     const d=await res.json();
     saveActiveProfile();
-    let name=d.name||key;
-    if(profiles.some(p=>p.name===name)){
-      let n=2; while(profiles.some(p=>p.name===`${name} (${n})`))n++;
-      name=`${name} (${n})`;
+    // One canonical, locked copy per sample key — if it's already loaded,
+    // switch to it and refresh it from the bundle rather than piling up copies.
+    let p=profiles.find(x=>x.sample===key);
+    if(p){
+      applyBundleToProfile(p,d);
+    } else {
+      let name=d.name||key;
+      if(profiles.some(x=>x.name===name)){
+        let n=2; while(profiles.some(x=>x.name===`${name} (${n})`))n++;
+        name=`${name} (${n})`;
+      }
+      p={
+        id:crypto.randomUUID(),
+        name,
+        sample:key,
+        sampleVersion:d.version||0,
+        machines:d.machines||[],
+        resources:d.resources||[],
+        categories:d.categories||[],
+        selTiers:d.selTiers||{},
+        researchTiers:d.researchTiers||[],
+        beltTiers:d.beltTiers||[],
+        recToggles:d.recToggles||{},
+        unlockedTierId:d.unlockedTierId??null,
+        maxBeltTierId:d.maxBeltTierId??null,
+        pipeTiers:d.pipeTiers||[],
+        maxPipeTierId:d.maxPipeTierId??null,
+        blueprints:d.blueprints||[],
+        layout:d.layout||{instances:[],belts:[]}
+      };
+      profiles.push(p);
     }
-    const p={
-      id:crypto.randomUUID(),
-      name,
-      machines:d.machines||[],
-      resources:d.resources||[],
-      categories:d.categories||[],
-      selTiers:d.selTiers||{},
-      researchTiers:d.researchTiers||[],
-      beltTiers:d.beltTiers||[],
-      recToggles:d.recToggles||{},
-      unlockedTierId:d.unlockedTierId??null,
-      maxBeltTierId:d.maxBeltTierId??null,
-      pipeTiers:d.pipeTiers||[],
-      maxPipeTierId:d.maxPipeTierId??null,
-      blueprints:d.blueprints||[],
-      layout:d.layout||{instances:[],belts:[]}
-    };
-    profiles.push(p);
     activeProfileId=p.id;
     loadActiveProfile();
     saveState(); reloadUI();
@@ -907,6 +995,7 @@ function renderTierTab(){
 
 // key: "m:<machId>" | "mt:<machId>:<tierId>" | "r:<resId>" | "b:<beltId>"; tierId '' clears
 function assignTier(key,tierId){
+  if(lockGuard())return;
   if(!key)return;
   const tid=tierId||null;
   const parts=key.split(':');
@@ -922,6 +1011,7 @@ function assignTier(key,tierId){
   if(typeof renderLyPalette==='function')renderLyPalette();
 }
 function addResearchTier(){
+  if(lockGuard())return;
   const el=document.getElementById('rt-new-name');
   const name=el.value.trim();
   if(!name)return;
@@ -930,6 +1020,7 @@ function addResearchTier(){
   saveState(); reloadUI();
 }
 function renameResearchTier(id){
+  if(lockGuard())return;
   const t=researchTiers.find(t=>t.id===id);
   if(!t)return;
   const v=prompt('Rename research tier:',t.name);
@@ -938,12 +1029,14 @@ function renameResearchTier(id){
   saveState(); reloadUI();
 }
 function moveResearchTier(id,dir){
+  if(lockGuard())return;
   const i=researchTiers.findIndex(t=>t.id===id), j=i+dir;
   if(i<0||j<0||j>=researchTiers.length)return;
   [researchTiers[i],researchTiers[j]]=[researchTiers[j],researchTiers[i]];
   saveState(); reloadUI();
 }
 function delResearchTier(id){
+  if(lockGuard())return;
   if(!confirm('Delete research tier? Anything assigned to it becomes always available.'))return;
   researchTiers=researchTiers.filter(t=>t.id!==id);
   machines.forEach(m=>{
@@ -986,6 +1079,7 @@ function renderBeltTiers(){
   }).join('')+(hidden?`<div class="empty">🔒 ${hidden} belt tier${hidden>1?'s':''} hidden above the unlocked research tier</div>`:'');
 }
 function addBeltTier(){
+  if(lockGuard())return;
   const name=document.getElementById('bf-name').value.trim();
   const sp=parseFloat(document.getElementById('bf-speed').value);
   if(!name)return setErr('bf-err','Name required.');
@@ -998,6 +1092,7 @@ function addBeltTier(){
   if(typeof renderLyPalette==='function')renderLyPalette();
 }
 function delBeltTier(id){
+  if(lockGuard())return;
   beltTiers=beltTiers.filter(b=>b.id!==id);
   if(typeof ly!=='undefined')ly.belts.forEach(b=>{if(b.beltTierId===id)b.beltTierId=null;});
   saveState(); renderBeltTiers();
@@ -1022,6 +1117,7 @@ function renderPipeTiers(){
   }).join('')+(hidden?`<div class="empty">🔒 ${hidden} pipe tier${hidden>1?'s':''} hidden above the unlocked research tier</div>`:'');
 }
 function addPipeTier(){
+  if(lockGuard())return;
   const name=document.getElementById('pf-name').value.trim();
   const sp=parseFloat(document.getElementById('pf-speed').value);
   if(!name)return setErr('pf-err','Name required.');
@@ -1034,6 +1130,7 @@ function addPipeTier(){
   if(typeof renderLyPalette==='function')renderLyPalette();
 }
 function delPipeTier(id){
+  if(lockGuard())return;
   pipeTiers=pipeTiers.filter(b=>b.id!==id);
   if(typeof ly!=='undefined')ly.belts.forEach(b=>{if(b.beltTierId===id)b.beltTierId=null;});
   saveState(); renderPipeTiers();
@@ -1275,6 +1372,7 @@ function toggleCatForm(){
 }
 
 function addCategory(){
+  if(lockGuard())return;
   const nameEl=document.getElementById('cat-new-name');
   const name=nameEl.value.trim();
   if(!name)return;
@@ -1390,6 +1488,7 @@ function getPortRows(){
 }
 
 function saveMachine(){
+  if(lockGuard())return;
   const name=document.getElementById('mf-name').value.trim();
   if(!name) return setErr('mf-err','Name required.');
   const tiers=getTierRows();
@@ -1469,6 +1568,7 @@ function editMach(id){
 }
 
 function delMach(id){
+  if(lockGuard())return;
   if(!confirm('Delete machine? Recipes using it will lose the assignment, and placed instances are removed from the layout.'))return;
   machines=machines.filter(m=>m.id!==id);
   // Remove placed instances of this machine and any belts attached to them
@@ -1515,6 +1615,7 @@ function renderMachines(){
 // RESOURCES
 // ══════════════════════════════════════════════════════
 function saveResource(){
+  if(lockGuard())return;
   const name=document.getElementById('rf-name').value.trim();
   const categoryId=document.getElementById('rf-cat').value||null;
   const researchTierId=document.getElementById('rf-rt').value||null;
@@ -1573,6 +1674,7 @@ function editRes(id){
 }
 
 function delRes(id){
+  if(lockGuard())return;
   if(!confirm('Delete resource?'))return;
   resources=resources.filter(r=>r.id!==id);
   if(selResId===id){selResId=null;document.getElementById('rec-editor').style.display='none';}
@@ -1758,6 +1860,7 @@ function renderResources(){
 
 // ── Recipes ─────────────────────────────────────────
 function saveRecipe(){
+  if(lockGuard())return;
   if(!selResId)return;
   const name    = document.getElementById('rec-name').value.trim();
   const machId  = document.getElementById('rec-mach').value;
@@ -1823,6 +1926,7 @@ function editRecipe(recId, resId){
 }
 
 function delRecipe(recId,resId){
+  if(lockGuard())return;
   const res=resources.find(r=>r.id===resId);
   if(!res)return;
   res.recipes=res.recipes.filter(r=>r.id!==recId);
@@ -1831,6 +1935,7 @@ function delRecipe(recId,resId){
 }
 
 function setDefaultRecipe(recId,resId){
+  if(lockGuard())return;
   const res=resources.find(r=>r.id===resId);
   if(res){res.defaultRecipeId=recId; saveState(); renderRecipesForResource(resId); renderResources();}
 }
@@ -2806,6 +2911,33 @@ function stageDepths(nodes, extraDeps={}){
   return dc;
 }
 
+// Instant, cursor-tracking hover card for flow-diagram belts. One card element,
+// event-delegated on the results panel so it survives every re-render. Any
+// element carrying data-res (belts, rate pills, byproduct boxes) triggers it.
+function initFlowTooltip(){
+  if(document.getElementById('flow-tip'))return;
+  const tip=document.createElement('div'); tip.id='flow-tip'; document.body.appendChild(tip);
+  const host=document.getElementById('pl-results');
+  const place=(x,y)=>{
+    const gap=15, w=tip.offsetWidth, h=tip.offsetHeight;
+    let px=x+gap, py=y+gap;
+    if(px+w>innerWidth-6)px=x-gap-w;
+    if(py+h>innerHeight-6)py=y-gap-h;
+    tip.style.left=Math.max(6,px)+'px'; tip.style.top=Math.max(6,py)+'px';
+  };
+  host.addEventListener('mousemove',e=>{
+    const g=e.target.closest('[data-res]');
+    if(!g){tip.style.display='none';return;}
+    const b=g.dataset;
+    tip.innerHTML=`<div class="ft-res" style="color:${b.col}">${esc(b.res)}</div>`+
+      `<div class="ft-rate">${esc(b.rate)}${b.belt?` <span class="ft-belt">· ${esc(b.belt)}</span>`:''}</div>`+
+      `<div class="ft-flow">${esc(b.from)} → ${esc(b.to)}</div>`;
+    tip.style.display='block';
+    place(e.clientX,e.clientY);
+  });
+  host.addEventListener('mouseleave',()=>{tip.style.display='none';});
+}
+
 function buildFlowSVG(targetIds, nodes, rawNeeds){
   if(!nodes.length)return'<div class="empty">Nothing to display.</div>';
 
@@ -2831,8 +2963,12 @@ function buildFlowSVG(targetIds, nodes, rawNeeds){
   }
 
   // ── Dimensions ──
-  // LANE_H: vertical space reserved above and below the node area for highway routing
-  const NW=196, NH=96, HGAP=128, VGAP=22, RW=150, RH=60, PAD=24, LANE_H=52, LANE_STEP=16;
+  // LANE_H: vertical space reserved above and below the node area for highway routing.
+  // When byproduct satellite boxes are present they sit in the inter-column gap,
+  // so widen that gap (HGAP) to give them room to breathe instead of squishing
+  // them against the next machine box.
+  const anyByproduct=nodes.some(n=>(n.rec.byproducts||[]).length);
+  const NW=196, NH=96, HGAP=anyByproduct?196:128, VGAP=22, RW=150, RH=60, PAD=24, LANE_H=52, LANE_STEP=16;
   const rawEntries=Object.entries(rawNeeds);
   const rawZone=rawEntries.length?RW+HGAP:0;
   const STEP=NW+HGAP;
@@ -3033,21 +3169,23 @@ function buildFlowSVG(targetIds, nodes, rawNeeds){
       path=`M${x1},${y1} C${x1+dx},${y1} ${bx-dx},${y2} ${bx},${y2} L${x2-7},${y2}`;
     }
     const beltStr=beltLabel(e.rate,e.resId);
-    const tip=`${rname(e.resId)} — ${rateStr(e.resId,e.rate,2)}${beltStr?' · '+beltStr:''}\n${e.fromLabel} → ${e.toLabel}`;
+    // Hover details ride on data-* attributes; initFlowTooltip reads them and
+    // shows an instant, styled card that tracks the cursor (snappier than the
+    // old native <title>). Both the line and its rate pill carry the data so
+    // either is hoverable.
+    const d=`data-res="${esc(rname(e.resId))}" data-rate="${esc(rateStr(e.resId,e.rate,2))}" data-belt="${esc(beltStr||'')}" data-from="${esc(e.fromLabel)}" data-to="${esc(e.toLabel)}" data-col="${col}"`;
     // Lines and their rate-pill labels are rendered in separate passes (see
     // below) so that EVERY label paints on top of EVERY line, regardless of
     // which edge is drawn first — otherwise a later-drawn line could cross
     // over and cover an earlier edge's label.
-    edges+=`<g class="fe">
-      <title>${esc(tip)}</title>
+    edges+=`<g class="fe" ${d}>
       <path d="${path}" fill="none" stroke="rgba(0,0,0,0.001)" stroke-width="13"/>
       <path class="vis" d="${path}" fill="none" stroke="${col}" stroke-opacity="${isLong?0.5:0.65}" stroke-width="2"/>
       <polygon points="${x2},${y2} ${x2-8},${y2-4.2} ${x2-8},${y2+4.2}" fill="${col}"/>
     </g>`;
     const rateTxt=crateStr(e.resId,e.rate);
     const pw=rateTxt.length*5.4+8;
-    edgeLabels+=`<g>
-      <title>${esc(tip)}</title>
+    edgeLabels+=`<g ${d}>
       <rect x="${x2-10-pw}" y="${y2-16}" width="${pw}" height="12" rx="3" fill="#13151a" opacity=".9"/>
       <text x="${x2-14}" y="${y2-7}" text-anchor="end" font-size="9" fill="${col}">${rateTxt}</text>
     </g>`;
@@ -3080,9 +3218,8 @@ function buildFlowSVG(targetIds, nodes, rawNeeds){
     const connector=bp.dropToBand
       ? `M${pp.x+NW/2},${pp.y+NH} C${pp.x+NW/2},${(pp.y+NH+bp.y)/2} ${bp.x+BW/2},${(pp.y+NH+bp.y)/2} ${bp.x+BW/2},${bp.y}`
       : `M${pp.x+NW},${midY} L${bp.x},${midY}`;
-    const tip=`${rname(resId)} — byproduct of ${bp.producer.rec.name}, ${rateStr(resId,bp.rate,3)}${claimed?'':' — not used elsewhere in this plan'}`;
-    boxes+=`<g>
-      <title>${esc(tip)}</title>
+    const d=`data-res="${esc(rname(resId))}" data-rate="${esc(rateStr(resId,bp.rate,3))}" data-belt="" data-from="byproduct of ${esc(bp.producer.rec.name)}" data-to="${claimed?'used in this plan':'unused surplus'}" data-col="${col}"`;
+    boxes+=`<g ${d}>
       <path d="${connector}" fill="none" stroke="${col}" stroke-width="1.3" stroke-dasharray="2 3" opacity="0.6"/>
       <rect x="${bp.x}" y="${bp.y}" width="${BW}" height="${BH}" rx="5" fill="#1a140e" stroke="${col}" stroke-width="1.3"${claimed?'':' stroke-dasharray="4 2"'}/>
       <text x="${bp.x+BW/2}" y="${bp.y+11}" text-anchor="middle" font-size="7.5" font-weight="700" fill="${col}" opacity="0.85">BYPRODUCT</text>
@@ -4401,6 +4538,8 @@ function buildPlanLayout(){
 // ══════════════════════════════════════════════════════
 loadState();
 loadLayout();
+document.getElementById('app-ver').textContent='v'+APP_VERSION;
+applyLockUI();
 renderProfileSelector();
 document.getElementById('unit-btn').textContent=rateUnit==='m'?'/min':'/s';
 renderUnlockSelector();
@@ -4413,11 +4552,16 @@ renderResources();
 refreshMachSelects();
 refreshCatSelect();
 renderPlannerControls();
+initFlowTooltip();
 cancelMachine();
 cancelResource();
 addIO('rec-inputs');
 // Restore the saved planner query for this profile and re-run it if complete
 if(restorePlannerQuery())runPlanner();
+
+// Best-effort refresh of any locked sample profiles from their bundled copy
+// (self-update). Runs after the UI is up so it never blocks first paint.
+syncSampleProfiles();
 </script>
 </body>
 </html>

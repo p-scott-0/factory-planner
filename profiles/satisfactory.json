@@ -1,5 +1,6 @@
 {
   "name": "Satisfactory",
+  "version": 1,
   "researchTiers": [
     { "id": "rt0", "name": "Tier 0" },
     { "id": "rt1", "name": "Tier 1" },
