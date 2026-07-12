@@ -3061,22 +3061,27 @@ function buildFlowSVG(targetIds, nodes, rawNeeds){
   // into that band (aligned with the consumer) so the whole byproduct chain
   // lives in one row region, with a dashed connector dropping from the
   // producer up top; otherwise it hangs beside its producer as before.
-  const BW=104, BH=42, BGAP=6;
-  const posBy={};
+  const BW=104, BH=42, BGAP=6, BY_GAP=40;
+  const posBy={}, besideBp={}; // besideBp[recId] = # byproduct boxes hanging beside that node
   let maxByRight=0;
   nodes.forEach(n=>{
     const p=posR[n.rec.id];
     if(!p||!(n.rec.byproducts||[]).length)return;
     const bct=effectiveCycleTime(n.rec);
-    n.rec.byproducts.forEach((bp,i)=>{
-      const bx=p.x+NW+10;
+    let besideI=0;
+    n.rec.byproducts.forEach(bp=>{
+      const bx=p.x+NW+BY_GAP; // gap from the machine so the connector/belt is visible
       const consumer=nodes.find(c=>c!==n&&c.rec.inputs.some(inp=>inp.resourceId===bp.resourceId));
       const cPos=consumer&&posR[consumer.rec.id];
       const dropToBand=!!(cPos&&isSecondary(consumer)&&!isSecondary(n));
-      const by=dropToBand?cPos.y+(NH-BH)/2:p.y+i*(BH+BGAP);
+      // Beside boxes stack down the BOTTOM half of the machine's right edge;
+      // the top half is reserved for the primary output belts (exit spreading
+      // below) so outputs and byproducts don't overlap on the same edge.
+      const by=dropToBand?cPos.y+(NH-BH)/2:p.y+NH/2+(besideI++)*(BH+BGAP);
       posBy[bp.resourceId]={x:bx,y:by,producer:n,dropToBand,rate:(bp.amount/bct)*n.exact};
       if(bx+BW>maxByRight)maxByRight=bx+BW;
     });
+    if(besideI)besideBp[n.rec.id]=besideI;
   });
 
   const svgW=Math.max(colX(0)+NW,maxByRight)+PAD;
@@ -3171,12 +3176,17 @@ function buildFlowSVG(targetIds, nodes, rawNeeds){
     });
   });
   const claimedByproducts=new Set(edgeList.filter(e=>e.fromKey[0]==='b').map(e=>e.resId));
-  // Exit points: spread along the producer's right edge, ordered by target height
+  // Exit points: spread along the producer's right edge, ordered by target
+  // height. A producer with byproduct boxes beside it keeps its primary output
+  // belts in the TOP half of the edge (the byproduct connectors sit in the
+  // bottom half), so the two never overlap. With no byproducts the outputs use
+  // the full edge as before; this generalises to any output/byproduct count.
   const byFrom={};
   edgeList.forEach(e=>{(byFrom[e.fromKey]=byFrom[e.fromKey]||[]).push(e);});
-  Object.values(byFrom).forEach(list=>{
+  Object.entries(byFrom).forEach(([fromKey,list])=>{
     list.sort((a,b)=>a.tyBase-b.tyBase);
-    list.forEach((e,i)=>{e.x1=e.fx;e.y1=e.fyBase+e.fH*(i+1)/(list.length+1);});
+    const frac=(fromKey[0]==='n'&&besideBp[fromKey.slice(1)])?0.5:1;
+    list.forEach((e,i)=>{e.x1=e.fx;e.y1=e.fyBase+e.fH*frac*(i+1)/(list.length+1);});
   });
   // Entry points: spread along the consumer's left edge, ordered by source height
   const byTo={};
@@ -3199,12 +3209,21 @@ function buildFlowSVG(targetIds, nodes, rawNeeds){
     // lead keeps the connector from having to curve back on itself in that
     // tight gap. Regular edges keep the longer straight run into the arrow.
     const LEAD=e.isByproduct?12:26;
+    // A backward edge (producer sits to the RIGHT of its consumer, e.g. a Water
+    // byproduct feeding an upstream Alumina Solution) must loop around rather
+    // than cut back through the machines between them.
+    const backward=x1>x2;
     let path, laneY=null;
-    if(isLong){
-      // Highway routing: exit source → curve into lane → horizontal → curve out to target
-      laneY=allocLane(chooseLane(y1,y2));
+    if(isLong||backward){
+      // Highway routing: exit source → curve into a lane → horizontal → curve
+      // out to target. Forward edges keep their position-based lane and run
+      // OVER the top; backward edges always take a BOTTOM lane so they read as
+      // looping UNDERNEATH the machines instead of crossing through them.
+      laneY=allocLane(backward?false:chooseLane(y1,y2));
       const s=34;
-      path=`M${x1},${y1} C${x1+s},${y1} ${x1+s},${laneY} ${x1+s*2},${laneY} L${x2-s*2},${laneY} C${x2-s},${laneY} ${x2-s},${y2} ${x2-LEAD},${y2} L${x2-7},${y2}`;
+      path=backward
+        ? `M${x1},${y1} C${x1+s},${y1} ${x1+s},${laneY} ${x1},${laneY} L${x2-s*2},${laneY} C${x2-s},${laneY} ${x2-s},${y2} ${x2-LEAD},${y2} L${x2-7},${y2}`
+        : `M${x1},${y1} C${x1+s},${y1} ${x1+s},${laneY} ${x1+s*2},${laneY} L${x2-s*2},${laneY} C${x2-s},${laneY} ${x2-s},${y2} ${x2-LEAD},${y2} L${x2-7},${y2}`;
     } else {
       const bx=x2-LEAD;
       // Scale the bezier handle to the available horizontal run so a short
