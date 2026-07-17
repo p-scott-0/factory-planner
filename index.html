@@ -567,7 +567,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.2';
+const APP_VERSION = '1.0.3';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -2984,7 +2984,9 @@ function initFlowTooltip(){
   host.addEventListener('mouseleave',()=>{tip.style.display='none';hideMarker();});
 }
 
-function buildFlowSVG(targetIds, nodes, rawNeeds){
+// laneHints (internal): set by the one self-retry below once the real highway
+// lane counts are known, so the reserved lane bands are deep enough.
+function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
   if(!nodes.length)return'<div class="empty">Nothing to display.</div>';
 
   const byOut={};
@@ -3021,13 +3023,18 @@ function buildFlowSVG(targetIds, nodes, rawNeeds){
   // so widen that gap (HGAP) to give them room to breathe instead of squishing
   // them against the next machine box.
   const anyByproduct=nodes.some(n=>(n.rec.byproducts||[]).length);
-  const NW=196, NH=96, HGAP=anyByproduct?196:128, VGAP=22, RW=150, RH=60, PAD=24, LANE_H=52, LANE_STEP=16;
+  const NW=196, NH=96, HGAP=anyByproduct?196:128, VGAP=22, RW=150, RH=60, PAD=24, LANE_STEP=16;
+  // Depth reserved above/below the node area for highway lanes. Lanes stack
+  // toward the machines, so a fixed band silently pushes later lanes down into
+  // the machine rows once it runs out. The retry at the end of this function
+  // feeds back the real lane counts, and the bands are sized to fit them.
+  const LANE_TOP=laneHints?.top??52, LANE_BOT=laneHints?.bot??52;
   const rawEntries=Object.entries(rawNeeds);
   const rawZone=rawEntries.length?RW+HGAP:0;
   const STEP=NW+HGAP;
   // Reading direction: raw inputs on the far left, target output on the far right
   const colX=d=>PAD+rawZone+(maxD-d)*STEP;
-  const nodeTop=PAD+LANE_H;   // y-offset where nodes begin
+  const nodeTop=PAD+LANE_TOP;   // y-offset where nodes begin
 
   // ── Split each column into the MAIN chain (primary target) and a SECONDARY
   // band (byproduct-driven / additional secondary targets + their extra
@@ -3093,7 +3100,7 @@ function buildFlowSVG(targetIds, nodes, rawNeeds){
   });
 
   const svgW=Math.max(colX(0)+NW,maxByRight)+PAD;
-  const svgH=totalH+nodeTop+PAD+LANE_H;
+  const svgH=totalH+nodeTop+PAD+LANE_BOT;
 
   // Highway lane y-coordinates (above = small y, below = large y)
   // Per-edge lane allocation to prevent parallel long edges from overlapping
@@ -3260,6 +3267,18 @@ function buildFlowSVG(targetIds, nodes, rawNeeds){
     </g>`;
   }
   edgeList.forEach(drawEdge);
+
+  // Lanes stack toward the machines, so if more of them were allocated than the
+  // reserved band holds, the later ones would sit on top of the machine rows.
+  // Redo once with bands sized to the counts we now know. Lane counts depend
+  // only on direction and depth (never on the band depth), so the second pass
+  // allocates exactly the same lanes and always fits — no further retry.
+  if(!laneHints){
+    const need=n=>6+n*LANE_STEP+12;
+    if(need(aboveLaneI)>LANE_TOP||need(belowLaneI)>LANE_BOT)
+      return buildFlowSVG(targetIds,nodes,rawNeeds,
+        {top:Math.max(LANE_TOP,need(aboveLaneI)),bot:Math.max(LANE_BOT,need(belowLaneI))});
+  }
 
   // ── Raw material boxes (border tinted by the resource's flow colour) ──
   rawEntries.forEach(([rid,rate])=>{
