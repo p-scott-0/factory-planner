@@ -1,6 +1,6 @@
 {
   "name": "Satisfactory",
-  "version": 1,
+  "version": 2,
   "researchTiers": [
     { "id": "rt0", "name": "Tier 0" },
     { "id": "rt1", "name": "Tier 1" },
@@ -36,7 +36,8 @@
     "rec-residual-plastic": false,
     "rec-residual-fuel": false,
     "rec-polymeric-hor": false,
-    "rec-turbo-heavy-fuel": false
+    "rec-turbo-heavy-fuel": false,
+    "rec-nitro-rocket-fuel": false
   },
   "categories": [
     { "id": "cat-ores", "name": "Ores" },
@@ -220,6 +221,12 @@
     { "id": "res-uranium", "name": "Uranium", "categoryId": "cat-ores", "researchTierId": "rt8",
       "recipes": [ { "id": "rec-uranium", "name": "Mine Uranium (normal node)", "machineId": "mach-miner", "cycleTime": 1, "outputAmount": 1, "inputs": [] } ],
       "defaultRecipeId": "rec-uranium" },
+    { "id": "res-blue-power-slug", "name": "Blue Power Slug", "categoryId": "cat-ores", "researchTierId": "rt5",
+      "recipes": [], "defaultRecipeId": null },
+    { "id": "res-yellow-power-slug", "name": "Yellow Power Slug", "categoryId": "cat-ores", "researchTierId": "rt5",
+      "recipes": [], "defaultRecipeId": null },
+    { "id": "res-purple-power-slug", "name": "Purple Power Slug", "categoryId": "cat-ores", "researchTierId": "rt5",
+      "recipes": [], "defaultRecipeId": null },
 
     { "id": "res-water", "name": "Water", "categoryId": "cat-fluids", "researchTierId": "rt3", "isFluid": true,
       "recipes": [ { "id": "rec-water", "name": "Extract Water", "machineId": "mach-water-extractor", "cycleTime": 0.5, "outputAmount": 1, "inputs": [] } ],
@@ -250,6 +257,15 @@
         { "id": "rec-turbo-heavy-fuel", "name": "Alternate: Turbo Heavy Fuel", "machineId": "mach-refinery", "cycleTime": 16, "outputAmount": 8, "inputs": [ { "resourceId": "res-heavy-oil-residue", "amount": 10 }, { "resourceId": "res-compacted-coal", "amount": 8 } ] }
       ],
       "defaultRecipeId": "rec-turbofuel" },
+    { "id": "res-rocket-fuel", "name": "Rocket Fuel", "categoryId": "cat-fluids", "researchTierId": "rt8", "isFluid": true,
+      "recipes": [
+        { "id": "rec-rocket-fuel", "name": "Rocket Fuel", "machineId": "mach-blender", "cycleTime": 6, "outputAmount": 10, "inputs": [ { "resourceId": "res-turbofuel", "amount": 6 }, { "resourceId": "res-nitric-acid", "amount": 1 } ], "byproducts": [ { "resourceId": "res-compacted-coal", "amount": 1 } ] },
+        { "id": "rec-nitro-rocket-fuel", "name": "Alternate: Nitro Rocket Fuel", "machineId": "mach-blender", "cycleTime": 2.4, "outputAmount": 6, "inputs": [ { "resourceId": "res-fuel", "amount": 4 }, { "resourceId": "res-nitrogen-gas", "amount": 3 }, { "resourceId": "res-sulfur", "amount": 4 }, { "resourceId": "res-coal", "amount": 2 } ], "byproducts": [ { "resourceId": "res-compacted-coal", "amount": 1 } ] }
+      ],
+      "defaultRecipeId": "rec-rocket-fuel" },
+    { "id": "res-ionized-fuel", "name": "Ionized Fuel", "categoryId": "cat-fluids", "researchTierId": "rt8", "isFluid": true,
+      "recipes": [ { "id": "rec-ionized-fuel", "name": "Ionized Fuel", "machineId": "mach-refinery", "cycleTime": 24, "outputAmount": 16, "inputs": [ { "resourceId": "res-rocket-fuel", "amount": 16 }, { "resourceId": "res-power-shard", "amount": 1 } ], "byproducts": [ { "resourceId": "res-compacted-coal", "amount": 2 } ] } ],
+      "defaultRecipeId": "rec-ionized-fuel" },
     { "id": "res-alumina-solution", "name": "Alumina Solution", "categoryId": "cat-fluids", "researchTierId": "rt7", "isFluid": true,
       "recipes": [ { "id": "rec-alumina-solution", "name": "Alumina Solution", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 12, "inputs": [ { "resourceId": "res-bauxite", "amount": 12 }, { "resourceId": "res-water", "amount": 18 } ], "byproducts": [ { "resourceId": "res-silica", "amount": 5 } ] } ],
       "defaultRecipeId": "rec-alumina-solution" },
@@ -403,6 +419,13 @@
     { "id": "res-crystal-oscillator", "name": "Crystal Oscillator", "categoryId": "cat-electronics", "researchTierId": "rt5",
       "recipes": [ { "id": "rec-crystal-oscillator", "name": "Crystal Oscillator", "machineId": "mach-manufacturer", "cycleTime": 120, "outputAmount": 2, "inputs": [ { "resourceId": "res-quartz-crystal", "amount": 36 }, { "resourceId": "res-cable", "amount": 28 }, { "resourceId": "res-reinforced-iron-plate", "amount": 5 } ] } ],
       "defaultRecipeId": "rec-crystal-oscillator" },
+    { "id": "res-power-shard", "name": "Power Shard", "categoryId": "cat-basic", "researchTierId": "rt8",
+      "recipes": [
+        { "id": "rec-power-shard-blue", "name": "Power Shard (Blue Slug)", "machineId": "mach-constructor", "cycleTime": 8, "outputAmount": 1, "inputs": [ { "resourceId": "res-blue-power-slug", "amount": 1 } ] },
+        { "id": "rec-power-shard-yellow", "name": "Power Shard (Yellow Slug)", "machineId": "mach-constructor", "cycleTime": 12, "outputAmount": 2, "inputs": [ { "resourceId": "res-yellow-power-slug", "amount": 1 } ] },
+        { "id": "rec-power-shard-purple", "name": "Power Shard (Purple Slug)", "machineId": "mach-constructor", "cycleTime": 24, "outputAmount": 5, "inputs": [ { "resourceId": "res-purple-power-slug", "amount": 1 } ] }
+      ],
+      "defaultRecipeId": "rec-power-shard-blue" },
     { "id": "res-compacted-coal", "name": "Compacted Coal", "categoryId": "cat-basic", "researchTierId": "rt5",
       "recipes": [ { "id": "rec-compacted-coal", "name": "Compacted Coal", "machineId": "mach-assembler", "cycleTime": 12, "outputAmount": 5, "inputs": [ { "resourceId": "res-coal", "amount": 5 }, { "resourceId": "res-sulfur", "amount": 5 } ] } ],
       "defaultRecipeId": "rec-compacted-coal" },
@@ -488,6 +511,8 @@
         { "id": "rec-power-coal", "name": "Coal Generator", "machineId": "mach-coal-gen", "cycleTime": 1, "outputAmount": 75, "inputs": [ { "resourceId": "res-coal", "amount": 0.25 }, { "resourceId": "res-water", "amount": 0.75 } ] },
         { "id": "rec-power-fuel", "name": "Fuel Generator", "machineId": "mach-fuel-gen", "cycleTime": 1, "outputAmount": 250, "inputs": [ { "resourceId": "res-fuel", "amount": 0.33333 } ] },
         { "id": "rec-power-turbofuel", "name": "Fuel Generator (Turbofuel)", "machineId": "mach-fuel-gen", "cycleTime": 1, "outputAmount": 250, "inputs": [ { "resourceId": "res-turbofuel", "amount": 0.125 } ] },
+        { "id": "rec-power-rocket-fuel", "name": "Fuel Generator (Rocket Fuel)", "machineId": "mach-fuel-gen", "cycleTime": 1, "outputAmount": 250, "inputs": [ { "resourceId": "res-rocket-fuel", "amount": 0.069444 } ] },
+        { "id": "rec-power-ionized-fuel", "name": "Fuel Generator (Ionized Fuel)", "machineId": "mach-fuel-gen", "cycleTime": 1, "outputAmount": 250, "inputs": [ { "resourceId": "res-ionized-fuel", "amount": 0.05 } ] },
         { "id": "rec-power-nuclear", "name": "Nuclear Power Plant", "machineId": "mach-nuclear-plant", "cycleTime": 1, "outputAmount": 2500, "inputs": [ { "resourceId": "res-uranium-fuel-rod", "amount": 0.003333 }, { "resourceId": "res-water", "amount": 4 } ], "byproducts": [ { "resourceId": "res-uranium-waste", "amount": 0.16667 } ] },
         { "id": "rec-power-plutonium", "name": "Nuclear Power Plant (Plutonium)", "machineId": "mach-nuclear-plant", "cycleTime": 1, "outputAmount": 2500, "inputs": [ { "resourceId": "res-plutonium-fuel-rod", "amount": 0.001667 }, { "resourceId": "res-water", "amount": 4 } ], "byproducts": [ { "resourceId": "res-plutonium-waste", "amount": 0.016667 } ] }
       ],

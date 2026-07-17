@@ -567,7 +567,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.3';
+const APP_VERSION = '1.0.4';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -3002,19 +3002,71 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
   // never widens the diagram.
   nodes.forEach(n=>{ if(!n.rec.inputs.length)dc[n.rec.id]=maxD; });
 
-  // ── Group by depth; sort within each column by category then name ──
+  // ── Group by depth, then order each column to minimise belt crossings ──
+  // Start from a deterministic category/name order (so equal-crossing layouts
+  // stay stable between renders), then run the standard barycenter heuristic:
+  // repeatedly re-order each column by the mean position of each stage's
+  // neighbours in the columns feeding/consuming it, sweeping left-to-right then
+  // right-to-left. Each pass is scored by counting edge crossings and the best
+  // scoring pass wins, so the result is never worse than the plain sort.
   const byD={};
   for(let d=0;d<=maxD;d++)byD[d]=[];
   nodes.forEach(n=>byD[dc[n.rec.id]].push(n));
   const catOrd={};
   categories.forEach((c,i)=>catOrd[c.id]=i);
-  for(let d=0;d<=maxD;d++){
-    byD[d].sort((a,b)=>{
-      const ra=resources.find(r=>r.id===a.resId), rb=resources.find(r=>r.id===b.resId);
-      const ca=ra?.categoryId!=null?(catOrd[ra.categoryId]??999):999;
-      const cb=rb?.categoryId!=null?(catOrd[rb.categoryId]??999):999;
-      return ca!==cb ? ca-cb : rname(a.resId).localeCompare(rname(b.resId));
-    });
+  const baseSort=(a,b)=>{
+    const ra=resources.find(r=>r.id===a.resId), rb=resources.find(r=>r.id===b.resId);
+    const ca=ra?.categoryId!=null?(catOrd[ra.categoryId]??999):999;
+    const cb=rb?.categoryId!=null?(catOrd[rb.categoryId]??999):999;
+    return ca!==cb ? ca-cb : rname(a.resId).localeCompare(rname(b.resId));
+  };
+  for(let d=0;d<=maxD;d++)byD[d].sort(baseSort);
+
+  if(nodes.length>2){
+    // Stage→stage links. A byproduct box hangs off its producer, so a byproduct
+    // feed links the producing stage to the consumer just like a primary output.
+    const prodOf={}, consOf={};
+    nodes.forEach(n=>{prodOf[n.rec.id]=[];consOf[n.rec.id]=[];});
+    nodes.forEach(c=>c.rec.inputs.forEach(inp=>{
+      const src=byOut[inp.resourceId]
+        ||nodes.find(n=>n!==c&&(n.rec.byproducts||[]).some(b=>b.resourceId===inp.resourceId));
+      if(src&&src!==c){prodOf[c.rec.id].push(src.rec.id);consOf[src.rec.id].push(c.rec.id);}
+    }));
+    const idx={};
+    const reindex=()=>{for(let d=0;d<=maxD;d++)byD[d].forEach((n,i)=>{idx[n.rec.id]=i;});};
+    const orderBy=(d,pick)=>{
+      const keyed=byD[d].map((n,i)=>{
+        const nb=pick(n);
+        return{n,i,b:nb.length?nb.reduce((s,id)=>s+(idx[id]??0),0)/nb.length:null};
+      });
+      // stages with no neighbour on this side keep their current slot
+      keyed.sort((a,b)=>(a.b==null||b.b==null)?a.i-b.i:(a.b-b.b||a.i-b.i));
+      byD[d]=keyed.map(k=>k.n);
+    };
+    // Crossings between every pair of edges that span the same two columns.
+    const crossings=()=>{
+      const groups={};
+      nodes.forEach(c=>prodOf[c.rec.id].forEach(pid=>{
+        const k=dc[pid]+'|'+dc[c.rec.id];
+        (groups[k]=groups[k]||[]).push([idx[pid],idx[c.rec.id]]);
+      }));
+      let x=0;
+      Object.values(groups).forEach(es=>{
+        for(let i=0;i<es.length;i++)for(let j=i+1;j<es.length;j++)
+          if((es[i][0]-es[j][0])*(es[i][1]-es[j][1])<0)x++;
+      });
+      return x;
+    };
+    const snap=()=>{const o={};for(let d=0;d<=maxD;d++)o[d]=byD[d].slice();return o;};
+    reindex();
+    let bestSnap=snap(), bestX=crossings();
+    for(let pass=0;pass<6;pass++){
+      for(let d=maxD-1;d>=0;d--){orderBy(d,n=>prodOf[n.rec.id]);reindex();}
+      for(let d=1;d<=maxD;d++){orderBy(d,n=>consOf[n.rec.id]);reindex();}
+      const x=crossings();
+      if(x<bestX){bestX=x;bestSnap=snap();}
+    }
+    for(let d=0;d<=maxD;d++)byD[d]=bestSnap[d];
   }
 
   // ── Dimensions ──
