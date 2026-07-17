@@ -106,6 +106,16 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
 #flow-tip .ft-rate{color:#c8d8ec;margin-top:1px}
 #flow-tip .ft-belt{color:#7a90a4}
 #flow-tip .ft-flow{color:#6a8090;font-size:11px;margin-top:3px}
+/* Type-to-filter overlay for long <select>s. The input is laid over the select's
+   own box, so the search appears in the space the dropdown occupied. */
+#ss-inp{position:fixed;z-index:1101;display:none;background:var(--bg);border:1px solid var(--acc);border-radius:5px;color:var(--tx);padding:6px 9px;font-size:13px;outline:none;font-family:inherit}
+#ss-pop{position:fixed;z-index:1100;display:none;background:var(--surf);border:1px solid var(--b2);border-radius:6px;box-shadow:0 8px 26px rgba(0,0,0,.6);overflow-y:auto;overscroll-behavior:contain;padding:3px}
+#ss-pop .ss-grp{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--dim);padding:5px 8px 2px}
+#ss-pop .ss-opt{padding:5px 8px;border-radius:4px;font-size:13px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#ss-pop .ss-opt.on{background:var(--acc);color:#141618}
+#ss-pop .ss-opt .ss-hit{font-weight:700;color:var(--acc)}
+#ss-pop .ss-opt.on .ss-hit{color:#141618;text-decoration:underline}
+#ss-pop .ss-none{padding:7px 9px;font-size:12px;color:var(--dim)}
 .ach-banner{background:#182818;border:1px solid #2a5a2a;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#5aaa6a}
 .rtree{overflow-x:auto;margin-top:10px;border-top:1px solid var(--b);padding-top:10px}
 .rtree svg{display:block;font-family:'Segoe UI',system-ui,sans-serif}
@@ -567,7 +577,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.4';
+const APP_VERSION = '1.0.5';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -2912,6 +2922,235 @@ function stageDepths(nodes, extraDeps={}){
   return dc;
 }
 
+/* ── Type-to-filter dropdowns ──────────────────────────────────────────────
+   Any <select> past SS_MIN_OPTS options becomes searchable. This is a generic
+   rule rather than a list of resource dropdowns, so it applies to every long
+   dropdown in any profile (resources, machines, tiers) while short ones — units,
+   port sides — keep the plain native select.
+
+   The <select> is left in the DOM, in flow, as the source of truth: every
+   existing .value read, change listener and re-render keeps working untouched,
+   and the layout CSS (which targets `select`) is undisturbed. We only suppress
+   the native popup and lay a text input exactly over the select's own box, so
+   the search appears in the space the dropdown occupied. One shared input+popup
+   for the whole page, so re-renders can never strand a stale widget. */
+const SS_MIN_OPTS = 8;
+
+function ssNorm(s){ return s.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(); }
+
+// Damerau (OSA) edit distance, abandoned as soon as it exceeds `max`. Counting a
+// transposition as 1 is what lets the threshold stay tight: "iorn"->"iron" is a
+// single slip, but plain Levenshtein scores it 2 and would need a loose bound
+// that starts letting unrelated words through.
+function ssDist(a,b,max){
+  const m=a.length,n=b.length;
+  if(Math.abs(m-n)>max)return max+1;
+  if(!m)return n; if(!n)return m;
+  let pp=null,prev=[],cur=[];
+  for(let j=0;j<=n;j++)prev[j]=j;
+  for(let i=1;i<=m;i++){
+    cur=[i]; let best=i;
+    for(let j=1;j<=n;j++){
+      let v=Math.min(prev[j]+1,cur[j-1]+1,prev[j-1]+(a[i-1]===b[j-1]?0:1));
+      if(pp&&i>1&&j>1&&a[i-1]===b[j-2]&&a[i-2]===b[j-1])v=Math.min(v,pp[j-2]+1);
+      cur[j]=v; if(v<best)best=v;
+    }
+    if(best>max)return max+1;
+    pp=prev; prev=cur;
+  }
+  return prev[n];
+}
+
+// Tight relevance score, or -1 for "don't show it at all". Deliberately NOT a
+// subsequence match (the usual fuzzy-finder trick): on 89 resources "rf" would
+// drag in half the list. Ranked exact > prefix > word-prefix > substring >
+// initials, and only then a typo allowance of one slip (two for longer queries),
+// measured per word so a misspelling in a long name still lands.
+function ssScore(q,label){
+  const t=ssNorm(label); q=ssNorm(q);
+  if(!q)return 1;
+  if(t===q)return 1000;
+  if(t.startsWith(q))return 900-t.length*0.01;
+  const words=t.split(' ');
+  if(words.some(w=>w.startsWith(q)))return 800-t.length*0.01;
+  // One letter means "jump to the Es", not "everything containing an e" — that
+  // matches the native select's type-ahead and keeps the first keystroke useful.
+  if(q.length<2)return -1;
+  const at=t.indexOf(q);
+  if(at>=0)return 700-at;
+  if(words.length>=2&&words.map(w=>w[0]).join('').startsWith(q))return 650;
+  // No typo budget under 4 chars: one edit on a 2-char query means half of it is
+  // wrong, which isn't a slip, and it dragged 17 results out of "rf" (Rubber, Raw
+  // Quartz, Iron Rod...). Short queries must match exactly; only longer ones,
+  // where a slip is both likelier and less ambiguous, get an allowance.
+  const max=q.length<=3?0:q.length<=7?1:2;
+  if(!max)return -1;
+  let best=max+1;
+  const tryPair=(x,y)=>{ const d=ssDist(x,y,max); if(d<best)best=d; };
+  for(const w of words)tryPair(q,w);
+  // Also measure against the whole label, so a slip in a MULTI-word query still
+  // lands ("nitrc acid" -> "Nitric Acid"). Word-by-word alone can never match
+  // that, since neither "nitric" nor "acid" is close to the full query.
+  tryPair(q,t);
+  // Half-typed word WITH a typo ("alumini" -> Aluminum). Truncating the target to
+  // the query's length ignores whatever follows, so a short query gets absurdly
+  // permissive — it's how "fuel" matched "Magnetic Field Generator" ("fiel"+d).
+  // Only worth it once the query is long enough to be unambiguous on its own.
+  if(q.length>=6){
+    for(const w of words)if(w.length>q.length)tryPair(q,w.slice(0,q.length));
+    if(t.length>q.length)tryPair(q,t.slice(0,q.length));
+  }
+  return best<=max ? 500-best*100 : -1;
+}
+
+// Bold the matched run so it's obvious WHY a row survived the filter.
+function ssMark(label,q){
+  const n=ssNorm(label), nq=ssNorm(q);
+  if(!nq)return esc(label);
+  const at=n.indexOf(nq);
+  if(at<0)return esc(label); // fuzzy/initials hit — nothing contiguous to underline
+  return esc(label.slice(0,at))+'<span class="ss-hit">'+esc(label.slice(at,at+nq.length))+'</span>'+esc(label.slice(at+nq.length));
+}
+
+let ssCur=null; // {sel, items, view, hi}
+
+function ssItems(sel){
+  return [...sel.querySelectorAll('option')].map(o=>({
+    value:o.value, label:o.textContent,
+    group:o.parentElement.tagName==='OPTGROUP'?o.parentElement.label:'',
+    disabled:o.disabled
+  }));
+}
+
+function ssRender(q){
+  const pop=document.getElementById('ss-pop');
+  const scored=ssCur.items.map(it=>({it,s:it.disabled?-1:ssScore(q,it.label)}))
+    .filter(x=>x.s>=0);
+  // With no query keep the select's own order (categories intact); once the user
+  // types, relevance wins and the grouping is just a label.
+  if(q.trim())scored.sort((a,b)=>b.s-a.s);
+  ssCur.view=scored.map(x=>x.it);
+  if(!ssCur.view.length){ pop.innerHTML='<div class="ss-none">No match</div>'; ssCur.hi=-1; return; }
+  if(ssCur.hi>=ssCur.view.length||ssCur.hi<0)ssCur.hi=0;
+  // Group headers only make sense while the list is in the select's own order.
+  // Once relevance-sorted, a group's options are no longer adjacent, so headers
+  // would repeat ("Fluids ... Nuclear ... Fluids") and read as a rendering bug.
+  const grouped=!q.trim();
+  let html='',lastGrp=null;
+  ssCur.view.forEach((it,i)=>{
+    if(grouped){
+      if(it.group&&it.group!==lastGrp){ html+='<div class="ss-grp">'+esc(it.group)+'</div>'; lastGrp=it.group; }
+      if(!it.group)lastGrp=null;
+    }
+    html+=`<div class="ss-opt${i===ssCur.hi?' on':''}" data-i="${i}">${ssMark(it.label,q)}</div>`;
+  });
+  pop.innerHTML=html;
+  const on=pop.querySelector('.ss-opt.on'); if(on)on.scrollIntoView({block:'nearest'});
+}
+
+function ssPlace(){
+  if(!ssCur)return;
+  const sel=ssCur.sel, inp=document.getElementById('ss-inp'), pop=document.getElementById('ss-pop');
+  if(!sel.isConnected){ ssClose(false); return; }
+  const r=sel.getBoundingClientRect();
+  if(!r.width&&!r.height){ ssClose(false); return; } // select got hidden under us
+  inp.style.left=r.left+'px'; inp.style.top=r.top+'px';
+  inp.style.width=r.width+'px'; inp.style.height=r.height+'px';
+  const below=window.innerHeight-r.bottom-6, above=r.top-6;
+  const flip=below<160&&above>below;
+  pop.style.maxHeight=Math.min(280,Math.max(80,flip?above:below))+'px';
+  pop.style.left=r.left+'px';
+  pop.style.minWidth=r.width+'px';
+  pop.style.maxWidth=Math.max(r.width,320)+'px';
+  if(flip){ pop.style.top='auto'; pop.style.bottom=(window.innerHeight-r.top+3)+'px'; }
+  else { pop.style.bottom='auto'; pop.style.top=(r.bottom+3)+'px'; }
+}
+
+function ssClose(commit){
+  const inp=document.getElementById('ss-inp'), pop=document.getElementById('ss-pop');
+  if(!ssCur)return;
+  const {sel,view,hi}=ssCur;
+  if(commit&&hi>=0&&view[hi]){
+    const v=view[hi].value;
+    if(sel.value!==v){ sel.value=v; sel.dispatchEvent(new Event('change',{bubbles:true})); }
+  }
+  ssCur=null;
+  inp.style.display='none'; inp.value='';
+  pop.style.display='none'; pop.innerHTML='';
+  if(commit&&sel.isConnected)sel.focus();
+}
+
+function ssOpen(sel){
+  if(ssCur&&ssCur.sel===sel)return;
+  ssClose(false);
+  const inp=document.getElementById('ss-inp'), pop=document.getElementById('ss-pop');
+  ssCur={sel,items:ssItems(sel),view:[],hi:-1};
+  const curIdx=ssCur.items.findIndex(i=>i.value===sel.value);
+  inp.style.display='block'; pop.style.display='block';
+  const cs=getComputedStyle(sel);
+  inp.style.font=cs.font; inp.style.fontSize=cs.fontSize; // keep the select's own type size
+  inp.value='';
+  inp.placeholder=(curIdx>=0?ssCur.items[curIdx].label:'Search…').trim()||'Search…';
+  ssRender('');
+  if(curIdx>=0){ // start on the current value, not the top of the list
+    const vi=ssCur.view.findIndex(i=>i.value===sel.value);
+    if(vi>=0){ ssCur.hi=vi; ssRender(''); }
+  }
+  ssPlace();
+  inp.focus();
+}
+
+function initSearchableSelects(){
+  if(document.getElementById('ss-inp'))return;
+  const inp=document.createElement('input');
+  inp.id='ss-inp'; inp.type='text'; inp.autocomplete='off'; inp.spellcheck=false;
+  const pop=document.createElement('div'); pop.id='ss-pop';
+  document.body.appendChild(inp); document.body.appendChild(pop);
+
+  const searchable=el=>el&&el.tagName==='SELECT'&&!el.multiple&&!el.disabled
+    &&el.querySelectorAll('option').length>=SS_MIN_OPTS;
+
+  // Capture-phase mousedown: beat the native popup to it.
+  document.addEventListener('mousedown',e=>{
+    const sel=e.target.closest&&e.target.closest('select');
+    if(searchable(sel)){ e.preventDefault(); ssOpen(sel); return; }
+    if(ssCur&&!e.target.closest('#ss-pop')&&e.target!==inp)ssClose(false);
+  },true);
+
+  // Typing straight into a focused select should search rather than jump-to-letter.
+  document.addEventListener('keydown',e=>{
+    const sel=e.target;
+    if(ssCur||!searchable(sel))return;
+    if(e.key.length===1&&!e.ctrlKey&&!e.metaKey&&!e.altKey){
+      e.preventDefault(); ssOpen(sel);
+      inp.value=e.key; ssRender(e.key);
+    } else if(e.key==='Enter'||e.key==='ArrowDown'&&e.altKey){
+      e.preventDefault(); ssOpen(sel);
+    }
+  },true);
+
+  inp.addEventListener('input',()=>{ ssCur&&(ssCur.hi=0,ssRender(inp.value)); });
+  inp.addEventListener('keydown',e=>{
+    if(!ssCur)return;
+    if(e.key==='ArrowDown'||e.key==='ArrowUp'){
+      e.preventDefault();
+      if(!ssCur.view.length)return;
+      ssCur.hi=(ssCur.hi+(e.key==='ArrowDown'?1:-1)+ssCur.view.length)%ssCur.view.length;
+      ssRender(inp.value);
+    } else if(e.key==='Enter'){ e.preventDefault(); ssClose(true); }
+    else if(e.key==='Escape'){ e.preventDefault(); ssClose(false); }
+    else if(e.key==='Tab'){ ssClose(true); }
+  });
+  inp.addEventListener('blur',()=>{ setTimeout(()=>{ if(ssCur&&document.activeElement!==inp)ssClose(false); },0); });
+  pop.addEventListener('mousedown',e=>{
+    const o=e.target.closest('.ss-opt'); if(!o)return;
+    e.preventDefault(); ssCur.hi=+o.dataset.i; ssClose(true);
+  });
+  // The select can move under us: panels open, results re-render, page scrolls.
+  window.addEventListener('scroll',()=>ssPlace(),true);
+  window.addEventListener('resize',()=>ssPlace());
+}
+
 // Instant hover card for flow-diagram belts. On a belt it drops a marker dot at
 // the nearest point ALONG the belt to the cursor and anchors the card there, so
 // the dot + card slide smoothly down the belt as you move — cleaner than
@@ -4693,6 +4932,7 @@ refreshMachSelects();
 refreshCatSelect();
 renderPlannerControls();
 initFlowTooltip();
+initSearchableSelects();
 cancelMachine();
 cancelResource();
 addIO('rec-inputs');

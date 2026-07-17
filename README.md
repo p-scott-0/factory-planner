@@ -10,6 +10,7 @@ Open `index.html` in any browser. No server or build step required.
 
 ## Features
 
+- **Type-to-filter dropdowns** — any dropdown with 8+ options turns into a search box in place: click it and type to filter, with a tight typo-tolerant match ("iorn" finds Iron, "hmf" finds Heavy Modular Frame) that stays quiet rather than burying you in loose fuzzy hits
 - **Machines** with named tiers and speed multipliers (e.g. Mk1 x1.0, Mk2 x2.0)
 - **Resources** organised into collapsible categories, with inline dependency tree diagrams
 - **Recipes** assigned to machines, with multiple recipe alternatives per resource and a configurable default

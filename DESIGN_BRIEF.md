@@ -192,6 +192,11 @@ The canvas renders at most once per animation frame, culls machines and belts ou
 ### Navigation
 Five tabs: **Machines**, **Resources**, **Tiers**, **Planner**, **Layout**. A profile selector, profile management panel, the highest-unlocked-research-tier selector, and a global **items/min ↔ items/sec** display toggle are persistent in the nav bar. The rate-unit toggle affects every rate shown in the app.
 
+### Type-to-filter dropdowns
+Any dropdown long enough to be a nuisance to scan (8+ options) is searchable: clicking it puts a **search box in the space the dropdown occupied** and typing filters the options live, with the matched text highlighted. This is driven by option count rather than a list of known dropdowns, so it covers resource, machine, category and tier pickers in any profile, while short ones (rate units, port sides) stay plain native selects. The `<select>` itself is never replaced — it stays in the DOM as the source of truth, so every value read, change handler and re-render is unaffected; the search input is simply laid over its box and writes back on commit.
+
+The match is deliberately **tight** rather than a typical fuzzy-finder subsequence match, which on a 90-resource list would answer "rf" with half the profile. Ranking runs exact → prefix → word-prefix → substring → initials ("hmf" → Heavy Modular Frame), and only then allows a typo budget: one edit for 4–7 characters, two beyond that, and **none under 4** — a single edit on a 2-character query means half of it is wrong, which is a different string, not a slip. Distance is Damerau (transposition costs 1), which is what lets the budget stay this tight while still catching the common real typos ("iorn" → Iron, "modualr" → Modular, "rocket fule" → Rocket Fuel). A one-character query matches prefixes only, mirroring a native select's jump-to-letter. Group headers show only in the unfiltered list, since relevance sorting breaks a group's options apart and repeated headers read as a bug.
+
 ### Machines Tab
 A form for defining and editing machines (name, research tier, tiers with per-tier build costs and research gates, footprint, ports) alongside a list of all defined machines with tier badges and port counts. The belt tier editor (name, speed, research tier) also lives here.
 
