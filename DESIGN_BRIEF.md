@@ -114,6 +114,7 @@ Results are displayed as a visual graph alongside the machine list. The diagram 
 - When byproduct satellite boxes are present, the inter-column gap widens so the boxes have room to read instead of being squished against the next machine box.
 - Raw input nodes at the far end of the graph
 - Nodes grouped left-to-right by dependency depth (raw inputs on the left, target on the right, following natural reading direction)
+- **All input stages share the single leftmost column.** A stage with no inputs of its own (miner, extractor) would otherwise scatter across columns according to how deep its particular consumer sits; they're all pulled to the leftmost column instead, so "everything this output needs" reads as one column at the start. Any raw-input boxes (resources with no recipe at all, or supplied inputs in from-inputs mode) sit immediately left of it
 - Nodes within each column sorted by category then name
 - Edges that skip columns (long-range dependencies) routed via horizontal highway lanes above or below the node area so they don't overlap node boxes. Lanes are chosen by **direction**: **forward** edges always run over the **top**, a **backward** edge (a producer that sits to the right of its consumer, e.g. a Water byproduct feeding an upstream Alumina Solution) always loops under the **bottom** — so flow direction reads at a glance. The backward entry is a single continuous hook (it stays going left and rises before curving forward into the machine's left edge, no abrupt reversal)
 - Category-based colour coding on node borders
