@@ -1,6 +1,6 @@
 {
   "name": "Satisfactory",
-  "version": 2,
+  "version": 3,
   "researchTiers": [
     { "id": "rt0", "name": "Tier 0" },
     { "id": "rt1", "name": "Tier 1" },
@@ -37,7 +37,15 @@
     "rec-residual-fuel": false,
     "rec-polymeric-hor": false,
     "rec-turbo-heavy-fuel": false,
-    "rec-nitro-rocket-fuel": false
+    "rec-nitro-rocket-fuel": false,
+    "rec-alt-polymer-resin": false,
+    "rec-diluted-fuel": false,
+    "rec-turbo-blend-fuel": false,
+    "rec-recycled-plastic": false,
+    "rec-recycled-rubber": false,
+    "rec-coated-cable": false,
+    "rec-insulated-cable": false,
+    "rec-quickwire-cable": false
   },
   "categories": [
     { "id": "cat-ores", "name": "Ores" },
@@ -239,22 +247,25 @@
         { "id": "rec-fuel", "name": "Fuel", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 4,
           "inputs": [ { "resourceId": "res-crude-oil", "amount": 6 } ],
           "byproducts": [ { "resourceId": "res-polymer-resin", "amount": 3 } ] },
-        { "id": "rec-residual-fuel", "name": "Alternate: Residual Fuel", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 4, "inputs": [ { "resourceId": "res-heavy-oil-residue", "amount": 6 } ] }
+        { "id": "rec-residual-fuel", "name": "Alternate: Residual Fuel", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 4, "inputs": [ { "resourceId": "res-heavy-oil-residue", "amount": 6 } ] },
+        { "id": "rec-diluted-fuel", "name": "Alternate: Diluted Fuel", "machineId": "mach-blender", "cycleTime": 6, "outputAmount": 10, "inputs": [ { "resourceId": "res-heavy-oil-residue", "amount": 5 }, { "resourceId": "res-water", "amount": 10 } ] }
       ],
       "defaultRecipeId": "rec-fuel" },
     { "id": "res-polymer-resin", "name": "Polymer Resin", "categoryId": "cat-oil", "researchTierId": "rt5",
-      "recipes": [],
-      "defaultRecipeId": null },
+      "recipes": [
+        { "id": "rec-alt-polymer-resin", "name": "Alternate: Polymer Resin", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 13, "inputs": [ { "resourceId": "res-crude-oil", "amount": 6 } ], "byproducts": [ { "resourceId": "res-heavy-oil-residue", "amount": 2 } ] }
+      ],
+      "defaultRecipeId": "rec-alt-polymer-resin" },
     { "id": "res-heavy-oil-residue", "name": "Heavy Oil Residue", "categoryId": "cat-fluids", "researchTierId": "rt5", "isFluid": true,
       "recipes": [
-        { "id": "rec-heavy-oil-residue", "name": "Heavy Oil Residue", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 4, "inputs": [ { "resourceId": "res-crude-oil", "amount": 3 } ] },
-        { "id": "rec-polymeric-hor", "name": "Alternate: Polymeric Heavy Oil Residue", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 4, "inputs": [ { "resourceId": "res-crude-oil", "amount": 3 } ], "byproducts": [ { "resourceId": "res-polymer-resin", "amount": 2 } ] }
+        { "id": "rec-polymeric-hor", "name": "Alternate: Heavy Oil Residue", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 4, "inputs": [ { "resourceId": "res-crude-oil", "amount": 3 } ], "byproducts": [ { "resourceId": "res-polymer-resin", "amount": 2 } ] }
       ],
-      "defaultRecipeId": "rec-heavy-oil-residue" },
+      "defaultRecipeId": "rec-polymeric-hor" },
     { "id": "res-turbofuel", "name": "Turbofuel", "categoryId": "cat-fluids", "researchTierId": "rt6", "isFluid": true,
       "recipes": [
         { "id": "rec-turbofuel", "name": "Turbofuel", "machineId": "mach-refinery", "cycleTime": 16, "outputAmount": 5, "inputs": [ { "resourceId": "res-fuel", "amount": 6 }, { "resourceId": "res-compacted-coal", "amount": 4 } ] },
-        { "id": "rec-turbo-heavy-fuel", "name": "Alternate: Turbo Heavy Fuel", "machineId": "mach-refinery", "cycleTime": 16, "outputAmount": 8, "inputs": [ { "resourceId": "res-heavy-oil-residue", "amount": 10 }, { "resourceId": "res-compacted-coal", "amount": 8 } ] }
+        { "id": "rec-turbo-heavy-fuel", "name": "Alternate: Turbo Heavy Fuel", "machineId": "mach-refinery", "cycleTime": 16, "outputAmount": 8, "inputs": [ { "resourceId": "res-heavy-oil-residue", "amount": 10 }, { "resourceId": "res-compacted-coal", "amount": 8 } ] },
+        { "id": "rec-turbo-blend-fuel", "name": "Alternate: Turbo Blend Fuel", "machineId": "mach-blender", "cycleTime": 8, "outputAmount": 6, "inputs": [ { "resourceId": "res-fuel", "amount": 2 }, { "resourceId": "res-heavy-oil-residue", "amount": 4 }, { "resourceId": "res-sulfur", "amount": 3 }, { "resourceId": "res-petroleum-coke", "amount": 3 } ] }
       ],
       "defaultRecipeId": "rec-turbofuel" },
     { "id": "res-rocket-fuel", "name": "Rocket Fuel", "categoryId": "cat-fluids", "researchTierId": "rt8", "isFluid": true,
@@ -328,7 +339,12 @@
       ],
       "defaultRecipeId": "rec-wire" },
     { "id": "res-cable", "name": "Cable", "categoryId": "cat-basic", "researchTierId": "rt0",
-      "recipes": [ { "id": "rec-cable", "name": "Cable", "machineId": "mach-constructor", "cycleTime": 2, "outputAmount": 1, "inputs": [ { "resourceId": "res-wire", "amount": 2 } ] } ],
+      "recipes": [
+        { "id": "rec-cable", "name": "Cable", "machineId": "mach-constructor", "cycleTime": 2, "outputAmount": 1, "inputs": [ { "resourceId": "res-wire", "amount": 2 } ] },
+        { "id": "rec-coated-cable", "name": "Alternate: Coated Cable", "machineId": "mach-refinery", "cycleTime": 8, "outputAmount": 9, "inputs": [ { "resourceId": "res-wire", "amount": 5 }, { "resourceId": "res-heavy-oil-residue", "amount": 2 } ] },
+        { "id": "rec-insulated-cable", "name": "Alternate: Insulated Cable", "machineId": "mach-assembler", "cycleTime": 12, "outputAmount": 20, "inputs": [ { "resourceId": "res-wire", "amount": 9 }, { "resourceId": "res-rubber", "amount": 6 } ] },
+        { "id": "rec-quickwire-cable", "name": "Alternate: Quickwire Cable", "machineId": "mach-assembler", "cycleTime": 24, "outputAmount": 11, "inputs": [ { "resourceId": "res-quickwire", "amount": 3 }, { "resourceId": "res-rubber", "amount": 2 } ] }
+      ],
       "defaultRecipeId": "rec-cable" },
     { "id": "res-copper-sheet", "name": "Copper Sheet", "categoryId": "cat-basic", "researchTierId": "rt2",
       "recipes": [ { "id": "rec-copper-sheet", "name": "Copper Sheet", "machineId": "mach-constructor", "cycleTime": 6, "outputAmount": 1, "inputs": [ { "resourceId": "res-copper-ingot", "amount": 2 } ] } ],
@@ -346,11 +362,15 @@
     { "id": "res-plastic", "name": "Plastic", "categoryId": "cat-oil", "researchTierId": "rt5",
       "recipes": [
         { "id": "rec-plastic", "name": "Plastic", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 2, "inputs": [ { "resourceId": "res-crude-oil", "amount": 3 } ], "byproducts": [ { "resourceId": "res-heavy-oil-residue", "amount": 1 } ] },
-        { "id": "rec-residual-plastic", "name": "Alternate: Residual Plastic", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 2, "inputs": [ { "resourceId": "res-polymer-resin", "amount": 6 }, { "resourceId": "res-water", "amount": 2 } ] }
+        { "id": "rec-residual-plastic", "name": "Alternate: Residual Plastic", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 2, "inputs": [ { "resourceId": "res-polymer-resin", "amount": 6 }, { "resourceId": "res-water", "amount": 2 } ] },
+        { "id": "rec-recycled-plastic", "name": "Alternate: Recycled Plastic", "machineId": "mach-refinery", "cycleTime": 12, "outputAmount": 12, "inputs": [ { "resourceId": "res-rubber", "amount": 6 }, { "resourceId": "res-fuel", "amount": 6 } ] }
       ],
       "defaultRecipeId": "rec-plastic" },
     { "id": "res-rubber", "name": "Rubber", "categoryId": "cat-oil", "researchTierId": "rt5",
-      "recipes": [ { "id": "rec-rubber", "name": "Rubber", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 2, "inputs": [ { "resourceId": "res-crude-oil", "amount": 3 } ], "byproducts": [ { "resourceId": "res-heavy-oil-residue", "amount": 2 } ] } ],
+      "recipes": [
+        { "id": "rec-rubber", "name": "Rubber", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 2, "inputs": [ { "resourceId": "res-crude-oil", "amount": 3 } ], "byproducts": [ { "resourceId": "res-heavy-oil-residue", "amount": 2 } ] },
+        { "id": "rec-recycled-rubber", "name": "Alternate: Recycled Rubber", "machineId": "mach-refinery", "cycleTime": 12, "outputAmount": 12, "inputs": [ { "resourceId": "res-plastic", "amount": 6 }, { "resourceId": "res-fuel", "amount": 6 } ] }
+      ],
       "defaultRecipeId": "rec-rubber" },
 
     { "id": "res-reinforced-iron-plate", "name": "Reinforced Iron Plate", "categoryId": "cat-industrial", "researchTierId": "rt2",
