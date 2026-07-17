@@ -26,6 +26,7 @@ A resource is anything that can be produced, consumed, or mined. Resources have:
 - An optional **category** for organisational grouping
 - Zero or more **recipes** — any resource can have multiple alternative recipes, reflecting different production paths
 - A **default recipe** — the recipe the planner uses unless the user overrides it
+- An optional **raw cost** (default 1) — how scarce one mined/extracted unit is, used only while the resource has no recipe to cost through. Not every raw is equally precious: in Satisfactory water is effectively unlimited while crude oil is node-capped, and pricing them alike made the planner reject Diluted Fuel (37.5 crude per 100 Fuel) in favour of Residual Fuel (112.5), because it couldn't see that diluting scarce crude with free water is the whole point of the recipe. Setting water to 0.05 fixes the ranking. Kept generic — most factory games hand out at least one effectively-free input
 
 ### Recipes
 A recipe represents one way to produce a resource. Recipes have:

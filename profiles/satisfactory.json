@@ -1,6 +1,6 @@
 {
   "name": "Satisfactory",
-  "version": 3,
+  "version": 4,
   "researchTiers": [
     { "id": "rt0", "name": "Tier 0" },
     { "id": "rt1", "name": "Tier 1" },
@@ -45,7 +45,51 @@
     "rec-recycled-rubber": false,
     "rec-coated-cable": false,
     "rec-insulated-cable": false,
-    "rec-quickwire-cable": false
+    "rec-quickwire-cable": false,
+    "rec-iron-alloy-ingot": false,
+    "rec-copper-alloy-ingot": false,
+    "rec-coke-steel-ingot": false,
+    "rec-compacted-steel-ingot": false,
+    "rec-pure-aluminum-ingot": false,
+    "rec-fine-concrete": false,
+    "rec-rubber-concrete": false,
+    "rec-steamed-copper-sheet": false,
+    "rec-fused-wire": false,
+    "rec-coated-iron-plate": false,
+    "rec-cheap-silica": false,
+    "rec-pure-quartz-crystal": false,
+    "rec-fused-quartz-crystal": false,
+    "rec-bolted-iron-plate": false,
+    "rec-stitched-iron-plate": false,
+    "rec-copper-rotor": false,
+    "rec-steel-rotor": false,
+    "rec-bolted-frame": false,
+    "rec-steeled-frame": false,
+    "rec-encased-industrial-pipe": false,
+    "rec-heavy-encased-frame": false,
+    "rec-heavy-flexible-frame": false,
+    "rec-rigor-motor": false,
+    "rec-electric-motor": false,
+    "rec-turbo-electric-motor": false,
+    "rec-silicon-circuit-board": false,
+    "rec-caterium-circuit-board": false,
+    "rec-crystal-computer": false,
+    "rec-super-state-computer": false,
+    "rec-oc-supercomputer": false,
+    "rec-automated-speed-wiring": false,
+    "rec-sloppy-alumina": false,
+    "rec-instant-scrap": false,
+    "rec-electrode-aluminum-scrap": false,
+    "rec-alclad-casing": false,
+    "rec-heat-exchanger": false,
+    "rec-radio-connection-unit": false,
+    "rec-classic-battery": false,
+    "rec-heat-fused-frame": false,
+    "rec-infused-uranium-cell": false,
+    "rec-uranium-fuel-unit": false,
+    "rec-fertile-uranium": false,
+    "rec-instant-plutonium-cell": false,
+    "rec-plutonium-fuel-unit": false
   },
   "categories": [
     { "id": "cat-ores", "name": "Ores" },
@@ -236,7 +280,7 @@
     { "id": "res-purple-power-slug", "name": "Purple Power Slug", "categoryId": "cat-ores", "researchTierId": "rt5",
       "recipes": [], "defaultRecipeId": null },
 
-    { "id": "res-water", "name": "Water", "categoryId": "cat-fluids", "researchTierId": "rt3", "isFluid": true,
+    { "id": "res-water", "name": "Water", "categoryId": "cat-fluids", "researchTierId": "rt3", "isFluid": true, "rawCost": 0.05,
       "recipes": [ { "id": "rec-water", "name": "Extract Water", "machineId": "mach-water-extractor", "cycleTime": 0.5, "outputAmount": 1, "inputs": [] } ],
       "defaultRecipeId": "rec-water" },
     { "id": "res-crude-oil", "name": "Crude Oil", "categoryId": "cat-fluids", "researchTierId": "rt5", "isFluid": true,
@@ -278,7 +322,10 @@
       "recipes": [ { "id": "rec-ionized-fuel", "name": "Ionized Fuel", "machineId": "mach-refinery", "cycleTime": 24, "outputAmount": 16, "inputs": [ { "resourceId": "res-rocket-fuel", "amount": 16 }, { "resourceId": "res-power-shard", "amount": 1 } ], "byproducts": [ { "resourceId": "res-compacted-coal", "amount": 2 } ] } ],
       "defaultRecipeId": "rec-ionized-fuel" },
     { "id": "res-alumina-solution", "name": "Alumina Solution", "categoryId": "cat-fluids", "researchTierId": "rt7", "isFluid": true,
-      "recipes": [ { "id": "rec-alumina-solution", "name": "Alumina Solution", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 12, "inputs": [ { "resourceId": "res-bauxite", "amount": 12 }, { "resourceId": "res-water", "amount": 18 } ], "byproducts": [ { "resourceId": "res-silica", "amount": 5 } ] } ],
+      "recipes": [
+        { "id": "rec-alumina-solution", "name": "Alumina Solution", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 12, "inputs": [ { "resourceId": "res-bauxite", "amount": 12 }, { "resourceId": "res-water", "amount": 18 } ], "byproducts": [ { "resourceId": "res-silica", "amount": 5 } ] },
+        { "id": "rec-sloppy-alumina", "name": "Alternate: Sloppy Alumina", "machineId": "mach-refinery", "cycleTime": 3, "outputAmount": 12, "inputs": [ { "resourceId": "res-bauxite", "amount": 10 }, { "resourceId": "res-water", "amount": 10 } ] }
+      ],
       "defaultRecipeId": "rec-alumina-solution" },
     { "id": "res-sulfuric-acid", "name": "Sulfuric Acid", "categoryId": "cat-fluids", "researchTierId": "rt7", "isFluid": true,
       "recipes": [ { "id": "rec-sulfuric-acid", "name": "Sulfuric Acid", "machineId": "mach-refinery", "cycleTime": 6, "outputAmount": 5, "inputs": [ { "resourceId": "res-sulfur", "amount": 5 }, { "resourceId": "res-water", "amount": 5 } ] } ],
@@ -293,19 +340,23 @@
     { "id": "res-iron-ingot", "name": "Iron Ingot", "categoryId": "cat-ingots", "researchTierId": "rt0",
       "recipes": [
         { "id": "rec-iron-ingot", "name": "Iron Ingot", "machineId": "mach-smelter", "cycleTime": 2, "outputAmount": 1, "inputs": [ { "resourceId": "res-iron-ore", "amount": 1 } ] },
-        { "id": "rec-pure-iron-ingot", "name": "Alternate: Pure Iron Ingot", "machineId": "mach-refinery", "cycleTime": 12, "outputAmount": 13, "inputs": [ { "resourceId": "res-iron-ore", "amount": 7 }, { "resourceId": "res-water", "amount": 4 } ] }
+        { "id": "rec-pure-iron-ingot", "name": "Alternate: Pure Iron Ingot", "machineId": "mach-refinery", "cycleTime": 12, "outputAmount": 13, "inputs": [ { "resourceId": "res-iron-ore", "amount": 7 }, { "resourceId": "res-water", "amount": 4 } ] },
+        { "id": "rec-iron-alloy-ingot", "name": "Alternate: Iron Alloy Ingot", "machineId": "mach-foundry", "cycleTime": 12, "outputAmount": 15, "inputs": [ { "resourceId": "res-iron-ore", "amount": 8 }, { "resourceId": "res-copper-ore", "amount": 2 } ] }
       ],
       "defaultRecipeId": "rec-iron-ingot" },
     { "id": "res-copper-ingot", "name": "Copper Ingot", "categoryId": "cat-ingots", "researchTierId": "rt0",
       "recipes": [
         { "id": "rec-copper-ingot", "name": "Copper Ingot", "machineId": "mach-smelter", "cycleTime": 2, "outputAmount": 1, "inputs": [ { "resourceId": "res-copper-ore", "amount": 1 } ] },
-        { "id": "rec-pure-copper-ingot", "name": "Alternate: Pure Copper Ingot", "machineId": "mach-refinery", "cycleTime": 24, "outputAmount": 15, "inputs": [ { "resourceId": "res-copper-ore", "amount": 6 }, { "resourceId": "res-water", "amount": 4 } ] }
+        { "id": "rec-pure-copper-ingot", "name": "Alternate: Pure Copper Ingot", "machineId": "mach-refinery", "cycleTime": 24, "outputAmount": 15, "inputs": [ { "resourceId": "res-copper-ore", "amount": 6 }, { "resourceId": "res-water", "amount": 4 } ] },
+        { "id": "rec-copper-alloy-ingot", "name": "Alternate: Copper Alloy Ingot", "machineId": "mach-foundry", "cycleTime": 6, "outputAmount": 10, "inputs": [ { "resourceId": "res-copper-ore", "amount": 5 }, { "resourceId": "res-iron-ore", "amount": 5 } ] }
       ],
       "defaultRecipeId": "rec-copper-ingot" },
     { "id": "res-steel-ingot", "name": "Steel Ingot", "categoryId": "cat-ingots", "researchTierId": "rt3",
       "recipes": [
         { "id": "rec-steel-ingot", "name": "Steel Ingot", "machineId": "mach-foundry", "cycleTime": 4, "outputAmount": 3, "inputs": [ { "resourceId": "res-iron-ore", "amount": 3 }, { "resourceId": "res-coal", "amount": 3 } ] },
-        { "id": "rec-solid-steel-ingot", "name": "Alternate: Solid Steel Ingot", "machineId": "mach-foundry", "cycleTime": 3, "outputAmount": 3, "inputs": [ { "resourceId": "res-iron-ingot", "amount": 2 }, { "resourceId": "res-coal", "amount": 2 } ] }
+        { "id": "rec-solid-steel-ingot", "name": "Alternate: Solid Steel Ingot", "machineId": "mach-foundry", "cycleTime": 3, "outputAmount": 3, "inputs": [ { "resourceId": "res-iron-ingot", "amount": 2 }, { "resourceId": "res-coal", "amount": 2 } ] },
+        { "id": "rec-coke-steel-ingot", "name": "Alternate: Coke Steel Ingot", "machineId": "mach-foundry", "cycleTime": 12, "outputAmount": 20, "inputs": [ { "resourceId": "res-iron-ore", "amount": 15 }, { "resourceId": "res-petroleum-coke", "amount": 15 } ] },
+        { "id": "rec-compacted-steel-ingot", "name": "Alternate: Compacted Steel Ingot", "machineId": "mach-foundry", "cycleTime": 24, "outputAmount": 4, "inputs": [ { "resourceId": "res-iron-ore", "amount": 2 }, { "resourceId": "res-compacted-coal", "amount": 1 } ] }
       ],
       "defaultRecipeId": "rec-steel-ingot" },
     { "id": "res-caterium-ingot", "name": "Caterium Ingot", "categoryId": "cat-ingots", "researchTierId": "rt5",
@@ -315,11 +366,16 @@
     { "id": "res-concrete", "name": "Concrete", "categoryId": "cat-basic", "researchTierId": "rt0",
       "recipes": [
         { "id": "rec-concrete", "name": "Concrete", "machineId": "mach-constructor", "cycleTime": 4, "outputAmount": 1, "inputs": [ { "resourceId": "res-limestone", "amount": 3 } ] },
-        { "id": "rec-wet-concrete", "name": "Alternate: Wet Concrete", "machineId": "mach-refinery", "cycleTime": 3, "outputAmount": 4, "inputs": [ { "resourceId": "res-limestone", "amount": 6 }, { "resourceId": "res-water", "amount": 5 } ] }
+        { "id": "rec-wet-concrete", "name": "Alternate: Wet Concrete", "machineId": "mach-refinery", "cycleTime": 3, "outputAmount": 4, "inputs": [ { "resourceId": "res-limestone", "amount": 6 }, { "resourceId": "res-water", "amount": 5 } ] },
+        { "id": "rec-fine-concrete", "name": "Alternate: Fine Concrete", "machineId": "mach-assembler", "cycleTime": 12, "outputAmount": 10, "inputs": [ { "resourceId": "res-silica", "amount": 3 }, { "resourceId": "res-limestone", "amount": 12 } ] },
+        { "id": "rec-rubber-concrete", "name": "Alternate: Rubber Concrete", "machineId": "mach-assembler", "cycleTime": 6, "outputAmount": 9, "inputs": [ { "resourceId": "res-limestone", "amount": 10 }, { "resourceId": "res-rubber", "amount": 2 } ] }
       ],
       "defaultRecipeId": "rec-concrete" },
     { "id": "res-iron-plate", "name": "Iron Plate", "categoryId": "cat-basic", "researchTierId": "rt0",
-      "recipes": [ { "id": "rec-iron-plate", "name": "Iron Plate", "machineId": "mach-constructor", "cycleTime": 6, "outputAmount": 2, "inputs": [ { "resourceId": "res-iron-ingot", "amount": 3 } ] } ],
+      "recipes": [
+        { "id": "rec-iron-plate", "name": "Iron Plate", "machineId": "mach-constructor", "cycleTime": 6, "outputAmount": 2, "inputs": [ { "resourceId": "res-iron-ingot", "amount": 3 } ] },
+        { "id": "rec-coated-iron-plate", "name": "Alternate: Coated Iron Plate", "machineId": "mach-assembler", "cycleTime": 8, "outputAmount": 10, "inputs": [ { "resourceId": "res-iron-ingot", "amount": 5 }, { "resourceId": "res-plastic", "amount": 1 } ] }
+      ],
       "defaultRecipeId": "rec-iron-plate" },
     { "id": "res-iron-rod", "name": "Iron Rod", "categoryId": "cat-basic", "researchTierId": "rt0",
       "recipes": [ { "id": "rec-iron-rod", "name": "Iron Rod", "machineId": "mach-constructor", "cycleTime": 4, "outputAmount": 1, "inputs": [ { "resourceId": "res-iron-ingot", "amount": 1 } ] } ],
@@ -335,7 +391,8 @@
       "recipes": [
         { "id": "rec-wire", "name": "Wire", "machineId": "mach-constructor", "cycleTime": 4, "outputAmount": 2, "inputs": [ { "resourceId": "res-copper-ingot", "amount": 1 } ] },
         { "id": "rec-iron-wire", "name": "Alternate: Iron Wire", "machineId": "mach-constructor", "cycleTime": 24, "outputAmount": 9, "inputs": [ { "resourceId": "res-iron-ingot", "amount": 5 } ] },
-        { "id": "rec-caterium-wire", "name": "Alternate: Caterium Wire", "machineId": "mach-constructor", "cycleTime": 5, "outputAmount": 8, "inputs": [ { "resourceId": "res-caterium-ingot", "amount": 1 } ] }
+        { "id": "rec-caterium-wire", "name": "Alternate: Caterium Wire", "machineId": "mach-constructor", "cycleTime": 5, "outputAmount": 8, "inputs": [ { "resourceId": "res-caterium-ingot", "amount": 1 } ] },
+        { "id": "rec-fused-wire", "name": "Alternate: Fused Wire", "machineId": "mach-assembler", "cycleTime": 20, "outputAmount": 30, "inputs": [ { "resourceId": "res-copper-ingot", "amount": 4 }, { "resourceId": "res-caterium-ingot", "amount": 1 } ] }
       ],
       "defaultRecipeId": "rec-wire" },
     { "id": "res-cable", "name": "Cable", "categoryId": "cat-basic", "researchTierId": "rt0",
@@ -347,7 +404,10 @@
       ],
       "defaultRecipeId": "rec-cable" },
     { "id": "res-copper-sheet", "name": "Copper Sheet", "categoryId": "cat-basic", "researchTierId": "rt2",
-      "recipes": [ { "id": "rec-copper-sheet", "name": "Copper Sheet", "machineId": "mach-constructor", "cycleTime": 6, "outputAmount": 1, "inputs": [ { "resourceId": "res-copper-ingot", "amount": 2 } ] } ],
+      "recipes": [
+        { "id": "rec-copper-sheet", "name": "Copper Sheet", "machineId": "mach-constructor", "cycleTime": 6, "outputAmount": 1, "inputs": [ { "resourceId": "res-copper-ingot", "amount": 2 } ] },
+        { "id": "rec-steamed-copper-sheet", "name": "Alternate: Steamed Copper Sheet", "machineId": "mach-refinery", "cycleTime": 8, "outputAmount": 3, "inputs": [ { "resourceId": "res-copper-ingot", "amount": 3 }, { "resourceId": "res-water", "amount": 3 } ] }
+      ],
       "defaultRecipeId": "rec-copper-sheet" },
     { "id": "res-steel-beam", "name": "Steel Beam", "categoryId": "cat-basic", "researchTierId": "rt3",
       "recipes": [ { "id": "rec-steel-beam", "name": "Steel Beam", "machineId": "mach-constructor", "cycleTime": 4, "outputAmount": 1, "inputs": [ { "resourceId": "res-steel-ingot", "amount": 4 } ] } ],
@@ -374,32 +434,62 @@
       "defaultRecipeId": "rec-rubber" },
 
     { "id": "res-reinforced-iron-plate", "name": "Reinforced Iron Plate", "categoryId": "cat-industrial", "researchTierId": "rt2",
-      "recipes": [ { "id": "rec-reinforced-iron-plate", "name": "Reinforced Iron Plate", "machineId": "mach-assembler", "cycleTime": 12, "outputAmount": 1, "inputs": [ { "resourceId": "res-iron-plate", "amount": 6 }, { "resourceId": "res-screw", "amount": 12 } ] } ],
+      "recipes": [
+        { "id": "rec-reinforced-iron-plate", "name": "Reinforced Iron Plate", "machineId": "mach-assembler", "cycleTime": 12, "outputAmount": 1, "inputs": [ { "resourceId": "res-iron-plate", "amount": 6 }, { "resourceId": "res-screw", "amount": 12 } ] },
+        { "id": "rec-bolted-iron-plate", "name": "Alternate: Bolted Iron Plate", "machineId": "mach-assembler", "cycleTime": 12, "outputAmount": 3, "inputs": [ { "resourceId": "res-iron-plate", "amount": 18 }, { "resourceId": "res-screw", "amount": 50 } ] },
+        { "id": "rec-stitched-iron-plate", "name": "Alternate: Stitched Iron Plate", "machineId": "mach-assembler", "cycleTime": 32, "outputAmount": 3, "inputs": [ { "resourceId": "res-iron-plate", "amount": 10 }, { "resourceId": "res-wire", "amount": 20 } ] }
+      ],
       "defaultRecipeId": "rec-reinforced-iron-plate" },
     { "id": "res-rotor", "name": "Rotor", "categoryId": "cat-industrial", "researchTierId": "rt2",
-      "recipes": [ { "id": "rec-rotor", "name": "Rotor", "machineId": "mach-assembler", "cycleTime": 15, "outputAmount": 1, "inputs": [ { "resourceId": "res-iron-rod", "amount": 5 }, { "resourceId": "res-screw", "amount": 25 } ] } ],
+      "recipes": [
+        { "id": "rec-rotor", "name": "Rotor", "machineId": "mach-assembler", "cycleTime": 15, "outputAmount": 1, "inputs": [ { "resourceId": "res-iron-rod", "amount": 5 }, { "resourceId": "res-screw", "amount": 25 } ] },
+        { "id": "rec-copper-rotor", "name": "Alternate: Copper Rotor", "machineId": "mach-assembler", "cycleTime": 16, "outputAmount": 3, "inputs": [ { "resourceId": "res-copper-sheet", "amount": 6 }, { "resourceId": "res-screw", "amount": 52 } ] },
+        { "id": "rec-steel-rotor", "name": "Alternate: Steel Rotor", "machineId": "mach-assembler", "cycleTime": 12, "outputAmount": 1, "inputs": [ { "resourceId": "res-steel-pipe", "amount": 2 }, { "resourceId": "res-wire", "amount": 6 } ] }
+      ],
       "defaultRecipeId": "rec-rotor" },
     { "id": "res-modular-frame", "name": "Modular Frame", "categoryId": "cat-industrial", "researchTierId": "rt2",
-      "recipes": [ { "id": "rec-modular-frame", "name": "Modular Frame", "machineId": "mach-assembler", "cycleTime": 60, "outputAmount": 2, "inputs": [ { "resourceId": "res-reinforced-iron-plate", "amount": 3 }, { "resourceId": "res-iron-rod", "amount": 12 } ] } ],
+      "recipes": [
+        { "id": "rec-modular-frame", "name": "Modular Frame", "machineId": "mach-assembler", "cycleTime": 60, "outputAmount": 2, "inputs": [ { "resourceId": "res-reinforced-iron-plate", "amount": 3 }, { "resourceId": "res-iron-rod", "amount": 12 } ] },
+        { "id": "rec-bolted-frame", "name": "Alternate: Bolted Frame", "machineId": "mach-assembler", "cycleTime": 24, "outputAmount": 2, "inputs": [ { "resourceId": "res-reinforced-iron-plate", "amount": 3 }, { "resourceId": "res-screw", "amount": 56 } ] },
+        { "id": "rec-steeled-frame", "name": "Alternate: Steeled Frame", "machineId": "mach-assembler", "cycleTime": 60, "outputAmount": 3, "inputs": [ { "resourceId": "res-reinforced-iron-plate", "amount": 2 }, { "resourceId": "res-steel-pipe", "amount": 10 } ] }
+      ],
       "defaultRecipeId": "rec-modular-frame" },
     { "id": "res-encased-industrial-beam", "name": "Encased Industrial Beam", "categoryId": "cat-industrial", "researchTierId": "rt4",
-      "recipes": [ { "id": "rec-encased-industrial-beam", "name": "Encased Industrial Beam", "machineId": "mach-assembler", "cycleTime": 10, "outputAmount": 1, "inputs": [ { "resourceId": "res-steel-beam", "amount": 3 }, { "resourceId": "res-concrete", "amount": 6 } ] } ],
+      "recipes": [
+        { "id": "rec-encased-industrial-beam", "name": "Encased Industrial Beam", "machineId": "mach-assembler", "cycleTime": 10, "outputAmount": 1, "inputs": [ { "resourceId": "res-steel-beam", "amount": 3 }, { "resourceId": "res-concrete", "amount": 6 } ] },
+        { "id": "rec-encased-industrial-pipe", "name": "Alternate: Encased Industrial Pipe", "machineId": "mach-assembler", "cycleTime": 15, "outputAmount": 1, "inputs": [ { "resourceId": "res-steel-pipe", "amount": 6 }, { "resourceId": "res-concrete", "amount": 5 } ] }
+      ],
       "defaultRecipeId": "rec-encased-industrial-beam" },
     { "id": "res-stator", "name": "Stator", "categoryId": "cat-industrial", "researchTierId": "rt4",
       "recipes": [ { "id": "rec-stator", "name": "Stator", "machineId": "mach-assembler", "cycleTime": 12, "outputAmount": 1, "inputs": [ { "resourceId": "res-steel-pipe", "amount": 3 }, { "resourceId": "res-wire", "amount": 8 } ] } ],
       "defaultRecipeId": "rec-stator" },
     { "id": "res-motor", "name": "Motor", "categoryId": "cat-industrial", "researchTierId": "rt4",
-      "recipes": [ { "id": "rec-motor", "name": "Motor", "machineId": "mach-assembler", "cycleTime": 12, "outputAmount": 1, "inputs": [ { "resourceId": "res-rotor", "amount": 2 }, { "resourceId": "res-stator", "amount": 2 } ] } ],
+      "recipes": [
+        { "id": "rec-motor", "name": "Motor", "machineId": "mach-assembler", "cycleTime": 12, "outputAmount": 1, "inputs": [ { "resourceId": "res-rotor", "amount": 2 }, { "resourceId": "res-stator", "amount": 2 } ] },
+        { "id": "rec-rigor-motor", "name": "Alternate: Rigor Motor", "machineId": "mach-manufacturer", "cycleTime": 48, "outputAmount": 6, "inputs": [ { "resourceId": "res-rotor", "amount": 3 }, { "resourceId": "res-stator", "amount": 3 }, { "resourceId": "res-crystal-oscillator", "amount": 1 } ] },
+        { "id": "rec-electric-motor", "name": "Alternate: Electric Motor", "machineId": "mach-assembler", "cycleTime": 16, "outputAmount": 2, "inputs": [ { "resourceId": "res-electromagnetic-control-rod", "amount": 1 }, { "resourceId": "res-rotor", "amount": 2 } ] }
+      ],
       "defaultRecipeId": "rec-motor" },
     { "id": "res-heavy-modular-frame", "name": "Heavy Modular Frame", "categoryId": "cat-industrial", "researchTierId": "rt5",
-      "recipes": [ { "id": "rec-heavy-modular-frame", "name": "Heavy Modular Frame", "machineId": "mach-manufacturer", "cycleTime": 30, "outputAmount": 1, "inputs": [ { "resourceId": "res-modular-frame", "amount": 5 }, { "resourceId": "res-steel-pipe", "amount": 15 }, { "resourceId": "res-encased-industrial-beam", "amount": 5 }, { "resourceId": "res-screw", "amount": 100 } ] } ],
+      "recipes": [
+        { "id": "rec-heavy-modular-frame", "name": "Heavy Modular Frame", "machineId": "mach-manufacturer", "cycleTime": 30, "outputAmount": 1, "inputs": [ { "resourceId": "res-modular-frame", "amount": 5 }, { "resourceId": "res-steel-pipe", "amount": 15 }, { "resourceId": "res-encased-industrial-beam", "amount": 5 }, { "resourceId": "res-screw", "amount": 100 } ] },
+        { "id": "rec-heavy-encased-frame", "name": "Alternate: Heavy Encased Frame", "machineId": "mach-manufacturer", "cycleTime": 64, "outputAmount": 3, "inputs": [ { "resourceId": "res-modular-frame", "amount": 8 }, { "resourceId": "res-encased-industrial-beam", "amount": 10 }, { "resourceId": "res-steel-pipe", "amount": 36 }, { "resourceId": "res-concrete", "amount": 22 } ] },
+        { "id": "rec-heavy-flexible-frame", "name": "Alternate: Heavy Flexible Frame", "machineId": "mach-manufacturer", "cycleTime": 16, "outputAmount": 1, "inputs": [ { "resourceId": "res-modular-frame", "amount": 5 }, { "resourceId": "res-encased-industrial-beam", "amount": 3 }, { "resourceId": "res-rubber", "amount": 20 }, { "resourceId": "res-screw", "amount": 104 } ] }
+      ],
       "defaultRecipeId": "rec-heavy-modular-frame" },
 
     { "id": "res-circuit-board", "name": "Circuit Board", "categoryId": "cat-electronics", "researchTierId": "rt5",
-      "recipes": [ { "id": "rec-circuit-board", "name": "Circuit Board", "machineId": "mach-assembler", "cycleTime": 8, "outputAmount": 1, "inputs": [ { "resourceId": "res-copper-sheet", "amount": 2 }, { "resourceId": "res-plastic", "amount": 4 } ] } ],
+      "recipes": [
+        { "id": "rec-circuit-board", "name": "Circuit Board", "machineId": "mach-assembler", "cycleTime": 8, "outputAmount": 1, "inputs": [ { "resourceId": "res-copper-sheet", "amount": 2 }, { "resourceId": "res-plastic", "amount": 4 } ] },
+        { "id": "rec-silicon-circuit-board", "name": "Alternate: Silicon Circuit Board", "machineId": "mach-assembler", "cycleTime": 24, "outputAmount": 5, "inputs": [ { "resourceId": "res-copper-sheet", "amount": 11 }, { "resourceId": "res-silica", "amount": 11 } ] },
+        { "id": "rec-caterium-circuit-board", "name": "Alternate: Caterium Circuit Board", "machineId": "mach-assembler", "cycleTime": 48, "outputAmount": 7, "inputs": [ { "resourceId": "res-plastic", "amount": 10 }, { "resourceId": "res-quickwire", "amount": 30 } ] }
+      ],
       "defaultRecipeId": "rec-circuit-board" },
     { "id": "res-computer", "name": "Computer", "categoryId": "cat-electronics", "researchTierId": "rt5",
-      "recipes": [ { "id": "rec-computer", "name": "Computer", "machineId": "mach-manufacturer", "cycleTime": 24, "outputAmount": 1, "inputs": [ { "resourceId": "res-circuit-board", "amount": 4 }, { "resourceId": "res-cable", "amount": 8 }, { "resourceId": "res-plastic", "amount": 16 } ] } ],
+      "recipes": [
+        { "id": "rec-computer", "name": "Computer", "machineId": "mach-manufacturer", "cycleTime": 24, "outputAmount": 1, "inputs": [ { "resourceId": "res-circuit-board", "amount": 4 }, { "resourceId": "res-cable", "amount": 8 }, { "resourceId": "res-plastic", "amount": 16 } ] },
+        { "id": "rec-crystal-computer", "name": "Alternate: Crystal Computer", "machineId": "mach-assembler", "cycleTime": 36, "outputAmount": 2, "inputs": [ { "resourceId": "res-circuit-board", "amount": 3 }, { "resourceId": "res-crystal-oscillator", "amount": 1 } ] }
+      ],
       "defaultRecipeId": "rec-computer" },
     { "id": "res-ai-limiter", "name": "AI Limiter", "categoryId": "cat-electronics", "researchTierId": "rt5",
       "recipes": [ { "id": "rec-ai-limiter", "name": "AI Limiter", "machineId": "mach-assembler", "cycleTime": 12, "outputAmount": 1, "inputs": [ { "resourceId": "res-copper-sheet", "amount": 5 }, { "resourceId": "res-quickwire", "amount": 20 } ] } ],
@@ -408,7 +498,11 @@
       "recipes": [ { "id": "rec-high-speed-connector", "name": "High-Speed Connector", "machineId": "mach-manufacturer", "cycleTime": 16, "outputAmount": 1, "inputs": [ { "resourceId": "res-quickwire", "amount": 56 }, { "resourceId": "res-cable", "amount": 10 }, { "resourceId": "res-circuit-board", "amount": 1 } ] } ],
       "defaultRecipeId": "rec-high-speed-connector" },
     { "id": "res-supercomputer", "name": "Supercomputer", "categoryId": "cat-electronics", "researchTierId": "rt7",
-      "recipes": [ { "id": "rec-supercomputer", "name": "Supercomputer", "machineId": "mach-manufacturer", "cycleTime": 32, "outputAmount": 1, "inputs": [ { "resourceId": "res-computer", "amount": 4 }, { "resourceId": "res-ai-limiter", "amount": 2 }, { "resourceId": "res-high-speed-connector", "amount": 3 }, { "resourceId": "res-plastic", "amount": 28 } ] } ],
+      "recipes": [
+        { "id": "rec-supercomputer", "name": "Supercomputer", "machineId": "mach-manufacturer", "cycleTime": 32, "outputAmount": 1, "inputs": [ { "resourceId": "res-computer", "amount": 4 }, { "resourceId": "res-ai-limiter", "amount": 2 }, { "resourceId": "res-high-speed-connector", "amount": 3 }, { "resourceId": "res-plastic", "amount": 28 } ] },
+        { "id": "rec-super-state-computer", "name": "Alternate: Super-State Computer", "machineId": "mach-manufacturer", "cycleTime": 25, "outputAmount": 1, "inputs": [ { "resourceId": "res-computer", "amount": 3 }, { "resourceId": "res-electromagnetic-control-rod", "amount": 1 }, { "resourceId": "res-battery", "amount": 10 }, { "resourceId": "res-wire", "amount": 25 } ] },
+        { "id": "rec-oc-supercomputer", "name": "Alternate: OC Supercomputer", "machineId": "mach-assembler", "cycleTime": 20, "outputAmount": 1, "inputs": [ { "resourceId": "res-radio-control-unit", "amount": 2 }, { "resourceId": "res-cooling-system", "amount": 2 } ] }
+      ],
       "defaultRecipeId": "rec-supercomputer" },
 
     { "id": "res-smart-plating", "name": "Smart Plating", "categoryId": "cat-elevator", "researchTierId": "rt2",
@@ -418,7 +512,10 @@
       "recipes": [ { "id": "rec-versatile-framework", "name": "Versatile Framework", "machineId": "mach-assembler", "cycleTime": 24, "outputAmount": 2, "inputs": [ { "resourceId": "res-modular-frame", "amount": 1 }, { "resourceId": "res-steel-beam", "amount": 12 } ] } ],
       "defaultRecipeId": "rec-versatile-framework" },
     { "id": "res-automated-wiring", "name": "Automated Wiring", "categoryId": "cat-elevator", "researchTierId": "rt4",
-      "recipes": [ { "id": "rec-automated-wiring", "name": "Automated Wiring", "machineId": "mach-assembler", "cycleTime": 24, "outputAmount": 1, "inputs": [ { "resourceId": "res-stator", "amount": 1 }, { "resourceId": "res-cable", "amount": 20 } ] } ],
+      "recipes": [
+        { "id": "rec-automated-wiring", "name": "Automated Wiring", "machineId": "mach-assembler", "cycleTime": 24, "outputAmount": 1, "inputs": [ { "resourceId": "res-stator", "amount": 1 }, { "resourceId": "res-cable", "amount": 20 } ] },
+        { "id": "rec-automated-speed-wiring", "name": "Alternate: Automated Speed Wiring", "machineId": "mach-manufacturer", "cycleTime": 32, "outputAmount": 4, "inputs": [ { "resourceId": "res-stator", "amount": 2 }, { "resourceId": "res-wire", "amount": 40 }, { "resourceId": "res-high-speed-connector", "amount": 1 } ] }
+      ],
       "defaultRecipeId": "rec-automated-wiring" },
     { "id": "res-modular-engine", "name": "Modular Engine", "categoryId": "cat-elevator", "researchTierId": "rt5",
       "recipes": [ { "id": "rec-modular-engine", "name": "Modular Engine", "machineId": "mach-manufacturer", "cycleTime": 60, "outputAmount": 1, "inputs": [ { "resourceId": "res-motor", "amount": 2 }, { "resourceId": "res-rubber", "amount": 15 }, { "resourceId": "res-smart-plating", "amount": 2 } ] } ],
@@ -431,10 +528,17 @@
       "defaultRecipeId": "rec-assembly-director-system" },
 
     { "id": "res-quartz-crystal", "name": "Quartz Crystal", "categoryId": "cat-basic", "researchTierId": "rt4",
-      "recipes": [ { "id": "rec-quartz-crystal", "name": "Quartz Crystal", "machineId": "mach-constructor", "cycleTime": 8, "outputAmount": 3, "inputs": [ { "resourceId": "res-raw-quartz", "amount": 5 } ] } ],
+      "recipes": [
+        { "id": "rec-quartz-crystal", "name": "Quartz Crystal", "machineId": "mach-constructor", "cycleTime": 8, "outputAmount": 3, "inputs": [ { "resourceId": "res-raw-quartz", "amount": 5 } ] },
+        { "id": "rec-pure-quartz-crystal", "name": "Alternate: Pure Quartz Crystal", "machineId": "mach-refinery", "cycleTime": 8, "outputAmount": 7, "inputs": [ { "resourceId": "res-raw-quartz", "amount": 9 }, { "resourceId": "res-water", "amount": 5 } ] },
+        { "id": "rec-fused-quartz-crystal", "name": "Alternate: Fused Quartz Crystal", "machineId": "mach-foundry", "cycleTime": 20, "outputAmount": 18, "inputs": [ { "resourceId": "res-raw-quartz", "amount": 25 }, { "resourceId": "res-coal", "amount": 12 } ] }
+      ],
       "defaultRecipeId": "rec-quartz-crystal" },
     { "id": "res-silica", "name": "Silica", "categoryId": "cat-basic", "researchTierId": "rt4",
-      "recipes": [ { "id": "rec-silica", "name": "Silica", "machineId": "mach-constructor", "cycleTime": 8, "outputAmount": 5, "inputs": [ { "resourceId": "res-raw-quartz", "amount": 3 } ] } ],
+      "recipes": [
+        { "id": "rec-silica", "name": "Silica", "machineId": "mach-constructor", "cycleTime": 8, "outputAmount": 5, "inputs": [ { "resourceId": "res-raw-quartz", "amount": 3 } ] },
+        { "id": "rec-cheap-silica", "name": "Alternate: Cheap Silica", "machineId": "mach-assembler", "cycleTime": 8, "outputAmount": 7, "inputs": [ { "resourceId": "res-raw-quartz", "amount": 3 }, { "resourceId": "res-limestone", "amount": 5 } ] }
+      ],
       "defaultRecipeId": "rec-silica" },
     { "id": "res-crystal-oscillator", "name": "Crystal Oscillator", "categoryId": "cat-electronics", "researchTierId": "rt5",
       "recipes": [ { "id": "rec-crystal-oscillator", "name": "Crystal Oscillator", "machineId": "mach-manufacturer", "cycleTime": 120, "outputAmount": 2, "inputs": [ { "resourceId": "res-quartz-crystal", "amount": 36 }, { "resourceId": "res-cable", "amount": 28 }, { "resourceId": "res-reinforced-iron-plate", "amount": 5 } ] } ],
@@ -454,34 +558,59 @@
       "defaultRecipeId": "rec-petroleum-coke" },
 
     { "id": "res-aluminum-scrap", "name": "Aluminum Scrap", "categoryId": "cat-alu", "researchTierId": "rt7",
-      "recipes": [ { "id": "rec-aluminum-scrap", "name": "Aluminum Scrap", "machineId": "mach-refinery", "cycleTime": 1, "outputAmount": 6, "inputs": [ { "resourceId": "res-alumina-solution", "amount": 4 }, { "resourceId": "res-coal", "amount": 2 } ], "byproducts": [ { "resourceId": "res-water", "amount": 2 } ] } ],
+      "recipes": [
+        { "id": "rec-aluminum-scrap", "name": "Aluminum Scrap", "machineId": "mach-refinery", "cycleTime": 1, "outputAmount": 6, "inputs": [ { "resourceId": "res-alumina-solution", "amount": 4 }, { "resourceId": "res-coal", "amount": 2 } ], "byproducts": [ { "resourceId": "res-water", "amount": 2 } ] },
+        { "id": "rec-instant-scrap", "name": "Alternate: Instant Scrap", "machineId": "mach-blender", "cycleTime": 6, "outputAmount": 30, "inputs": [ { "resourceId": "res-bauxite", "amount": 15 }, { "resourceId": "res-coal", "amount": 10 }, { "resourceId": "res-sulfuric-acid", "amount": 5 }, { "resourceId": "res-water", "amount": 6 } ], "byproducts": [ { "resourceId": "res-water", "amount": 5 } ] },
+        { "id": "rec-electrode-aluminum-scrap", "name": "Alternate: Electrode Aluminum Scrap", "machineId": "mach-refinery", "cycleTime": 4, "outputAmount": 20, "inputs": [ { "resourceId": "res-alumina-solution", "amount": 12 }, { "resourceId": "res-petroleum-coke", "amount": 4 } ], "byproducts": [ { "resourceId": "res-water", "amount": 7 } ] }
+      ],
       "defaultRecipeId": "rec-aluminum-scrap" },
     { "id": "res-aluminum-ingot", "name": "Aluminum Ingot", "categoryId": "cat-alu", "researchTierId": "rt7",
-      "recipes": [ { "id": "rec-aluminum-ingot", "name": "Aluminum Ingot", "machineId": "mach-foundry", "cycleTime": 4, "outputAmount": 4, "inputs": [ { "resourceId": "res-aluminum-scrap", "amount": 6 }, { "resourceId": "res-silica", "amount": 5 } ] } ],
+      "recipes": [
+        { "id": "rec-aluminum-ingot", "name": "Aluminum Ingot", "machineId": "mach-foundry", "cycleTime": 4, "outputAmount": 4, "inputs": [ { "resourceId": "res-aluminum-scrap", "amount": 6 }, { "resourceId": "res-silica", "amount": 5 } ] },
+        { "id": "rec-pure-aluminum-ingot", "name": "Alternate: Pure Aluminum Ingot", "machineId": "mach-smelter", "cycleTime": 2, "outputAmount": 1, "inputs": [ { "resourceId": "res-aluminum-scrap", "amount": 2 } ] }
+      ],
       "defaultRecipeId": "rec-aluminum-ingot" },
     { "id": "res-alclad-sheet", "name": "Alclad Aluminum Sheet", "categoryId": "cat-alu", "researchTierId": "rt7",
       "recipes": [ { "id": "rec-alclad-sheet", "name": "Alclad Aluminum Sheet", "machineId": "mach-assembler", "cycleTime": 6, "outputAmount": 3, "inputs": [ { "resourceId": "res-aluminum-ingot", "amount": 3 }, { "resourceId": "res-copper-ingot", "amount": 1 } ] } ],
       "defaultRecipeId": "rec-alclad-sheet" },
     { "id": "res-aluminum-casing", "name": "Aluminum Casing", "categoryId": "cat-alu", "researchTierId": "rt7",
-      "recipes": [ { "id": "rec-aluminum-casing", "name": "Aluminum Casing", "machineId": "mach-constructor", "cycleTime": 2, "outputAmount": 2, "inputs": [ { "resourceId": "res-aluminum-ingot", "amount": 3 } ] } ],
+      "recipes": [
+        { "id": "rec-aluminum-casing", "name": "Aluminum Casing", "machineId": "mach-constructor", "cycleTime": 2, "outputAmount": 2, "inputs": [ { "resourceId": "res-aluminum-ingot", "amount": 3 } ] },
+        { "id": "rec-alclad-casing", "name": "Alternate: Alclad Casing", "machineId": "mach-assembler", "cycleTime": 8, "outputAmount": 15, "inputs": [ { "resourceId": "res-aluminum-ingot", "amount": 20 }, { "resourceId": "res-copper-ingot", "amount": 10 } ] }
+      ],
       "defaultRecipeId": "rec-aluminum-casing" },
     { "id": "res-heat-sink", "name": "Heat Sink", "categoryId": "cat-alu", "researchTierId": "rt7",
-      "recipes": [ { "id": "rec-heat-sink", "name": "Heat Sink", "machineId": "mach-assembler", "cycleTime": 8, "outputAmount": 1, "inputs": [ { "resourceId": "res-alclad-sheet", "amount": 5 }, { "resourceId": "res-copper-sheet", "amount": 3 } ] } ],
+      "recipes": [
+        { "id": "rec-heat-sink", "name": "Heat Sink", "machineId": "mach-assembler", "cycleTime": 8, "outputAmount": 1, "inputs": [ { "resourceId": "res-alclad-sheet", "amount": 5 }, { "resourceId": "res-copper-sheet", "amount": 3 } ] },
+        { "id": "rec-heat-exchanger", "name": "Alternate: Heat Exchanger", "machineId": "mach-assembler", "cycleTime": 6, "outputAmount": 1, "inputs": [ { "resourceId": "res-aluminum-casing", "amount": 3 }, { "resourceId": "res-rubber", "amount": 3 } ] }
+      ],
       "defaultRecipeId": "rec-heat-sink" },
     { "id": "res-battery", "name": "Battery", "categoryId": "cat-electronics", "researchTierId": "rt7",
-      "recipes": [ { "id": "rec-battery", "name": "Battery", "machineId": "mach-blender", "cycleTime": 3, "outputAmount": 1, "inputs": [ { "resourceId": "res-sulfuric-acid", "amount": 2.5 }, { "resourceId": "res-alumina-solution", "amount": 2 }, { "resourceId": "res-aluminum-casing", "amount": 1 } ] } ],
+      "recipes": [
+        { "id": "rec-battery", "name": "Battery", "machineId": "mach-blender", "cycleTime": 3, "outputAmount": 1, "inputs": [ { "resourceId": "res-sulfuric-acid", "amount": 2.5 }, { "resourceId": "res-alumina-solution", "amount": 2 }, { "resourceId": "res-aluminum-casing", "amount": 1 } ] },
+        { "id": "rec-classic-battery", "name": "Alternate: Classic Battery", "machineId": "mach-manufacturer", "cycleTime": 8, "outputAmount": 4, "inputs": [ { "resourceId": "res-sulfur", "amount": 6 }, { "resourceId": "res-alclad-sheet", "amount": 7 }, { "resourceId": "res-plastic", "amount": 8 }, { "resourceId": "res-wire", "amount": 12 } ] }
+      ],
       "defaultRecipeId": "rec-battery" },
     { "id": "res-radio-control-unit", "name": "Radio Control Unit", "categoryId": "cat-electronics", "researchTierId": "rt7",
-      "recipes": [ { "id": "rec-radio-control-unit", "name": "Radio Control Unit", "machineId": "mach-manufacturer", "cycleTime": 48, "outputAmount": 2, "inputs": [ { "resourceId": "res-aluminum-casing", "amount": 32 }, { "resourceId": "res-crystal-oscillator", "amount": 1 }, { "resourceId": "res-computer", "amount": 2 } ] } ],
+      "recipes": [
+        { "id": "rec-radio-control-unit", "name": "Radio Control Unit", "machineId": "mach-manufacturer", "cycleTime": 48, "outputAmount": 2, "inputs": [ { "resourceId": "res-aluminum-casing", "amount": 32 }, { "resourceId": "res-crystal-oscillator", "amount": 1 }, { "resourceId": "res-computer", "amount": 2 } ] },
+        { "id": "rec-radio-connection-unit", "name": "Alternate: Radio Connection Unit", "machineId": "mach-manufacturer", "cycleTime": 16, "outputAmount": 1, "inputs": [ { "resourceId": "res-heat-sink", "amount": 4 }, { "resourceId": "res-high-speed-connector", "amount": 2 }, { "resourceId": "res-quartz-crystal", "amount": 12 } ] }
+      ],
       "defaultRecipeId": "rec-radio-control-unit" },
     { "id": "res-cooling-system", "name": "Cooling System", "categoryId": "cat-industrial", "researchTierId": "rt8",
       "recipes": [ { "id": "rec-cooling-system", "name": "Cooling System", "machineId": "mach-blender", "cycleTime": 10, "outputAmount": 1, "inputs": [ { "resourceId": "res-heat-sink", "amount": 2 }, { "resourceId": "res-rubber", "amount": 2 }, { "resourceId": "res-water", "amount": 5 }, { "resourceId": "res-nitrogen-gas", "amount": 25 } ] } ],
       "defaultRecipeId": "rec-cooling-system" },
     { "id": "res-fused-modular-frame", "name": "Fused Modular Frame", "categoryId": "cat-industrial", "researchTierId": "rt8",
-      "recipes": [ { "id": "rec-fused-modular-frame", "name": "Fused Modular Frame", "machineId": "mach-blender", "cycleTime": 40, "outputAmount": 1, "inputs": [ { "resourceId": "res-heavy-modular-frame", "amount": 1 }, { "resourceId": "res-aluminum-casing", "amount": 50 }, { "resourceId": "res-nitrogen-gas", "amount": 25 } ] } ],
+      "recipes": [
+        { "id": "rec-fused-modular-frame", "name": "Fused Modular Frame", "machineId": "mach-blender", "cycleTime": 40, "outputAmount": 1, "inputs": [ { "resourceId": "res-heavy-modular-frame", "amount": 1 }, { "resourceId": "res-aluminum-casing", "amount": 50 }, { "resourceId": "res-nitrogen-gas", "amount": 25 } ] },
+        { "id": "rec-heat-fused-frame", "name": "Alternate: Heat-Fused Frame", "machineId": "mach-blender", "cycleTime": 20, "outputAmount": 1, "inputs": [ { "resourceId": "res-heavy-modular-frame", "amount": 1 }, { "resourceId": "res-aluminum-ingot", "amount": 50 }, { "resourceId": "res-nitric-acid", "amount": 8 }, { "resourceId": "res-fuel", "amount": 10 } ] }
+      ],
       "defaultRecipeId": "rec-fused-modular-frame" },
     { "id": "res-turbo-motor", "name": "Turbo Motor", "categoryId": "cat-industrial", "researchTierId": "rt8",
-      "recipes": [ { "id": "rec-turbo-motor", "name": "Turbo Motor", "machineId": "mach-manufacturer", "cycleTime": 32, "outputAmount": 1, "inputs": [ { "resourceId": "res-cooling-system", "amount": 4 }, { "resourceId": "res-radio-control-unit", "amount": 2 }, { "resourceId": "res-motor", "amount": 4 }, { "resourceId": "res-rubber", "amount": 24 } ] } ],
+      "recipes": [
+        { "id": "rec-turbo-motor", "name": "Turbo Motor", "machineId": "mach-manufacturer", "cycleTime": 32, "outputAmount": 1, "inputs": [ { "resourceId": "res-cooling-system", "amount": 4 }, { "resourceId": "res-radio-control-unit", "amount": 2 }, { "resourceId": "res-motor", "amount": 4 }, { "resourceId": "res-rubber", "amount": 24 } ] },
+        { "id": "rec-turbo-electric-motor", "name": "Alternate: Turbo Electric Motor", "machineId": "mach-manufacturer", "cycleTime": 64, "outputAmount": 3, "inputs": [ { "resourceId": "res-motor", "amount": 7 }, { "resourceId": "res-radio-control-unit", "amount": 9 }, { "resourceId": "res-electromagnetic-control-rod", "amount": 5 }, { "resourceId": "res-rotor", "amount": 7 } ] }
+      ],
       "defaultRecipeId": "rec-turbo-motor" },
     { "id": "res-electromagnetic-control-rod", "name": "Electromagnetic Control Rod", "categoryId": "cat-industrial", "researchTierId": "rt8",
       "recipes": [ { "id": "rec-electromagnetic-control-rod", "name": "Electromagnetic Control Rod", "machineId": "mach-assembler", "cycleTime": 30, "outputAmount": 2, "inputs": [ { "resourceId": "res-stator", "amount": 3 }, { "resourceId": "res-ai-limiter", "amount": 2 } ] } ],
@@ -494,24 +623,39 @@
       "defaultRecipeId": "rec-pressure-conversion-cube" },
 
     { "id": "res-encased-uranium-cell", "name": "Encased Uranium Cell", "categoryId": "cat-nuclear", "researchTierId": "rt8",
-      "recipes": [ { "id": "rec-encased-uranium-cell", "name": "Encased Uranium Cell", "machineId": "mach-blender", "cycleTime": 12, "outputAmount": 5, "inputs": [ { "resourceId": "res-uranium", "amount": 10 }, { "resourceId": "res-concrete", "amount": 3 }, { "resourceId": "res-sulfuric-acid", "amount": 8 } ] } ],
+      "recipes": [
+        { "id": "rec-encased-uranium-cell", "name": "Encased Uranium Cell", "machineId": "mach-blender", "cycleTime": 12, "outputAmount": 5, "inputs": [ { "resourceId": "res-uranium", "amount": 10 }, { "resourceId": "res-concrete", "amount": 3 }, { "resourceId": "res-sulfuric-acid", "amount": 8 } ] },
+        { "id": "rec-infused-uranium-cell", "name": "Alternate: Infused Uranium Cell", "machineId": "mach-manufacturer", "cycleTime": 12, "outputAmount": 4, "inputs": [ { "resourceId": "res-uranium", "amount": 5 }, { "resourceId": "res-silica", "amount": 3 }, { "resourceId": "res-sulfur", "amount": 5 }, { "resourceId": "res-quickwire", "amount": 15 } ] }
+      ],
       "defaultRecipeId": "rec-encased-uranium-cell" },
     { "id": "res-uranium-fuel-rod", "name": "Uranium Fuel Rod", "categoryId": "cat-nuclear", "researchTierId": "rt8",
-      "recipes": [ { "id": "rec-uranium-fuel-rod", "name": "Uranium Fuel Rod", "machineId": "mach-manufacturer", "cycleTime": 150, "outputAmount": 1, "inputs": [ { "resourceId": "res-encased-uranium-cell", "amount": 50 }, { "resourceId": "res-encased-industrial-beam", "amount": 3 }, { "resourceId": "res-electromagnetic-control-rod", "amount": 5 } ] } ],
+      "recipes": [
+        { "id": "rec-uranium-fuel-rod", "name": "Uranium Fuel Rod", "machineId": "mach-manufacturer", "cycleTime": 150, "outputAmount": 1, "inputs": [ { "resourceId": "res-encased-uranium-cell", "amount": 50 }, { "resourceId": "res-encased-industrial-beam", "amount": 3 }, { "resourceId": "res-electromagnetic-control-rod", "amount": 5 } ] },
+        { "id": "rec-uranium-fuel-unit", "name": "Alternate: Uranium Fuel Unit", "machineId": "mach-manufacturer", "cycleTime": 300, "outputAmount": 3, "inputs": [ { "resourceId": "res-encased-uranium-cell", "amount": 100 }, { "resourceId": "res-electromagnetic-control-rod", "amount": 10 }, { "resourceId": "res-crystal-oscillator", "amount": 3 }, { "resourceId": "res-rotor", "amount": 10 } ] }
+      ],
       "defaultRecipeId": "rec-uranium-fuel-rod" },
     { "id": "res-uranium-waste", "name": "Uranium Waste", "categoryId": "cat-nuclear", "researchTierId": "rt8",
       "recipes": [], "defaultRecipeId": null },
     { "id": "res-non-fissile-uranium", "name": "Non-Fissile Uranium", "categoryId": "cat-nuclear", "researchTierId": "rt8",
-      "recipes": [ { "id": "rec-non-fissile-uranium", "name": "Non-Fissile Uranium", "machineId": "mach-blender", "cycleTime": 24, "outputAmount": 8, "inputs": [ { "resourceId": "res-uranium-waste", "amount": 15 }, { "resourceId": "res-silica", "amount": 10 }, { "resourceId": "res-nitric-acid", "amount": 6 }, { "resourceId": "res-sulfuric-acid", "amount": 6 } ], "byproducts": [ { "resourceId": "res-water", "amount": 6 } ] } ],
+      "recipes": [
+        { "id": "rec-non-fissile-uranium", "name": "Non-Fissile Uranium", "machineId": "mach-blender", "cycleTime": 24, "outputAmount": 8, "inputs": [ { "resourceId": "res-uranium-waste", "amount": 15 }, { "resourceId": "res-silica", "amount": 10 }, { "resourceId": "res-nitric-acid", "amount": 6 }, { "resourceId": "res-sulfuric-acid", "amount": 6 } ], "byproducts": [ { "resourceId": "res-water", "amount": 6 } ] },
+        { "id": "rec-fertile-uranium", "name": "Alternate: Fertile Uranium", "machineId": "mach-blender", "cycleTime": 12, "outputAmount": 20, "inputs": [ { "resourceId": "res-uranium", "amount": 5 }, { "resourceId": "res-uranium-waste", "amount": 5 }, { "resourceId": "res-nitric-acid", "amount": 3 }, { "resourceId": "res-sulfuric-acid", "amount": 5 } ], "byproducts": [ { "resourceId": "res-water", "amount": 8 } ] }
+      ],
       "defaultRecipeId": "rec-non-fissile-uranium" },
     { "id": "res-plutonium-pellet", "name": "Plutonium Pellet", "categoryId": "cat-nuclear", "researchTierId": "rt8",
       "recipes": [ { "id": "rec-plutonium-pellet", "name": "Plutonium Pellet", "machineId": "mach-particle-accelerator", "cycleTime": 60, "outputAmount": 30, "inputs": [ { "resourceId": "res-non-fissile-uranium", "amount": 100 }, { "resourceId": "res-uranium-waste", "amount": 25 } ] } ],
       "defaultRecipeId": "rec-plutonium-pellet" },
     { "id": "res-encased-plutonium-cell", "name": "Encased Plutonium Cell", "categoryId": "cat-nuclear", "researchTierId": "rt8",
-      "recipes": [ { "id": "rec-encased-plutonium-cell", "name": "Encased Plutonium Cell", "machineId": "mach-assembler", "cycleTime": 12, "outputAmount": 1, "inputs": [ { "resourceId": "res-plutonium-pellet", "amount": 2 }, { "resourceId": "res-concrete", "amount": 1 } ] } ],
+      "recipes": [
+        { "id": "rec-encased-plutonium-cell", "name": "Encased Plutonium Cell", "machineId": "mach-assembler", "cycleTime": 12, "outputAmount": 1, "inputs": [ { "resourceId": "res-plutonium-pellet", "amount": 2 }, { "resourceId": "res-concrete", "amount": 1 } ] },
+        { "id": "rec-instant-plutonium-cell", "name": "Alternate: Instant Plutonium Cell", "machineId": "mach-particle-accelerator", "cycleTime": 120, "outputAmount": 20, "inputs": [ { "resourceId": "res-non-fissile-uranium", "amount": 150 }, { "resourceId": "res-aluminum-casing", "amount": 20 } ] }
+      ],
       "defaultRecipeId": "rec-encased-plutonium-cell" },
     { "id": "res-plutonium-fuel-rod", "name": "Plutonium Fuel Rod", "categoryId": "cat-nuclear", "researchTierId": "rt8",
-      "recipes": [ { "id": "rec-plutonium-fuel-rod", "name": "Plutonium Fuel Rod", "machineId": "mach-manufacturer", "cycleTime": 240, "outputAmount": 1, "inputs": [ { "resourceId": "res-encased-plutonium-cell", "amount": 30 }, { "resourceId": "res-steel-beam", "amount": 18 }, { "resourceId": "res-electromagnetic-control-rod", "amount": 6 }, { "resourceId": "res-heat-sink", "amount": 10 } ] } ],
+      "recipes": [
+        { "id": "rec-plutonium-fuel-rod", "name": "Plutonium Fuel Rod", "machineId": "mach-manufacturer", "cycleTime": 240, "outputAmount": 1, "inputs": [ { "resourceId": "res-encased-plutonium-cell", "amount": 30 }, { "resourceId": "res-steel-beam", "amount": 18 }, { "resourceId": "res-electromagnetic-control-rod", "amount": 6 }, { "resourceId": "res-heat-sink", "amount": 10 } ] },
+        { "id": "rec-plutonium-fuel-unit", "name": "Alternate: Plutonium Fuel Unit", "machineId": "mach-assembler", "cycleTime": 120, "outputAmount": 1, "inputs": [ { "resourceId": "res-encased-plutonium-cell", "amount": 20 }, { "resourceId": "res-pressure-conversion-cube", "amount": 1 } ] }
+      ],
       "defaultRecipeId": "rec-plutonium-fuel-rod" },
     { "id": "res-plutonium-waste", "name": "Plutonium Waste", "categoryId": "cat-nuclear", "researchTierId": "rt8",
       "recipes": [], "defaultRecipeId": null },

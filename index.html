@@ -320,6 +320,8 @@ body.sample-locked .la{display:none!important}
       <label style="display:flex;align-items:center;gap:7px;cursor:pointer;margin-top:6px">
         <input type="checkbox" id="rf-power" style="width:auto">⚡ Power <span style="color:#555">(rates shown in MW; travels over power lines — give it generator recipes)</span>
       </label>
+      <label>Raw cost <span style="color:#555">(how scarce a unit of this is when mined/extracted — only used while it has no recipe. 1 = a normal ore; lower it for effectively unlimited inputs like water)</span></label>
+      <input id="rf-rawcost" type="number" step="0.01" min="0" placeholder="1">
 
       <!-- Optional inline recipe — hidden when editing an existing resource -->
       <div id="rf-recipe-section">
@@ -577,7 +579,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.6';
+const APP_VERSION = '1.0.7';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -1632,13 +1634,19 @@ function saveResource(){
   const researchTierId=document.getElementById('rf-rt').value||null;
   const isPower=document.getElementById('rf-power').checked;
   const isFluid=!isPower&&document.getElementById('rf-fluid').checked;
+  const rcRaw=document.getElementById('rf-rawcost').value.trim();
+  const rc=rcRaw===''?null:parseFloat(rcRaw);
   if(!name)return setErr('rf-err','Name required.');
+  if(rc!==null&&(isNaN(rc)||rc<0))return setErr('rf-err','Raw cost must be 0 or greater.');
+  const rawCost=(rc===null||rc===1)?undefined:rc; // omit the default so profiles stay clean
   setErr('rf-err','');
   if(editResId){
     const r=resources.find(x=>x.id===editResId);
-    if(r){r.name=name;r.categoryId=categoryId;r.researchTierId=researchTierId;r.isFluid=isFluid;r.isPower=isPower;}
+    if(r){r.name=name;r.categoryId=categoryId;r.researchTierId=researchTierId;r.isFluid=isFluid;r.isPower=isPower;
+      if(rawCost===undefined)delete r.rawCost; else r.rawCost=rawCost;}
   } else {
     const newRes={id:uid(),name,categoryId,researchTierId,isFluid,isPower,recipes:[],defaultRecipeId:null,hue:Math.round(resources.length*137.5+60)%360};
+    if(rawCost!==undefined)newRes.rawCost=rawCost;
     const machId=document.getElementById('rf-mach').value;
     const ct=parseFloat(document.getElementById('rf-time').value);
     const outAmt=parseFloat(document.getElementById('rf-outamt').value)||1;
@@ -1661,6 +1669,7 @@ function cancelResource(){
   document.getElementById('rf-rt').value='';
   document.getElementById('rf-fluid').checked=false;
   document.getElementById('rf-power').checked=false;
+  document.getElementById('rf-rawcost').value='';
   document.getElementById('rf-title').textContent='New Resource';
   document.getElementById('rf-mach').value='';
   document.getElementById('rf-time').value='';
@@ -1680,6 +1689,7 @@ function editRes(id){
   document.getElementById('rf-rt').value=r.researchTierId||'';
   document.getElementById('rf-fluid').checked=!!r.isFluid;
   document.getElementById('rf-power').checked=!!r.isPower;
+  document.getElementById('rf-rawcost').value=r.rawCost==null?'':r.rawCost;
   document.getElementById('rf-title').textContent='Edit Resource';
   document.getElementById('rf-recipe-section').style.display='none';
 }
@@ -2275,6 +2285,18 @@ function activeTierName(rec){
 // research-locked recipes/machines/resources are excluded. Ties go to the
 // resource's default recipe. True infeasibility (Infinity) only happens for
 // a research-locked resource or a dependency cycle.
+// What one mined/extracted unit of a resource is "worth". Defaults to 1, so
+// every raw counts alike unless a profile says otherwise. Not all raws are
+// equally scarce: in Satisfactory water is effectively unlimited while crude oil
+// is node-capped, so pricing them the same made the planner prefer Residual Fuel
+// (112.5 crude per 100 Fuel) over Diluted Fuel (37.5) — it couldn't see that
+// diluting with water is the whole point. Generic: most factory games have some
+// effectively-free input.
+function rawCostOf(res){
+  const c=res&&res.rawCost;
+  return (typeof c==='number'&&isFinite(c)&&c>=0)?c:1;
+}
+
 function planRecipes(inputSet){
   const memo={}, choice={};
   function costOf(id,stack){
@@ -2284,13 +2306,13 @@ function planRecipes(inputSet){
     if(!res)return memo[id]=1;
     if(!resUnlocked(res))return memo[id]=Infinity;
     const recs=(res.recipes||[]).filter(recipeAvailable);
-    if(!recs.length)return memo[id]=1; // no recipe defined — external raw input
+    if(!recs.length)return memo[id]=rawCostOf(res); // no recipe defined — external raw input
     if(stack.has(id))return Infinity; // cycle guard (not memoised)
     stack.add(id);
     let best=Infinity,bestRec=null;
     for(const rec of recs){
       const out=rec.outputAmount??1;
-      let c=rec.inputs.length?0:1; // zero-input (mining/extraction) costs 1 raw-equivalent
+      let c=rec.inputs.length?0:rawCostOf(res); // zero-input (mining/extraction)
       for(const inp of rec.inputs){
         c+=(inp.amount/out)*costOf(inp.resourceId,stack);
         if(!isFinite(c))break;
@@ -2299,7 +2321,7 @@ function planRecipes(inputSet){
       if(c<best-1e-9||(Math.abs(c-best)<=1e-9&&isDef)){best=c;bestRec=rec;}
     }
     stack.delete(id);
-    if(!bestRec||!isFinite(best))return memo[id]=1; // nothing usable — treat as external raw
+    if(!bestRec||!isFinite(best))return memo[id]=rawCostOf(res); // nothing usable — treat as external raw
     memo[id]=best; choice[id]=bestRec;
     return best;
   }
