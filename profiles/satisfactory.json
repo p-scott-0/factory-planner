@@ -1,6 +1,6 @@
 {
   "name": "Satisfactory",
-  "version": 6,
+  "version": 7,
   "powerExponent": 1.321928,
   "researchTiers": [
     { "id": "rt0", "name": "Tier 0" },
@@ -274,11 +274,11 @@
     { "id": "res-uranium", "name": "Uranium", "categoryId": "cat-ores", "researchTierId": "rt8",
       "recipes": [ { "id": "rec-uranium", "name": "Mine Uranium (normal node)", "machineId": "mach-miner", "cycleTime": 1, "outputAmount": 1, "inputs": [] } ],
       "defaultRecipeId": "rec-uranium" },
-    { "id": "res-blue-power-slug", "name": "Blue Power Slug", "categoryId": "cat-ores", "researchTierId": "rt5",
+    { "id": "res-blue-power-slug", "name": "Blue Power Slug", "categoryId": "cat-ores", "researchTierId": "rt5", "rawCost": 70,
       "recipes": [], "defaultRecipeId": null },
-    { "id": "res-yellow-power-slug", "name": "Yellow Power Slug", "categoryId": "cat-ores", "researchTierId": "rt5",
+    { "id": "res-yellow-power-slug", "name": "Yellow Power Slug", "categoryId": "cat-ores", "researchTierId": "rt5", "rawCost": 130,
       "recipes": [], "defaultRecipeId": null },
-    { "id": "res-purple-power-slug", "name": "Purple Power Slug", "categoryId": "cat-ores", "researchTierId": "rt5",
+    { "id": "res-purple-power-slug", "name": "Purple Power Slug", "categoryId": "cat-ores", "researchTierId": "rt5", "rawCost": 300,
       "recipes": [], "defaultRecipeId": null },
 
     { "id": "res-water", "name": "Water", "categoryId": "cat-fluids", "researchTierId": "rt3", "isFluid": true, "rawCost": 0.05,

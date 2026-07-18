@@ -22,6 +22,9 @@ Open `index.html` in any browser. No server or build step required.
 - **Machines** with named tiers and speed multipliers (e.g. Mk1 x1.0, Mk2 x2.0)
 - **Resources** organised into collapsible categories, with inline dependency tree diagrams
 - **Recipes** assigned to machines, with multiple recipe alternatives per resource and a configurable default
+- **Two recipe objectives** — From-Inputs mode defaults to **Optimal** (pick the chains that squeeze the most target out of the inputs you listed, searching the target's enabled recipes for the best achievable rate and listing whatever extra inputs the winner needs); switch to **Cheapest** to minimise total raw cost instead. Target mode always uses cheapest-by-raw-cost, weighted by each raw's `rawCost` scarcity (the Satisfactory sample prices hand-collected power slugs accordingly, so slug-powered generators no longer masquerade as the cheapest bulk power)
+- **Diagram zoom** — −/+/Fit controls on the flow diagram (big plans auto-fit on phones), and dashed raw boxes now say *why* something is a raw input when it actually has recipes that are all disabled or research-locked
+- **Read-only sample browsing** — locked sample profiles show everything (recipe lists, dependency trees with a per-recipe picker for alternates, machine/tier/port info); only the editing controls are hidden
 - **Production planner** with two modes that share one engine — a priority-ordered list of targets where every target after the first can be planned entirely from an earlier target's byproducts, differing only in how the first target's rate is pinned down:
   - **Target output** — set a desired rate and get a full machine count + flow diagram
   - **From available inputs** — specify what you have and see the max achievable output with bottleneck analysis; also accepts secondary targets fed by the primary target's byproducts, exactly like Target mode

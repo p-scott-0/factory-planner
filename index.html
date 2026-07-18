@@ -148,8 +148,10 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
 /* Locked sample profiles: hide editing affordances, show the banner */
 #lock-banner{display:none;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:#221a0c;border:1px solid #4a3d1c;border-radius:6px;color:#c9a24a;padding:8px 12px;margin-top:10px;font-size:12.5px}
 body.sample-locked #lock-banner{display:flex}
+/* Only EDITING affordances hide on locked samples — inspection stays: recipe
+   lists, dependency trees, machine/tier/port info are all still browsable.
+   (An earlier blanket .la hide took the Tree and Recipes buttons with it.) */
 body.sample-locked .lock-hide{display:none!important}
-body.sample-locked .la{display:none!important}
 .prof-item{display:inline-flex;align-items:center;gap:5px;background:var(--bg);border:1px solid var(--b);border-radius:5px;padding:4px 8px;font-size:12px}
 /* Tiers tab */
 .rt-card{margin-bottom:14px}
@@ -294,13 +296,14 @@ body.sample-locked .la{display:none!important}
       <div id="mach-list"><div class="empty">No machines yet.</div></div>
       <div class="act">
         <button class="bb bsm" onclick="exportData()">Export JSON</button>
-        <button class="bb bsm" onclick="document.getElementById('imp').click()">Import JSON</button>
+        <button class="bb bsm lock-hide" onclick="document.getElementById('imp').click()">Import JSON</button>
         <input id="imp" type="file" accept=".json" style="display:none" onchange="importData(event)">
       </div>
     </div>
     <div class="card">
       <div class="card-title">Belt Tiers <span id="belt-ct" style="color:#444;font-size:11px"></span></div>
       <div id="belt-list"><div class="empty">No belt tiers defined.</div></div>
+      <div class="lock-hide">
       <hr>
       <div class="r2">
         <div><label>Name</label><input id="bf-name" type="text" placeholder="e.g. Belt Mk2"></div>
@@ -310,10 +313,12 @@ body.sample-locked .la{display:none!important}
       <select id="bf-rt"><option value="">— always —</option></select>
       <div id="bf-err"></div>
       <div class="act"><button class="ba bsm" onclick="addBeltTier()">Add Belt Tier</button></div>
+      </div>
     </div>
     <div class="card">
       <div class="card-title">Pipe Tiers <span id="pipe-ct" style="color:#444;font-size:11px"></span> <span style="color:#555;text-transform:none;letter-spacing:0">— belts for fluid resources</span></div>
       <div id="pipe-list"><div class="empty">No pipe tiers defined.</div></div>
+      <div class="lock-hide">
       <hr>
       <div class="r2">
         <div><label>Name</label><input id="pf-name" type="text" placeholder="e.g. Pipe Mk1"></div>
@@ -323,6 +328,7 @@ body.sample-locked .la{display:none!important}
       <select id="pf-rt"><option value="">— always —</option></select>
       <div id="pf-err"></div>
       <div class="act"><button class="ba bsm" onclick="addPipeTier()">Add Pipe Tier</button></div>
+      </div>
     </div>
     <div class="card lock-hide">
       <div class="card-title">Overclocking</div>
@@ -453,7 +459,7 @@ body.sample-locked .la{display:none!important}
       The 🔓 selector in the nav bar sets the highest unlocked tier — anything above it is hidden everywhere else in the app.
       This tab always shows everything, so skip it if you're avoiding spoilers.
     </div>
-    <div class="cat-add" style="max-width:420px">
+    <div class="cat-add lock-hide" style="max-width:420px">
       <input id="rt-new-name" type="text" placeholder="New tier name (e.g. Tier 3)">
       <button class="ba bsm" onclick="addResearchTier()">Add Tier</button>
     </div>
@@ -494,7 +500,14 @@ body.sample-locked .la{display:none!important}
 
     <!-- Inputs mode -->
     <div id="pl-inp" style="display:none">
-      <div style="max-width:320px"><label>Primary target resource</label><select id="pl-inp-target"><option value="">— select —</option></select></div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap">
+        <div style="flex:1;min-width:220px;max-width:320px"><label>Primary target resource</label><select id="pl-inp-target"><option value="">— select —</option></select></div>
+        <div style="flex:1;min-width:220px;max-width:360px"><label>Recipe choice <span style="color:#555">(how the auto-selector judges chains)</span></label>
+          <select id="pl-inp-obj" onchange="plannerObjective=this.value;savePlannerQuery();saveState();replan()">
+            <option value="optimal">Optimal — most target from these inputs</option>
+            <option value="cheap">Cheapest chain — lowest total raw cost</option>
+          </select></div>
+      </div>
       <div class="sl" style="margin-top:12px">Available inputs</div>
       <div id="pl-inp-rows"></div>
       <button class="bb bsm" onclick="addInputRow()">+ Add Input</button>
@@ -638,6 +651,7 @@ let plans         = [];   // [{id,name,q}] — named saved plans, per profile
 let activePlanId  = null;
 let plannerPins   = {};   // resId → recipeId: force this recipe for this plan (overrides cheapest)
 let plannerClocks = {};   // recipeId → clock fraction (1 = 100%); scales rate, power via powerExponent
+let plannerObjective='optimal'; // from-inputs recipe choice: 'optimal' (max target from the supplied inputs) | 'cheap' (min raw cost)
 // ── Profile-level usage settings ──
 let rawCaps       = {};   // resId → available supply (per second) — planner warns when a plan exceeds it
 let powerExponent = 1;    // machine power scales with clock^exponent (Satisfactory ≈ 1.321928)
@@ -649,7 +663,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.10';
+const APP_VERSION = '1.0.11';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -1198,7 +1212,7 @@ function renderTierTab(){
     belts:beltTiers.filter(b=>norm(b.researchTierId)===tid),
     pipes:pipeTiers.filter(b=>norm(b.researchTierId)===tid)
   });
-  const chip=(label,removeCall)=>`<span class="prof-item">${label}${removeCall?`<button onclick="${removeCall}" title="Clear tier assignment" style="color:var(--red)">✕</button>`:''}</span>`;
+  const chip=(label,removeCall)=>`<span class="prof-item">${label}${removeCall?`<button class="lock-hide" onclick="${removeCall}" title="Clear tier assignment" style="color:var(--red)">✕</button>`:''}</span>`;
   const group=(title,items)=>items.length?`<div class="rt-group"><div class="sl">${title} (${items.length})</div>${items.join('')}</div>`:'';
   const contents=(k,removable)=>
     group('Machines',k.machines.map(m=>chip(esc(m.name),removable?`assignTier('m:${m.id}','')`:'')))+
@@ -1240,14 +1254,14 @@ function renderTierTab(){
           <div class="ls">${total} item${total!==1?'s':''} gated at this tier</div>
         </div>
         <div class="la">
-          <button class="bb bsm" ${i===0?'disabled':''} onclick="moveResearchTier('${t.id}',-1)" title="Move earlier">↑</button>
-          <button class="bb bsm" ${i===researchTiers.length-1?'disabled':''} onclick="moveResearchTier('${t.id}',1)" title="Move later">↓</button>
-          <button class="bb bsm" onclick="renameResearchTier('${t.id}')">Rename</button>
-          <button class="bx" onclick="delResearchTier('${t.id}')">Del</button>
+          <button class="bb bsm lock-hide" ${i===0?'disabled':''} onclick="moveResearchTier('${t.id}',-1)" title="Move earlier">↑</button>
+          <button class="bb bsm lock-hide" ${i===researchTiers.length-1?'disabled':''} onclick="moveResearchTier('${t.id}',1)" title="Move later">↓</button>
+          <button class="bb bsm lock-hide" onclick="renameResearchTier('${t.id}')">Rename</button>
+          <button class="bx lock-hide" onclick="delResearchTier('${t.id}')">Del</button>
         </div>
       </div>
       ${contents(k,true)||'<div class="empty" style="padding:8px">Nothing gated at this tier yet.</div>'}
-      <div style="margin-top:10px;max-width:380px">
+      <div class="lock-hide" style="margin-top:10px;max-width:380px">
         <select onchange="assignTier(this.value,'${t.id}');this.value=''">${assignOpts()}</select>
       </div>
     </div>`;
@@ -1349,7 +1363,7 @@ function renderBeltTiers(){
     const rt=tierName(b.researchTierId);
     return`<div class="litem"><div class="lh">
       <div><div class="ln">${esc(b.name)}</div><div class="ls">${rfmt(b.speed,2)}${rt?` · ${esc(rt)}`:''}</div></div>
-      <div class="la"><button class="bx" onclick="delBeltTier('${b.id}')">Del</button></div>
+      <div class="la"><button class="bx lock-hide" onclick="delBeltTier('${b.id}')">Del</button></div>
     </div></div>`;
   }).join('')+(hidden?`<div class="empty">🔒 ${hidden} belt tier${hidden>1?'s':''} hidden above the unlocked research tier</div>`:'');
 }
@@ -1388,7 +1402,7 @@ function renderPipeTiers(){
     const rt=tierName(b.researchTierId);
     return`<div class="litem"><div class="lh">
       <div><div class="ln">${esc(b.name)}</div><div class="ls">${rfmt(b.speed,2)}${rt?` · ${esc(rt)}`:''}</div></div>
-      <div class="la"><button class="bx" onclick="delPipeTier('${b.id}')">Del</button></div>
+      <div class="la"><button class="bx lock-hide" onclick="delPipeTier('${b.id}')">Del</button></div>
     </div></div>`;
   }).join('')+(hidden?`<div class="empty">🔒 ${hidden} pipe tier${hidden>1?'s':''} hidden above the unlocked research tier</div>`:'');
 }
@@ -1526,6 +1540,16 @@ function beltLabel(ratePerSec,resId){
   return bf?`${bf.count>1?bf.count+'× ':''}${bf.belt.name}`:'';
 }
 function isFluidRes(resId){return !!resources.find(r=>r.id===resId)?.isFluid;}
+// Why is this resource showing up as a raw input? A resource that HAS recipes
+// but none currently usable gets planned as an external raw — technically
+// consistent, but a bare dashed "Heavy Oil Residue" box with no oil behind it
+// reads as a bug unless the reason is spelled out.
+function rawSourceNote(resId){
+  const r=resources.find(x=>x.id===resId);
+  if(!r||!(r.recipes||[]).length)return'';
+  if(!r.recipes.some(recipeAvailable))return resUnlocked(r)?'⚠ has recipes — all disabled':'⚠ recipes research-locked';
+  return'';
+}
 // Power resources are continuous: their per-second rate IS megawatts, they
 // travel over power lines (no belts/pipes), and they display as "X MW"
 // regardless of the /min · /s toggle.
@@ -1696,6 +1720,7 @@ function addCategory(){
 
 function editCat(id,e){
   e.stopPropagation();
+  if(lockGuard())return;
   const cat=categories.find(c=>c.id===id);
   if(!cat)return;
   const v=prompt('Rename category:',cat.name);
@@ -1706,6 +1731,7 @@ function editCat(id,e){
 
 function delCat(id,e){
   e.stopPropagation();
+  if(lockGuard())return;
   if(!confirm('Delete category? Resources will become uncategorised.'))return;
   pushDefUndo();
   categories=categories.filter(c=>c.id!==id);
@@ -1926,8 +1952,8 @@ function renderMachines(){
         <div class="ls">${sz} cells${portStr}${rtStr}</div>
         <div style="margin-top:4px">${tRows}</div></div>
       <div class="la">
-        <button class="bb bsm" onclick="editMach('${m.id}')">Edit</button>
-        <button class="bx" onclick="delMach('${m.id}')">Delete</button>
+        <button class="bb bsm lock-hide" onclick="editMach('${m.id}')">Edit</button>
+        <button class="bx lock-hide" onclick="delMach('${m.id}')">Delete</button>
       </div></div></div>`;
   }).join('')+(hidden?`<div class="empty">🔒 ${hidden} machine${hidden>1?'s':''} hidden above the unlocked research tier</div>`:'');
 }
@@ -2055,18 +2081,34 @@ function toggleResTree(resId, btn){
   const el=document.getElementById(`rtree-${resId}`);
   const open=el.style.display!=='none'&&el.innerHTML;
   if(open){ el.style.display='none'; el.innerHTML=''; btn.classList.remove('open'); btn.textContent='▸ Tree'; return; }
-  el.innerHTML=buildResTreeSVG(resId);
+  renderResTree(resId,'');
   el.style.display='';
   btn.classList.add('open');
   btn.textContent='▾ Tree';
 }
+// A resource with alternates gets a picker above its tree — each recipe is a
+// different production path, so each gets its own tree. Only the ROOT recipe
+// swaps; everything below still follows each ingredient's default, which is
+// what the planner's tie-breaking does too.
+function renderResTree(resId,recId){
+  const el=document.getElementById(`rtree-${resId}`);
+  if(!el)return;
+  const res=resources.find(r=>r.id===resId);
+  const picker=(res&&res.recipes.length>1)
+    ?`<div style="margin-bottom:8px;max-width:340px"><select onchange="renderResTree('${resId}',this.value)">
+        ${res.recipes.map(rec=>`<option value="${rec.id}"${recId===rec.id||(!recId&&rec.id===(res.defaultRecipeId??res.recipes[0].id))?' selected':''}>${esc(rec.name)}${rec.id===res.defaultRecipeId?' ★':''}${recipeAvailable(rec)?'':' (disabled)'}</option>`).join('')}
+      </select></div>`:'';
+  el.innerHTML=picker+buildResTreeSVG(resId,recId);
+}
 
-// Build recursive tree node (uses default recipe, tracks visited to break cycles)
-function treeNode(resId, visited){
+// Build recursive tree node (default recipe, unless the root pins a specific
+// one; tracks visited to break cycles)
+function treeNode(resId, visited, forceRecId){
   if(visited.has(resId)) return {resId,cyclic:true,children:[]};
   const vis2=new Set(visited); vis2.add(resId);
   const res=resources.find(r=>r.id===resId);
-  const rec=res?(res.recipes.find(r=>r.id===res.defaultRecipeId)??res.recipes[0]??null):null;
+  const rec=res?((forceRecId&&res.recipes.find(r=>r.id===forceRecId))
+    ??res.recipes.find(r=>r.id===res.defaultRecipeId)??res.recipes[0]??null):null;
   if(!rec) return {resId,raw:true,children:[]};
   const mach=rec.machineId?machines.find(m=>m.id===rec.machineId):null;
   return {resId,rec,mach,children:rec.inputs.map(i=>treeNode(i.resourceId,vis2))};
@@ -2100,8 +2142,8 @@ function treeCollect(n,nodes=[],edges=[]){
   return{nodes,edges};
 }
 
-function buildResTreeSVG(resId){
-  const root=treeNode(resId,new Set());
+function buildResTreeSVG(resId,rootRecId){
+  const root=treeNode(resId,new Set(),rootRecId||null);
   treeWidth(root); treePos(root,0,0);
   const{nodes,edges}=treeCollect(root);
   const maxD=Math.max(...nodes.map(n=>n.depth));
@@ -2148,9 +2190,9 @@ function resItemHTML(r){
       <div><div class="ln"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${resColor(r.id)};margin-right:6px"></span>${esc(r.name)}${r.isFluid?' <span class="badge bm" title="Fluid — flows through pipes">💧 fluid</span>':''}${r.isPower?' <span class="badge bm" style="color:#e8b84a" title="Power — rates shown in MW">⚡ power</span>':''}</div><div style="margin-top:2px">${sub}</div></div>
       <div class="la">
         ${hasRec?`<button class="btree bsm" id="treebtn-${r.id}" onclick="toggleResTree('${r.id}',this)">▸ Tree</button>`:''}
-        <button class="bb bsm" onclick="editRes('${r.id}')">Edit</button>
+        <button class="bb bsm lock-hide" onclick="editRes('${r.id}')">Edit</button>
         <button class="bb bsm" onclick="selectResource('${r.id}')">Recipes</button>
-        <button class="bx" onclick="delRes('${r.id}')">Del</button>
+        <button class="bx lock-hide" onclick="delRes('${r.id}')">Del</button>
       </div>
     </div>
     ${hasRec?`<div class="rtree" id="rtree-${r.id}" style="display:none"></div>`:''}
@@ -2160,7 +2202,7 @@ function resItemHTML(r){
 function catHeaderHTML(id,name,count,isUncat){
   const exp=catState[id]||false;
   const acts=isUncat?'':`
-    <div class="cat-acts">
+    <div class="cat-acts lock-hide">
       <button class="bb bsm" onclick="editCat('${id}',event)">Rename</button>
       <button class="bx" onclick="delCat('${id}',event)">Del</button>
     </div>`;
@@ -2314,9 +2356,9 @@ function renderRecipesForResource(resId){
           ${m?`<span class="badge bm" style="margin-left:4px">${esc(m.name)}</span>`:''}
         </div>
         <div class="la">
-          ${!isDef?`<button class="bdef" onclick="setDefaultRecipe('${rec.id}','${resId}')">Set Default</button>`:''}
-          <button class="bb bsm" onclick="editRecipe('${rec.id}','${resId}')">Edit</button>
-          <button class="bx" onclick="delRecipe('${rec.id}','${resId}')">Del</button>
+          ${!isDef?`<button class="bdef lock-hide" onclick="setDefaultRecipe('${rec.id}','${resId}')">Set Default</button>`:''}
+          <button class="bb bsm lock-hide" onclick="editRecipe('${rec.id}','${resId}')">Edit</button>
+          <button class="bx lock-hide" onclick="delRecipe('${rec.id}','${resId}')">Del</button>
         </div>
       </div>
       <div style="margin-top:6px">${inBadges}${inBadges?'<span style="color:#333;margin:0 4px">→</span>':''}${outBadge}${byBadges?' '+byBadges:''}</div>
@@ -2426,7 +2468,11 @@ function renderPlannerControls(){
           <input type="checkbox" style="width:auto" ${on?'checked':''} onchange="toggleRecipe('${rec.id}',this.checked)">${esc(rec.name)}${isDef?' ★':''}</label>`;
       }).join('');
       const pinned=plannerPins[r.id];
-      const pinOpts='<option value="">auto (cheapest)</option>'+r.recipes.map(rec=>
+      // Only recipes that are actually usable (ticked + machine unlocked) are
+      // pinnable — a pin on a disabled recipe silently fell back to auto, so
+      // offering it was a lie. If the pinned recipe got disabled since, the
+      // select correctly shows "auto" (which is what the engine does).
+      const pinOpts='<option value="">auto</option>'+r.recipes.filter(recipeAvailable).map(rec=>
         `<option value="${rec.id}"${pinned===rec.id?' selected':''}>📌 ${esc(rec.name)}</option>`).join('');
       return`<div class="rec-override-row" data-name="${esc(r.name)}">
         <span>${esc(r.name)}</span>
@@ -2595,13 +2641,17 @@ function savePlannerQuery(){
     }),
     inpSecondaryTargets:rowsToTargets('#pl-inp-tgt-rows .tgt-row'),
     pins:{...plannerPins},
-    clocks:{...plannerClocks}
+    clocks:{...plannerClocks},
+    objective:plannerObjective
   };
 }
 // Returns true when the restored query is complete enough to auto-run
 function restorePlannerQuery(){
   const q=activePlan()?.q;
   plannerPins={}; plannerClocks={};
+  plannerObjective=q?.objective==='cheap'?'cheap':'optimal';
+  const objSel=document.getElementById('pl-inp-obj');
+  if(objSel)objSel.value=plannerObjective;
   if(q&&q.pins&&typeof q.pins==='object')Object.entries(q.pins).forEach(([k,v])=>{if(typeof v==='string')plannerPins[k]=v;});
   if(q&&q.clocks&&typeof q.clocks==='object')Object.entries(q.clocks).forEach(([k,v])=>{const n=parseFloat(v);if(isFinite(n)&&n>0&&n!==1)plannerClocks[k]=Math.min(n,2.5);});
   renderPlanBar();
@@ -2724,11 +2774,25 @@ function rawCostOf(res){
 
 function planRecipes(inputSet){
   const memo={}, choice={};
+  // Two objectives, same machinery, different RAW PRICING:
+  //  cheap   — supplied inputs are free (0), other raws cost rawCost. Picks the
+  //            chain with the lowest total raw cost, even if it ignores what
+  //            the user supplied (uranium in hand, but ionized fuel is cheaper
+  //            per MW → "chain doesn't consume your inputs").
+  //  optimal — supplied inputs cost their real rawCost (min 1), everything
+  //            else costs ~nothing (rawCost × 0.001, so extras still tie-break
+  //            sensibly). Cheapest-per-unit then MEANS "fewest supplied units
+  //            per unit of target" — i.e. the chain that maximises the target
+  //            from the given inputs, surfacing whatever extra inputs it needs.
+  // With no supplied inputs the two are identical (uniform scaling preserves
+  // every ranking), so Target mode is unaffected by the setting.
+  const optimal=plannerObjective!=='cheap'&&inputSet.size>0;
   function costOf(id,stack){
     if(memo[id]!==undefined)return memo[id];
-    if(inputSet.has(id))return memo[id]=0;
-    const res=resources.find(r=>r.id===id);
-    if(!res)return memo[id]=1;
+    const res0=resources.find(r=>r.id===id);
+    if(inputSet.has(id))return memo[id]=optimal?Math.max(rawCostOf(res0),1):0;
+    const res=res0;
+    if(!res)return memo[id]=optimal?0.001:1;
     if(!resUnlocked(res))return memo[id]=Infinity;
     let recs=(res.recipes||[]).filter(recipeAvailable);
     // A per-plan PIN forces this resource's recipe regardless of cost — the
@@ -2895,20 +2959,47 @@ function computeChain(targetResId, targetRatePerSec, inputSet=new Set(), useCeil
 // off) instead of erroring the whole plan.
 function computeFromInputs(targetResId, inputMap){
   const inputSet=new Set(Object.keys(inputMap));
-  // Rate-1 pass with exact math to find proportional raw needs for bottleneck calc
-  const{nodes:n1,rawNeeds:rn1,infeasible}=computeChain(targetResId,1,inputSet,false);
-  if(infeasible)return{error:'This target isn\'t currently producible — its recipe chain is research-locked or cyclic.'};
-  if(!Object.keys(rn1).length&&!n1.length)return{error:'No recipe found for target resource.'};
-
-  // Only the resources the user actually supplied constrain the achievable
-  // rate; anything else the chain needs is treated as auto-suppliable.
-  let achievable=Infinity, bottleneckRes=null;
-  Object.entries(rn1).forEach(([id,need])=>{
-    if(need<=0||!inputSet.has(id))return;
-    const a=(inputMap[id]??0)/need;
-    if(a<achievable){achievable=a;bottleneckRes=id;}
-  });
-  if(!isFinite(achievable)||achievable<=0)return{noConsume:true,error:'The recipe chain does not consume any of the given inputs, so nothing constrains the rate. Use Target mode instead.'};
+  const probeAchievable=()=>{
+    // Rate-1 pass with exact math to find proportional raw needs for bottleneck calc
+    const{nodes:n1,rawNeeds:rn1,infeasible}=computeChain(targetResId,1,inputSet,false);
+    if(infeasible)return{infeasible:true};
+    if(!Object.keys(rn1).length&&!n1.length)return{noRecipe:true};
+    // Only the resources the user actually supplied constrain the achievable
+    // rate; anything else the chain needs is treated as auto-suppliable.
+    let achievable=Infinity, bottleneckRes=null;
+    Object.entries(rn1).forEach(([id,need])=>{
+      if(need<=0||!inputSet.has(id))return;
+      const a=(inputMap[id]??0)/need;
+      if(a<achievable){achievable=a;bottleneckRes=id;}
+    });
+    return{achievable,bottleneckRes};
+  };
+  let probe=probeAchievable();
+  // OPTIMAL objective: cost ranking alone can't force a chain to CONSUME the
+  // supplied inputs — a chain that ignores them entirely is "free" under any
+  // per-unit pricing. So when the auto-picked chain doesn't touch the supply
+  // (uranium in hand, cheapest generator burns rocket fuel), search the
+  // target's available recipes directly: pin each in turn, and keep whichever
+  // consuming chain achieves the MOST target — which is what "optimal" means.
+  let searchPin=null;
+  if(plannerObjective!=='cheap'&&!(isFinite(probe.achievable)&&probe.achievable>0)&&!probe.infeasible&&!probe.noRecipe){
+    const tres=resources.find(r=>r.id===targetResId);
+    if(tres&&!plannerPins[targetResId]){
+      let best=null;
+      for(const rec of tres.recipes.filter(recipeAvailable)){
+        plannerPins[targetResId]=rec.id;
+        const p=probeAchievable();
+        delete plannerPins[targetResId];
+        if(isFinite(p.achievable)&&p.achievable>0&&(!best||p.achievable>best.probe.achievable))best={rec,probe:p};
+      }
+      if(best){searchPin=best.rec.id;probe=best.probe;plannerPins[targetResId]=searchPin;}
+    }
+  }
+  const{infeasible,noRecipe,achievable,bottleneckRes}=probe;
+  const unpin=()=>{if(searchPin)delete plannerPins[targetResId];};
+  if(infeasible){unpin();return{error:'This target isn\'t currently producible — its recipe chain is research-locked or cyclic.'};}
+  if(noRecipe){unpin();return{error:'No recipe found for target resource.'};}
+  if(!isFinite(achievable)||achievable<=0){unpin();return{noConsume:true,error:'The recipe chain does not consume any of the given inputs, so nothing constrains the rate. Use Target mode instead.'};}
 
   // Final pass at achievable rate — still exact so consumption matches the inputs
   const{nodes,rawNeeds,byproductSurplus,converged}=computeChain(targetResId,achievable,inputSet,false);
@@ -2973,6 +3064,7 @@ function computeFromInputs(targetResId, inputMap){
     }
   });
 
+  unpin(); // the optimal-search pin was only for this computation
   return{nodes,rawNeeds,achievable,bottleneckRes,extras,byproductSurplus,converged};
 }
 
@@ -3308,8 +3400,9 @@ function deletePlan(){
 // part of the query, so they're swapped in for the computation and restored.
 function computePlanTotals(q){
   if(!q||typeof q!=='object')return null;
-  const sp=plannerPins, sc=plannerClocks;
+  const sp=plannerPins, sc=plannerClocks, so=plannerObjective;
   plannerPins=(q.pins&&typeof q.pins==='object')?q.pins:{};
+  plannerObjective=q.objective==='cheap'?'cheap':'optimal';
   plannerClocks={};
   if(q.clocks&&typeof q.clocks==='object')Object.entries(q.clocks).forEach(([k,v])=>{const n=parseFloat(v);if(isFinite(n)&&n>0&&n!==1)plannerClocks[k]=Math.min(n,2.5);});
   try{
@@ -3343,7 +3436,7 @@ function computePlanTotals(q){
       outputs[nm]=r.error?null:(r.achievableStyle?r.achievable:r.rate);
     });
     return {rawNeeds,machCounts,totalMW,outputs};
-  } finally { plannerPins=sp; plannerClocks=sc; }
+  } finally { plannerPins=sp; plannerClocks=sc; plannerObjective=so; }
 }
 
 function comparePlans(){
@@ -3415,6 +3508,7 @@ function sanitizeSharedQuery(q){
   };
   if(q.pins&&typeof q.pins==='object')Object.entries(q.pins).slice(0,200).forEach(([k,v])=>{if(ID(k)&&ID(v))clean.pins[k]=v;});
   if(q.clocks&&typeof q.clocks==='object')Object.entries(q.clocks).slice(0,200).forEach(([k,v])=>{const n=parseFloat(v);if(ID(k)&&isFinite(n)&&n>0)clean.clocks[k]=Math.min(n,2.5);});
+  clean.objective=q.objective==='cheap'?'cheap':'optimal';
   // A link whose content ALL failed sanitisation carries nothing worth loading
   if(!clean.targets.length&&!clean.inpTargetId)return null;
   return clean;
@@ -3759,8 +3853,9 @@ function renderPlanBody(targetIds, nodes, rawNeeds, topHtml, el){
       const beltStr=beltLabel(rate,rid);
       const cap=rawCaps[rid];
       const over=cap>0&&rate>cap+1e-9;
+      const note=rawSourceNote(rid);
       left+=`<div class="raw-i"${over?' style="border-color:var(--red)"':''}>
-        <span class="raw-n"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${resColor(rid)};margin-right:6px"></span>${esc(rname(rid))}</span>
+        <span class="raw-n"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${resColor(rid)};margin-right:6px"></span>${esc(rname(rid))}${note?`<div style="font-size:10px;color:#c0a040;font-style:normal;margin-top:2px">${esc(note)} — enable one in Recipes, or supply it externally</div>`:''}</span>
         <div class="ri-r"><div class="raw-v"${over?' style="color:var(--red)"':''}>${rateStr(rid,rate,3)}</div>${beltStr?`<div class="raw-s">${esc(beltStr)}</div>`:''}
         <div class="raw-s" title="Available supply of this raw resource — leave empty for unlimited">limit
           <input type="number" min="0" step="any" value="${cap>0?+(cap*unitF).toFixed(3):''}" placeholder="∞"
@@ -3771,8 +3866,46 @@ function renderPlanBody(targetIds, nodes, rawNeeds, topHtml, el){
 
   el.innerHTML=`<div class="plan-panels">
     <div class="card">${left}</div>
-    <div class="card flow-card"><div class="card-title">Flow diagram</div>${buildFlowSVG(targetIds,nodes,rawNeeds)}</div>
+    <div class="card flow-card"><div class="card-title" style="display:flex;align-items:center;gap:8px">Flow diagram
+      <span style="margin-left:auto;display:inline-flex;align-items:center;gap:4px;text-transform:none;letter-spacing:0">
+        <button class="bb bsm" style="padding:2px 9px" onclick="flowZoomBy(1/1.25)" title="Zoom out">−</button>
+        <button class="bb bsm" style="padding:2px 7px;min-width:46px" id="fz-pct" onclick="flowZoomReset()" title="Reset to 100%">100%</button>
+        <button class="bb bsm" style="padding:2px 9px" onclick="flowZoomBy(1.25)" title="Zoom in">+</button>
+        <button class="bb bsm" style="padding:2px 9px" onclick="flowZoomFit()" title="Scale the whole diagram to the card width">Fit</button>
+      </span></div>${buildFlowSVG(targetIds,nodes,rawNeeds)}</div>
   </div>`;
+  applyFlowZoom();
+}
+
+// ── Flow diagram zoom ──
+// CSS-scales the rendered SVG (the geometry itself is untouched, so tooltips
+// and the marker keep working via getScreenCTM). Big plans on a phone were
+// unreadable at 1:1 — Fit shrinks the whole diagram to the card width. On
+// touch devices an oversized diagram auto-fits on first render (only while
+// the zoom is untouched, so a manual choice always sticks).
+let flowZoom=1, flowZoomTouched=false;
+function applyFlowZoom(){
+  const card=document.querySelector('#pl-results .flow-card');
+  const svg=card?.querySelector('svg');
+  if(!svg)return;
+  const w=+svg.getAttribute('width'), h=+svg.getAttribute('height');
+  if(!flowZoomTouched&&matchMedia('(pointer:coarse)').matches&&w>card.clientWidth-34){
+    flowZoom=Math.max(0.15,(card.clientWidth-34)/w);
+  }
+  svg.style.width=(w*flowZoom)+'px';
+  svg.style.height=(h*flowZoom)+'px';
+  const lbl=document.getElementById('fz-pct');
+  if(lbl)lbl.textContent=Math.round(flowZoom*100)+'%';
+}
+function flowZoomBy(f){flowZoomTouched=true;flowZoom=Math.min(2.5,Math.max(0.15,flowZoom*f));applyFlowZoom();}
+function flowZoomReset(){flowZoomTouched=true;flowZoom=1;applyFlowZoom();}
+function flowZoomFit(){
+  const card=document.querySelector('#pl-results .flow-card');
+  const svg=card?.querySelector('svg');
+  if(!svg)return;
+  flowZoomTouched=true;
+  flowZoom=Math.min(1,Math.max(0.15,(card.clientWidth-34)/+svg.getAttribute('width')));
+  applyFlowZoom();
 }
 
 // ══════════════════════════════════════════════════════
@@ -3980,19 +4113,25 @@ function ssPlace(){
   if(!sel.isConnected){ ssClose(false); return; }
   const r=sel.getBoundingClientRect();
   if(!r.width&&!r.height){ ssClose(false); return; } // select got hidden under us
-  const sx=window.scrollX, sy=window.scrollY, vw=window.innerWidth;
+  const sx=window.scrollX, sy=window.scrollY;
+  // Clamp against the VISUAL viewport (what's actually on screen under
+  // pinch-zoom), not the layout viewport — that's what kept the list visible
+  // but let it slide sideways off its select while zoomed.
+  const vv=window.visualViewport;
+  const vLeft=sx+(vv?vv.offsetLeft:0), vW=vv?vv.width:window.innerWidth;
+  const vTop=sy+(vv?vv.offsetTop:0), vH=vv?vv.height:window.innerHeight;
   inp.style.left=(r.left+sx)+'px'; inp.style.top=(r.top+sy)+'px';
   inp.style.width=r.width+'px'; inp.style.height=r.height+'px';
-  const below=window.innerHeight-r.bottom-6, above=r.top-6;
+  const below=(vTop+vH)-(r.bottom+sy)-6, above=(r.top+sy)-vTop-6;
   const flip=below<160&&above>below;
   pop.style.maxHeight=Math.min(280,Math.max(80,flip?above:below))+'px';
-  pop.style.minWidth=Math.min(r.width,vw-12)+'px';
-  pop.style.maxWidth=Math.min(Math.max(r.width,320),vw-12)+'px';
-  // Measure AFTER sizing constraints, then clamp into the viewport — selects
-  // near the right edge (recipe pins, tier caps) used to push the list clean
-  // off-screen.
+  pop.style.minWidth=Math.min(r.width,vW-12)+'px';
+  pop.style.maxWidth=Math.min(Math.max(r.width,320),vW-12)+'px';
+  // Measure AFTER sizing constraints, then clamp into the visible area —
+  // selects near the right edge (recipe pins, tier caps) used to push the
+  // list clean off-screen.
   const popW=pop.offsetWidth, popH=pop.offsetHeight;
-  pop.style.left=Math.max(sx+6,Math.min(r.left+sx,sx+vw-popW-6))+'px';
+  pop.style.left=Math.max(vLeft+6,Math.min(r.left+sx,vLeft+vW-popW-6))+'px';
   pop.style.bottom='auto';
   pop.style.top=flip?(r.top+sy-3-popH)+'px':(r.bottom+sy+3)+'px';
 }
@@ -4101,9 +4240,18 @@ function initSearchableSelects(){
     const o=e.target.closest('.ss-opt'); if(!o)return;
     e.preventDefault(); ssCur.hi=+o.dataset.i; ssClose(true);
   });
-  // The select can move under us: panels open, results re-render, page scrolls.
-  window.addEventListener('scroll',()=>ssPlace(),true);
-  window.addEventListener('resize',()=>ssPlace());
+  // The select can move under us: panels open, results re-render, page scrolls,
+  // and on mobile the VISUAL viewport pans/zooms independently of the layout.
+  // Coalesce all of it through one rAF — repositioning synchronously on every
+  // scroll event fired several times per frame is what made the popup jitter.
+  let raf=null;
+  const place=()=>{ if(raf)return; raf=requestAnimationFrame(()=>{raf=null;ssPlace();}); };
+  window.addEventListener('scroll',place,true);
+  window.addEventListener('resize',place);
+  if(window.visualViewport){
+    visualViewport.addEventListener('scroll',place);
+    visualViewport.addEventListener('resize',place);
+  }
 }
 
 // Instant hover card for flow-diagram belts. On a belt it drops a marker dot at
@@ -4271,22 +4419,55 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
   }
 
   // ── Dimensions ──
-  // LANE_H: vertical space reserved above and below the node area for highway routing.
-  // When byproduct satellite boxes are present they sit in the inter-column gap,
-  // so widen that gap (HGAP) to give them room to breathe instead of squishing
-  // them against the next machine box.
-  const anyByproduct=nodes.some(n=>(n.rec.byproducts||[]).length);
-  const NW=196, NH=96, HGAP=anyByproduct?196:128, VGAP=22, RW=150, RH=60, PAD=24, LANE_STEP=16;
+  const NW=196, NH=96, VGAP=22, RW=150, RH=60, PAD=24, LANE_STEP=16;
+  const BW=104, BH=42, BGAP=6, BY_GAP=40; // byproduct satellite boxes — gap sizing below needs them
   // Depth reserved above/below the node area for highway lanes. Lanes stack
   // toward the machines, so a fixed band silently pushes later lanes down into
   // the machine rows once it runs out. The retry at the end of this function
   // feeds back the real lane counts, and the bands are sized to fit them.
   const LANE_TOP=laneHints?.top??52, LANE_BOT=laneHints?.bot??52;
   const rawEntries=Object.entries(rawNeeds);
-  const rawZone=rawEntries.length?RW+HGAP:0;
-  const STEP=NW+HGAP;
+
+  // ── Per-gap column spacing ──
+  // Columns need not be evenly spaced. Each inter-column gap is sized for what
+  // actually lives in it: byproduct satellite boxes (hanging right of the
+  // producer column) and, when highway belts land in the column to the gap's
+  // right, a descent zone sized past the WIDEST rate pill in that column — so
+  // a descending lane belt always finishes LEFT of every label it could cover
+  // and runs straight from there into the machine. Plain belt-only gaps stay
+  // narrow instead of paying the byproduct width everywhere.
+  const pillWOf=t=>t.length*5.4+8;
+  const maxPill={}, laneInto={}, boxesRightOf={};
+  nodes.forEach(n=>{ if((n.rec.byproducts||[]).length)boxesRightOf[dc[n.rec.id]]=true; });
+  nodes.forEach(consumer=>{
+    const dcc=dc[consumer.rec.id];
+    const cct=effectiveCycleTime(consumer.rec);
+    consumer.rec.inputs.forEach(inp=>{
+      const R=inp.resourceId;
+      const rate=(inp.amount/cct)*consumer.exact*(consumer.capF??1)*(consumer.clock??1);
+      const w=pillWOf(crateStr(R,rate));
+      if(!(maxPill[dcc]>=w))maxPill[dcc]=w;
+      const srcDepths=(primaryBy[R]||[]).filter(x=>x!==consumer).map(x=>dc[x.rec.id])
+        .concat(nodes.filter(x=>x!==consumer&&(x.rec.byproducts||[]).some(b=>b.resourceId===R)).map(x=>dc[x.rec.id]));
+      if(srcDepths.some(d0=>d0-dcc>1))laneInto[dcc]=true;
+      else if(!srcDepths.length&&rawNeeds[R]!=null&&dcc<maxD)laneInto[dcc]=true;
+    });
+  });
+  const LEADL={}; // straight lead-in for lane belts entering column d
+  for(let d=0;d<=maxD;d++)LEADL[d]=Math.min(110,Math.max(46,(maxPill[d]||0)+22));
+  const gapOf={};  // gap between column d+1 (left) and column d (right)
+  for(let d=0;d<maxD;d++){
+    const boxes=boxesRightOf[d+1];
+    let g=boxes?196:128;
+    if(laneInto[d])g=Math.max(g,(boxes?BY_GAP+BW+10:0)+LEADL[d]+82);
+    gapOf[d]=g;
+  }
+  const rawZone=rawEntries.length?RW+128:0;
+  const colXs={}; colXs[maxD]=PAD+rawZone;
+  for(let d=maxD-1;d>=0;d--)colXs[d]=colXs[d+1]+NW+gapOf[d];
+  const gapRight=d=>d>0?gapOf[d-1]:196; // clearance to the right of a column
   // Reading direction: raw inputs on the far left, target output on the far right
-  const colX=d=>PAD+rawZone+(maxD-d)*STEP;
+  const colX=d=>colXs[d];
   const nodeTop=PAD+LANE_TOP;   // y-offset where nodes begin
 
   // ── Split each column into the MAIN chain (primary target) and a SECONDARY
@@ -4328,7 +4509,7 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
   // into that band (aligned with the consumer) so the whole byproduct chain
   // lives in one row region, with a dashed connector dropping from the
   // producer up top; otherwise it hangs beside its producer as before.
-  const BW=104, BH=42, BGAP=6, BY_GAP=40;
+  // (BW/BH/BGAP/BY_GAP are defined up in the dimensions block — gap sizing needs them.)
   // One box PER PRODUCER per byproduct resource (keyed producerRecId|resId) —
   // two stages can both byproduce the same thing (e.g. Aluminum Scrap and
   // Fertile Uranium both returning Water); keying by resource alone dropped
@@ -4445,37 +4626,38 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
         srcs.forEach(s=>{
           const r=rate*s.supply/totalSupply;
           if(r<=1e-12)return;
+          const dstD=dc[consumer.rec.id];
           if(s.kind==='n'){
             const pp=posR[s.node.rec.id];
             edgeList.push({fromKey:'n'+s.node.rec.id,toKey:'n'+consumer.rec.id,
               fx:pp.x+NW,fyBase:pp.y,fH:NH,tx:cp.x,tyBase:cp.y,
-              rate:r,resId:R,
+              rate:r,resId:R,dstD,srcD:dc[s.node.rec.id],srcBeside:!!besideBp[s.node.rec.id],
               fromLabel:s.node.rec.machineId?mname(s.node.rec.machineId):'(no machine)',
               toLabel,
-              isLong:(dc[s.node.rec.id]-dc[consumer.rec.id])>1});
+              isLong:(dc[s.node.rec.id]-dstD)>1});
           } else if(s.kind==='b'){
             edgeList.push({fromKey:'b'+s.key,toKey:'n'+consumer.rec.id,
               fx:s.box.x+BW,fyBase:s.box.y,fH:BH,tx:cp.x,tyBase:cp.y,
-              rate:r,resId:R,isByproduct:true,byKey:s.key,
+              rate:r,resId:R,isByproduct:true,byKey:s.key,dstD,srcD:dc[s.box.producer.rec.id],srcIsBox:true,
               fromLabel:`${s.box.producer.rec.machineId?mname(s.box.producer.rec.machineId):'(no machine)'} (byproduct)`,
               toLabel,
-              isLong:(dc[s.box.producer.rec.id]-dc[consumer.rec.id])>1});
+              isLong:(dc[s.box.producer.rec.id]-dstD)>1});
           } else {
             const rp=posRaw[R];
             edgeList.push({fromKey:'r'+R,toKey:'n'+consumer.rec.id,
               fx:rp.x+RW,fyBase:rp.y,fH:RH,tx:cp.x,tyBase:cp.y,
-              rate:r,resId:R,
-              fromLabel:'Raw input',
+              rate:r,resId:R,dstD,srcRaw:true,
+              fromLabel:'Raw input'+(rawSourceNote(R)?' — no enabled recipe':''),
               toLabel,
-              isLong:dc[consumer.rec.id]<maxD});
+              isLong:dstD<maxD});
           }
         });
       } else if(posRaw[R]){
         const rp=posRaw[R];
         edgeList.push({fromKey:'r'+R,toKey:'n'+consumer.rec.id,
           fx:rp.x+RW,fyBase:rp.y,fH:RH,tx:cp.x,tyBase:cp.y,
-          rate,resId:R,
-          fromLabel:'Raw input',
+          rate,resId:R,dstD:dc[consumer.rec.id],srcRaw:true,
+          fromLabel:'Raw input'+(rawSourceNote(R)?' — no enabled recipe':''),
           toLabel,
           isLong:dc[consumer.rec.id]<maxD});
       }
@@ -4534,11 +4716,14 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
       // direction reads at a glance. The backward entry is a single continuous
       // hook — it stays going left and rises before curving forward into the
       // machine's left edge, rather than overshooting and abruptly reversing.
-      // Ramp spans are clamped to the clearance the source actually has: a
-      // byproduct box hangs in the inter-column gap, leaving only ~50px before
-      // the next column's machines — an unclamped stagger curve punched
-      // straight through them.
-      const outClear=(e.fromKey[0]==='b'?HGAP-BY_GAP-BW:HGAP)-8;
+      // Ramp spans are clamped to the clearance the SOURCE actually has: the
+      // gap to its right (per-gap widths now), minus its own byproduct boxes
+      // when they hang there — an unclamped stagger curve punched straight
+      // through the next column's machines.
+      const outClear=(e.srcIsBox?gapRight(e.srcD)-(BY_GAP+BW)-10
+        :e.srcBeside?BY_GAP-10
+        :e.srcRaw?118
+        :gapRight(e.srcD)-10);
       if(backward){
         const s=Math.min(30+((backIntervals.length)%4)*8,Math.max(14,outClear));
         const L=backLane(x2-LEAD-s,x1+s);
@@ -4547,15 +4732,17 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
       } else {
         const L=allocLane();
         laneY=L.y;
-        // EXIT ramps stagger by lane index (clamped to the source's clearance)
-        // so parallel edges rise at different x instead of piling up. The
-        // ENTRY descent stays compact: lane arrivals get the TOPMOST entry
-        // slots (see byTo ordering), so nothing sits above them to overlap —
-        // a longer lead-in only ran the descent through the previous column's
-        // byproduct boxes.
+        // EXIT ramps stagger by lane index within the source's clearance, so
+        // parallel edges rise at different x instead of piling up. The ENTRY
+        // descent lands at this column's dynamic lead-in — LEFT of the widest
+        // rate pill in the column (the gap was sized for it), then runs
+        // straight into the machine, so a descending lane belt can no longer
+        // sit on any label.
         const sOut=Math.min(26+(L.i%6)*9,Math.max(14,outClear/2));
-        const sIn=34;
-        path=`M${x1},${y1} C${x1+sOut},${y1} ${x1+sOut},${laneY} ${x1+sOut*2},${laneY} L${x2-sIn*2},${laneY} C${x2-sIn},${laneY} ${x2-sIn},${y2} ${x2-LEAD},${y2} L${x2-7},${y2}`;
+        const lead=LEADL[e.dstD]??46;
+        const inClear=(gapOf[e.dstD]??196)-(boxesRightOf[e.dstD+1]?BY_GAP+BW+10:0)-lead-8;
+        const sIn=Math.min(26+(L.i%3)*7,Math.max(14,inClear/2));
+        path=`M${x1},${y1} C${x1+sOut},${y1} ${x1+sOut},${laneY} ${x1+sOut*2},${laneY} L${x2-lead-sIn*2},${laneY} C${x2-lead-sIn},${laneY} ${x2-lead-sIn},${y2} ${x2-lead},${y2} L${x2-7},${y2}`;
       }
     } else {
       const bx=x2-LEAD;
@@ -4614,11 +4801,13 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
   rawEntries.forEach(([rid,rate])=>{
     const p=posRaw[rid];
     const rawBelt=beltLabel(rate,rid);
-    raws+=`<rect x="${p.x}" y="${p.y}" width="${RW}" height="${RH}" rx="6" fill="#111a11" stroke="${resColor(rid,45,40)}" stroke-width="1.5" stroke-dasharray="5 3"/>
+    const note=rawSourceNote(rid);
+    raws+=`<rect x="${p.x}" y="${p.y}" width="${RW}" height="${RH}" rx="6" fill="#111a11" stroke="${note?'#8a6a20':resColor(rid,45,40)}" stroke-width="1.5" stroke-dasharray="5 3"/>
       <text x="${p.x+RW/2}" y="${p.y+18}" text-anchor="middle" font-size="12" font-weight="600" fill="${resColor(rid,55,68)}">${esc(rname(rid))}</text>
       <line x1="${p.x+8}" y1="${p.y+24}" x2="${p.x+RW-8}" y2="${p.y+24}" stroke="#2a4a2a" stroke-width="1"/>
       <text x="${p.x+RW/2}" y="${p.y+38}" text-anchor="middle" font-size="10" fill="#3a7a4a">${rateStr(rid,rate,3)}</text>
-      ${rawBelt?`<text x="${p.x+RW/2}" y="${p.y+51}" text-anchor="middle" font-size="10" fill="#2a6a3a">${esc(rawBelt)}</text>`:''}`;
+      ${note?`<text x="${p.x+RW/2}" y="${p.y+51}" text-anchor="middle" font-size="8.5" fill="#c0a040">${esc(note)}</text>`
+        :rawBelt?`<text x="${p.x+RW/2}" y="${p.y+51}" text-anchor="middle" font-size="10" fill="#2a6a3a">${esc(rawBelt)}</text>`:''}`;
   });
 
   // ── Byproduct boxes — small, dashed-connector satellite off the producer.
@@ -4708,6 +4897,7 @@ function exportData(){
   Object.assign(document.createElement('a'),{href:URL.createObjectURL(blob),download:`${(p?.name||'data').replace(/[^a-z0-9_-]/gi,'_')}-data.json`}).click();
 }
 function importData(e){
+  if(lockGuard()){e.target.value='';return;}
   const f=e.target.files[0]; if(!f)return;
   const r=new FileReader();
   r.onload=ev=>{
