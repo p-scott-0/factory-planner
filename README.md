@@ -16,7 +16,8 @@ Open `index.html` in any browser. No server or build step required.
 - **Overclocking** — set a per-stage clock % in the results list; machines run faster (fewer needed) while power scales with clock^exponent (the exponent is a profile setting — the Satisfactory sample ships ≈1.32, matching the game)
 - **Raw supply limits** — set an available rate on any raw input (e.g. "my map slice has 3900 crude") and the planner flags any plan that exceeds it
 - **Share links** — copy a URL that encodes the whole plan; anyone with the same profile (e.g. the bundled sample) opens it to the exact same plan
-- **Plan export** — download the flow diagram as a standalone SVG, or the stage list + raw inputs as CSV
+- **Plan export** — download the flow diagram as a PNG (2×) or standalone SVG, or the stage list + raw inputs as CSV
+- **Phone-friendly** — a proper mobile viewport with single-column layouts; the planner's results group by machine type (tap to expand each machine's recipes), and the recipe/tier cards collapse to one-line summaries with a filter that expands matches as you type
 - **Edit undo** — machine/resource/recipe edits and deletes have a 20-step undo (the layout editor has its own Ctrl+Z)
 - **Machines** with named tiers and speed multipliers (e.g. Mk1 x1.0, Mk2 x2.0)
 - **Resources** organised into collapsible categories, with inline dependency tree diagrams

@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"><title>Factory Planner</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -108,8 +109,12 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
 #flow-tip .ft-flow{color:#6a8090;font-size:11px;margin-top:3px}
 /* Type-to-filter overlay for long <select>s. The input is laid over the select's
    own box, so the search appears in the space the dropdown occupied. */
-#ss-inp{position:fixed;z-index:1101;display:none;background:var(--bg);border:1px solid var(--acc);border-radius:5px;color:var(--tx);padding:6px 9px;font-size:13px;outline:none;font-family:inherit}
-#ss-pop{position:fixed;z-index:1100;display:none;background:var(--surf);border:1px solid var(--b2);border-radius:6px;box-shadow:0 8px 26px rgba(0,0,0,.6);overflow-y:auto;overscroll-behavior:contain;padding:3px}
+/* Document-anchored (absolute, not fixed): position:fixed lives in the layout
+   viewport, which drifts against the page under mobile pinch-zoom and scroll —
+   the overlay ended up nowhere near its select. Absolute coordinates scroll
+   and zoom WITH the content. */
+#ss-inp{position:absolute;z-index:1101;display:none;background:var(--bg);border:1px solid var(--acc);border-radius:5px;color:var(--tx);padding:6px 9px;font-size:13px;outline:none;font-family:inherit}
+#ss-pop{position:absolute;z-index:1100;display:none;background:var(--surf);border:1px solid var(--b2);border-radius:6px;box-shadow:0 8px 26px rgba(0,0,0,.6);overflow-y:auto;overscroll-behavior:contain;padding:3px}
 #ss-pop .ss-grp{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--dim);padding:5px 8px 2px}
 #ss-pop .ss-opt{padding:5px 8px;border-radius:4px;font-size:13px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #ss-pop .ss-opt.on{background:var(--acc);color:#141618}
@@ -179,6 +184,36 @@ body.sample-locked .la{display:none!important}
 .lcost-total .lcost-name{color:var(--acc)}
 @media(max-width:700px){.layout-side{width:160px}.layout-side .card{padding:8px}}
 #tab-layout{padding:0}
+/* ── Phone layout ──────────────────────────────────────────────────────────
+   The viewport meta makes real device widths reach these queries, so the
+   820/840px rules above already stack the planner and editor columns on a
+   phone. This tier tightens chrome so content gets the width: slimmer
+   paddings, a wrapping nav, full-width profile controls, and results/diagram
+   stacked with the diagram scrolling inside its own card. Desktop unaffected. */
+@media(max-width:640px){
+  .tab{padding:10px}
+  .card{padding:12px}
+  .card+.card{margin-top:10px}
+  .nav{padding:0 8px;gap:0}
+  .nav-logo{font-size:13px;margin-right:6px}
+  .nav-tab{padding:10px 8px;font-size:12.5px}
+  .prof-wrap{margin-left:auto;gap:4px}
+  .prof-sel{min-width:70px;max-width:130px}
+  .two-col{gap:10px}
+  .plan-panels{gap:10px}
+  .tgt-row .tgt-unit{flex:0 0 74px}
+  .tgt-row .tgt-rate{min-width:70px}
+  .mode-btn{padding:8px 12px;font-size:12px}
+  .ri{padding:8px 10px}
+  .ri-cnt{font-size:22px}
+  .layout-wrap{height:calc(100vh - 90px)}
+  #flow-tip{max-width:230px}
+}
+/* Mobile keyboards zoom the page when a focused field's font is under 16px —
+   the search overlay must never trigger that. */
+@media(pointer:coarse){
+  #ss-inp{font-size:16px!important}
+}
 </style>
 </head>
 <body>
@@ -468,16 +503,25 @@ body.sample-locked .la{display:none!important}
     </div>
   </div>
 
-  <!-- Machine / belt tier caps -->
+  <!-- Machine / belt tier caps (header collapses the body; collapsed by default) -->
   <div class="card" id="pl-tier-card" style="margin-bottom:14px;display:none">
-    <div class="card-title">Max Machine Tiers <span style="color:#555;text-transform:none;letter-spacing:0">— only machines with a choice are listed</span></div>
-    <div id="pl-tier-rows"></div>
+    <div class="card-title" style="cursor:pointer;user-select:none;margin-bottom:0" onclick="togglePlanCard('tier')">
+      <span id="pl-tier-arrow" style="display:inline-block;width:12px;color:var(--dim)">▸</span>
+      Max Machine Tiers <span id="pl-tier-summary" style="color:#555;text-transform:none;letter-spacing:0"></span>
+    </div>
+    <div id="pl-tier-rows" style="display:none;margin-top:12px"></div>
   </div>
 
-  <!-- Recipe toggles -->
+  <!-- Recipe toggles + per-plan pins (header collapses; the filter always shows
+       and typing in it auto-expands whatever matches) -->
   <div class="card" id="pl-rec-card" style="margin-bottom:14px;display:none">
-    <div class="card-title">Recipe Toggles <span style="color:#555;text-transform:none;letter-spacing:0">— the planner picks the cheapest enabled chain (by raw inputs); ★ = default on ties</span></div>
-    <div id="pl-rec-rows"></div>
+    <div class="card-title" style="cursor:pointer;user-select:none;margin-bottom:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap" onclick="togglePlanCard('rec')">
+      <span id="pl-rec-arrow" style="display:inline-block;width:12px;color:var(--dim)">▸</span>
+      <span>Recipes <span id="pl-rec-summary" style="color:#555;text-transform:none;letter-spacing:0"></span></span>
+      <input id="rec-filter" type="text" placeholder="Filter resources…" onclick="event.stopPropagation()"
+        style="max-width:200px;margin-left:auto;font-size:12px;padding:4px 8px;text-transform:none;letter-spacing:0" oninput="filterRecRows(this.value)">
+    </div>
+    <div id="pl-rec-rows" style="display:none;margin-top:12px"></div>
   </div>
 
   <button class="ba" onclick="runPlanner()">Calculate</button>
@@ -605,7 +649,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.9';
+const APP_VERSION = '1.0.10';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -2351,6 +2395,15 @@ function renderPlannerControls(){
         </select></div>`;
     }
     tierRows.innerHTML=rows;
+    const tSum=document.getElementById('pl-tier-summary');
+    if(tSum){
+      const parts=[];
+      if(multiTier.length)parts.push(multiTier.map(m=>`${m.name} ${activeTier(m.id)?.name??''}`.trim()).join(', '));
+      const curB=ub.find(b=>b.id===maxBeltTierId), curP=up.find(b=>b.id===maxPipeTierId);
+      parts.push(`belts ${curB?'≤ '+curB.name:'fastest'}`);
+      if(up.length>1)parts.push(`pipes ${curP?'≤ '+curP.name:'fastest'}`);
+      tSum.textContent='— '+parts.join(' · ');
+    }
   }
 
   // Recipe toggles (only resources with >1 available-to-see recipe).
@@ -2363,10 +2416,9 @@ function renderPlannerControls(){
     recCard.style.display='';
     // Toggles are PROFILE state ("which alternates have I found"); the pin is
     // PLAN state ("use this recipe for this plan") saved with the named plan.
-    const filterVal=document.getElementById('rec-filter')?.value||'';
-    recRows.innerHTML=`<input id="rec-filter" type="text" placeholder="Filter resources…" value="${esc(filterVal)}"
-        style="max-width:230px;margin-bottom:8px" oninput="filterRecRows(this.value)">`+
-      multiRecRes.map(r=>{
+    // Rows are grouped under their resource's category, each group collapsed by
+    // default — 65 alternates were swallowing the page as one flat list.
+    const rowFor=r=>{
       const boxes=r.recipes.map(rec=>{
         const on=recToggles[rec.id]!==false;
         const isDef=rec.id===r.defaultRecipeId;
@@ -2383,9 +2435,36 @@ function renderPlannerControls(){
           title="Pin a recipe for THIS PLAN only — overrides the cheapest-chain choice; saved with the plan"
           onchange="setRecipePin('${r.id}',this.value)">${pinOpts}</select>
       </div>`;
+    };
+    const groups=[];
+    categories.forEach(c=>{
+      const items=multiRecRes.filter(r=>r.categoryId===c.id);
+      if(items.length)groups.push({id:c.id,name:c.name,items});
+    });
+    const uncat=multiRecRes.filter(r=>!r.categoryId||!categories.some(c=>c.id===r.categoryId));
+    if(uncat.length)groups.push({id:'__uncat',name:'Other',items:uncat});
+    recRows.innerHTML=groups.map(g=>{
+      const open=!!recGroupOpen[g.id];
+      const offCt=g.items.reduce((s,r)=>s+r.recipes.filter(rec=>recToggles[rec.id]===false).length,0);
+      const pinCt=g.items.filter(r=>plannerPins[r.id]).length;
+      return`<div class="rec-group" data-gid="${g.id}">
+        <div class="cat-hdr" onclick="toggleRecGroup('${g.id}')">
+          <span class="cat-arrow" id="rgarrow-${g.id}">${open?'▾':'▸'}</span>
+          <span class="cat-name-lbl">${esc(g.name)}</span>
+          <span class="cat-ct">${g.items.length} resource${g.items.length!==1?'s':''}${offCt?` · ${offCt} off`:''}${pinCt?` · ${pinCt} 📌`:''}</span>
+        </div>
+        <div class="cat-body" id="rgbody-${g.id}" style="${open?'':'display:none'}">${g.items.map(rowFor).join('')}</div>
+      </div>`;
     }).join('');
-    if(filterVal)filterRecRows(filterVal);
+    const totalRecipes=multiRecRes.reduce((s,r)=>s+r.recipes.length,0);
+    const totalOff=multiRecRes.reduce((s,r)=>s+r.recipes.filter(rec=>recToggles[rec.id]===false).length,0);
+    const totalPins=Object.keys(plannerPins).filter(id=>multiRecRes.some(r=>r.id===id)).length;
+    const sum=document.getElementById('pl-rec-summary');
+    if(sum)sum.textContent=`— ${totalRecipes} recipes · ${totalOff} off${totalPins?` · ${totalPins} pinned`:''} · cheapest enabled chain wins, ★ = default on ties`;
+    const fv=document.getElementById('rec-filter')?.value||'';
+    if(fv)filterRecRows(fv);
   }
+  applyPlanCardState();
 }
 
 function toggleRecipe(recId,on){
@@ -2407,14 +2486,24 @@ function replan(){
 function planPowerGeneration(mw){
   const pr=resources.find(r=>r.isPower&&resUnlocked(r)&&r.recipes.some(recipeAvailable));
   if(!pr)return alert('No Power resource with generator recipes is available — create one in Resources (⚡ Power) and give it recipes on your generator machines.');
-  // This replaces whatever targets are typed in — don't silently eat them
-  const hasTargets=[...document.querySelectorAll('#pl-tgt-rows .tgt-row .tgt-res')].some(s=>s.value);
-  if(hasTargets&&!confirm(`Replace the current targets with a ${Math.ceil(mw)} MW power-generation plan?`))return;
+  // The generation plan gets its OWN saved plan (named after the wattage), so
+  // the factory plan it came from stays untouched and the two sit side by side
+  // in the plan bar — Compare works across them too.
+  savePlannerQuery();
+  const hasContent=[...document.querySelectorAll('#pl-tgt-rows .tgt-row .tgt-res')].some(s=>s.value)||planMode==='inputs';
+  if(hasContent){
+    let nm=`Power ${Math.ceil(mw)} MW`,k=2;
+    while(plans.some(p=>p.name===nm))nm=`Power ${Math.ceil(mw)} MW (${k++})`;
+    plans.push({id:uid(),name:nm,q:null});
+    activePlanId=plans[plans.length-1].id;
+    renderPlanBar();
+  }
   setPlanMode('target');
   document.getElementById('pl-tgt-rows').innerHTML='';
   addTargetRow('pl-tgt-rows',pr.id,String(Math.ceil(mw)),'1'); // MW = per-second rate
   ensureTrailingBlankTargetRow('pl-tgt-rows');
-  runPlanner();
+  plannerPins={}; plannerClocks={}; renderPlannerControls();
+  runPlanner(); // savePlannerQuery inside persists into the new plan
 }
 
 // ── Target rows (shared by Target Output mode and From-Inputs mode's
@@ -2439,7 +2528,23 @@ function addTargetRow(containerId='pl-tgt-rows',resId='',rate='',unit='60'){
   row.querySelector('.tgt-res').value=resId;
   row.querySelector('.tgt-unit').value=unit;
   row.dataset.container=containerId;
+  // Power is continuous — "per minute" is meaningless for it. When a power
+  // resource is picked the unit select collapses to a single MW option
+  // (value 1: per-second rate IS megawatts); picking anything else restores
+  // the normal units.
+  const syncUnit=()=>{
+    const u=row.querySelector('.tgt-unit');
+    const isP=isPowerRes(row.querySelector('.tgt-res').value);
+    const wasP=u.dataset.power==='1';
+    if(isP&&!wasP){u.innerHTML='<option value="1">MW</option>';u.value='1';u.dataset.power='1';}
+    else if(!isP&&wasP){
+      u.innerHTML='<option value="60">minute</option><option value="1">second</option><option value="3600">hour</option>';
+      u.value='60';u.dataset.power='';
+    }
+  };
+  syncUnit();
   row.querySelector('.tgt-res').addEventListener('change',()=>{
+    syncUnit();
     const rows=[...document.getElementById(containerId).children];
     if(row===rows[rows.length-1]&&row.querySelector('.tgt-res').value)addTargetRow(containerId);
   });
@@ -3369,15 +3474,43 @@ function planFileName(){
   const cl=s=>String(s||'').replace(/[^a-z0-9_-]/gi,'_');
   return `${cl(activeProfile()?.name)}-${cl(activePlan()?.name||'plan')}`;
 }
-function exportPlanSVG(){
+function _planSvgClone(){
   const svg=document.querySelector('#pl-results .flow-card svg');
-  if(!svg)return alert('Run a plan first.');
+  if(!svg){alert('Run a plan first.');return null;}
   const clone=svg.cloneNode(true);
   clone.querySelector('.belt-marker')?.remove(); // hover artifact, not part of the plan
   clone.setAttribute('xmlns','http://www.w3.org/2000/svg');
   clone.insertAdjacentHTML('afterbegin',`<rect x="0" y="0" width="${svg.getAttribute('width')}" height="${svg.getAttribute('height')}" fill="#1f2225"/>`);
-  const blob=new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n'+clone.outerHTML],{type:'image/svg+xml'});
+  return {clone,w:+svg.getAttribute('width'),h:+svg.getAttribute('height')};
+}
+function exportPlanSVG(){
+  const s=_planSvgClone(); if(!s)return;
+  const blob=new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n'+s.clone.outerHTML],{type:'image/svg+xml'});
   Object.assign(document.createElement('a'),{href:URL.createObjectURL(blob),download:planFileName()+'.svg'}).click();
+}
+// Raster export — SVG opens nowhere most people want to paste a diagram.
+// Renders the SVG onto a canvas at 2× (capped so huge plans don't blow the
+// canvas limit) and downloads a PNG.
+function exportPlanPNG(){
+  const s=_planSvgClone(); if(!s)return;
+  const scale=Math.max(1,Math.min(2,8000/Math.max(s.w,s.h)));
+  const url=URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(s.clone)],{type:'image/svg+xml'}));
+  const img=new Image();
+  img.onload=()=>{
+    try{
+      const c=document.createElement('canvas');
+      c.width=Math.round(s.w*scale); c.height=Math.round(s.h*scale);
+      const ctx=c.getContext('2d');
+      ctx.scale(scale,scale);
+      ctx.drawImage(img,0,0);
+      c.toBlob(b=>{
+        if(!b)return alert('PNG export failed — the SVG export still works.');
+        Object.assign(document.createElement('a'),{href:URL.createObjectURL(b),download:planFileName()+'.png'}).click();
+      },'image/png');
+    } finally { URL.revokeObjectURL(url); }
+  };
+  img.onerror=()=>{URL.revokeObjectURL(url);alert('PNG export failed — the SVG export still works.');};
+  img.src=url;
 }
 function exportPlanCSV(){
   if(!lastPlan?.nodes?.length)return alert('Run a plan first.');
@@ -3404,11 +3537,63 @@ function exportPlanCSV(){
   Object.assign(document.createElement('a'),{href:URL.createObjectURL(blob),download:planFileName()+'.csv'}).click();
 }
 
-// Filter box for the (now 65-alternate) recipe card — reuses the search scorer
+// ── Collapsible planner cards + recipe category groups ──
+// All ephemeral (per session): the Tiers and Recipes cards start collapsed to
+// a one-line summary, and recipe rows sit under per-category headers. The
+// filter overrides visibility while typing (auto-expanding whatever matches)
+// and hands back the user's own open/closed state when cleared.
+const planCardOpen={tier:false,rec:false};
+const recGroupOpen={};
+const planMachOpen={}; // results list: machine group key → expanded (session)
+function togglePlanMach(key){
+  const body=document.getElementById(`pmbody-${key}`), arrow=document.getElementById(`pmarrow-${key}`);
+  const open=body&&body.style.display==='none';
+  planMachOpen[key]=open;
+  if(body)body.style.display=open?'':'none';
+  if(arrow)arrow.textContent=open?'▾':'▸';
+}
+function togglePlanCard(which){
+  planCardOpen[which]=!planCardOpen[which];
+  applyPlanCardState();
+}
+function applyPlanCardState(){
+  [['tier','pl-tier-rows','pl-tier-arrow'],['rec','pl-rec-rows','pl-rec-arrow']].forEach(([k,body,arrow])=>{
+    const b=document.getElementById(body), a=document.getElementById(arrow);
+    if(b)b.style.display=planCardOpen[k]?'':'none';
+    if(a)a.textContent=planCardOpen[k]?'▾':'▸';
+  });
+}
+function toggleRecGroup(gid){
+  recGroupOpen[gid]=!recGroupOpen[gid];
+  const body=document.getElementById(`rgbody-${gid}`), arrow=document.getElementById(`rgarrow-${gid}`);
+  if(body)body.style.display=recGroupOpen[gid]?'':'none';
+  if(arrow)arrow.textContent=recGroupOpen[gid]?'▾':'▸';
+}
+// Filter reuses the dropdown search scorer. While a query is live it force-
+// opens the card and every group with a hit; clearing re-applies the stored
+// open/closed state untouched.
 function filterRecRows(qv){
-  document.querySelectorAll('#pl-rec-rows .rec-override-row').forEach(row=>{
-    const name=row.dataset.name||'';
-    row.style.display=(!qv.trim()||ssScore(qv,name)>=0)?'':'none';
+  const q=(qv||'').trim();
+  if(q&&!planCardOpen.rec){document.getElementById('pl-rec-rows').style.display='';document.getElementById('pl-rec-arrow').textContent='▾';}
+  if(!q)applyPlanCardState();
+  document.querySelectorAll('#pl-rec-rows .rec-group').forEach(g=>{
+    const gid=g.dataset.gid;
+    let hits=0;
+    g.querySelectorAll('.rec-override-row').forEach(row=>{
+      const show=!q||ssScore(q,row.dataset.name||'')>=0;
+      row.style.display=show?'':'none';
+      if(show)hits++;
+    });
+    const body=document.getElementById(`rgbody-${gid}`), arrow=document.getElementById(`rgarrow-${gid}`);
+    if(q){
+      g.style.display=hits?'':'none';
+      if(body)body.style.display=hits?'':'none';
+      if(arrow)arrow.textContent='▾';
+    } else {
+      g.style.display='';
+      if(body)body.style.display=recGroupOpen[gid]?'':'none';
+      if(arrow)arrow.textContent=recGroupOpen[gid]?'▾':'▸';
+    }
   });
 }
 
@@ -3434,8 +3619,9 @@ function renderPlanBody(targetIds, nodes, rawNeeds, topHtml, el){
   let left=topHtml;
   left+=`<div class="act" style="margin:0 0 12px">
     <button class="bb bsm" onclick="planToLayout()" title="Place the calculated machines in the layout editor, one column per stage">Build in Layout →</button>
-    <button class="bb bsm" onclick="exportPlanSVG()" title="Download the flow diagram as a standalone SVG image">⬇ Diagram</button>
-    <button class="bb bsm" onclick="exportPlanCSV()" title="Download the stage list and raw inputs as CSV">⬇ CSV</button>
+    <button class="bb bsm" onclick="exportPlanPNG()" title="Download the flow diagram as a PNG image (2×)">⬇ PNG</button>
+    <button class="bb bsm" onclick="exportPlanSVG()" title="Download the flow diagram as a standalone SVG">SVG</button>
+    <button class="bb bsm" onclick="exportPlanCSV()" title="Download the stage list and raw inputs as CSV">CSV</button>
   </div>`;
 
   // ── Raw supply budgets: warn when the plan wants more than the map gives ──
@@ -3497,7 +3683,18 @@ function renderPlanBody(targetIds, nodes, rawNeeds, topHtml, el){
     </div>`;
   }
 
+  // ── Stage list, grouped by machine type ──
+  // One collapsed line per machine (total machines, total power, recipe count);
+  // expanding shows the per-recipe stages. Groups holding a target stage start
+  // open; the user's clicks stick for the session (per machine id).
+  const machGroups=[]; const machGroupByKey={};
   nodes.forEach(n=>{
+    const key=n.rec.machineId||'__none';
+    let g=machGroupByKey[key];
+    if(!g){g={key,machineId:n.rec.machineId,nodes:[]};machGroupByKey[key]=g;machGroups.push(g);}
+    g.nodes.push(n);
+  });
+  const stageRow=n=>{
     const {rec,exact,resId}=n;
     const count=Math.ceil(exact);
     const isTgt=targetIds.has(resId);
@@ -3519,10 +3716,9 @@ function renderPlanBody(targetIds, nodes, rawNeeds, topHtml, el){
       `<span class="badge bp" title="Byproduct">+${rateStr(b.resourceId,(b.amount/ct)*exact*(n.capF??1)*(n.clock??1),2)} ${esc(rname(b.resourceId))}</span>`
     ).join(' ');
 
-    left+=`<div class="ri${isTgt?' tgt':''}">
+    return`<div class="ri${isTgt?' tgt':''}" style="margin-left:9px">
       <div class="ri-l">
-        <div class="rm"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${m?machColor(m.id):'#555'};margin-right:6px"></span>${m?esc(m.name):'(no machine)'}${tier?` <span style="color:#6a8090;font-size:11px">${esc(tier)}</span>`:''}</div>
-        <div class="rr">${esc(rec.name)}</div>
+        <div class="rr" style="font-weight:600;color:var(--tx)">${esc(rec.name)}${tier?` <span style="color:#6a8090;font-size:11px;font-weight:400">${esc(tier)}</span>`:''}</div>
         <div class="ro">${rateStr(resId,actualRate,3)} <span style="color:${resColor(resId)}">${esc(rname(resId))}</span>${n.fromInputs&&!atCapacity?` <span style="color:#c07030">(${effPct}% capacity · max ${rateStr(resId,fullRate,3)})</span>`:''}</div>
         ${n.beltCapped?`<div class="rr" style="color:#c07030">⚠ output belt-limited to ${rfmt(n.perMach,2)} per machine (would be ${rfmt(n.fullPerMach,2)})</div>`:''}
         ${byproducts?`<div style="margin-top:4px">${byproducts}</div>`:''}
@@ -3535,6 +3731,25 @@ function renderPlanBody(targetIds, nodes, rawNeeds, topHtml, el){
           <input type="number" min="1" max="250" step="1" value="${Math.round((n.clock??1)*100)}" style="width:54px;font-size:10px;padding:2px 4px"
             onchange="setStageClock('${rec.id}',this.value)"> % clock</div>`:''}
       </div></div>`;
+  };
+  machGroups.forEach(g=>{
+    const m=g.machineId?machines.find(x=>x.id===g.machineId):null;
+    const total=g.nodes.reduce((s,n)=>s+Math.ceil(n.exact),0);
+    const mw=g.nodes.reduce((s,n)=>s+Math.ceil(n.exact)*(g.machineId?clockedPower(g.machineId,n.clock):0),0);
+    const hasTgt=g.nodes.some(n=>targetIds.has(n.resId));
+    // open when the user opened it, or by default when it holds a target stage
+    const open=planMachOpen[g.key]??hasTgt;
+    const clocked=g.nodes.some(n=>(n.clock??1)!==1);
+    left+=`<div class="ri${hasTgt?' tgt':''}" style="cursor:pointer;user-select:none" onclick="togglePlanMach('${g.key}')" title="Show the individual recipe stages for this machine">
+      <div class="ri-l">
+        <div class="rm"><span id="pmarrow-${g.key}" style="display:inline-block;width:11px;color:var(--dim)">${open?'▾':'▸'}</span><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${m?machColor(m.id):'#555'};margin-right:6px"></span>${m?esc(m.name):'(no machine)'}</div>
+        <div class="rr">${g.nodes.length} recipe${g.nodes.length!==1?'s':''}${clocked?' · ⏱ clocked':''}${g.nodes.some(n=>n.beltCapped)?' · ⚠ belt-limited':''}</div>
+      </div>
+      <div class="ri-r">
+        <div class="ri-cnt">${total}</div>
+        ${mw>0?`<div class="ri-ex" style="color:#b8963a">⚡ ${fmt(mw,0)} MW</div>`:''}
+      </div></div>
+      <div id="pmbody-${g.key}" style="${open?'':'display:none'}">${g.nodes.map(stageRow).join('')}</div>`;
   });
 
   if(Object.keys(rawNeeds).length){
@@ -3756,6 +3971,7 @@ function ssRender(q){
   });
   pop.innerHTML=html;
   const on=pop.querySelector('.ss-opt.on'); if(on)on.scrollIntoView({block:'nearest'});
+  ssPlace(); // filtered list changes the popup's height — keep flip/clamp true
 }
 
 function ssPlace(){
@@ -3764,18 +3980,24 @@ function ssPlace(){
   if(!sel.isConnected){ ssClose(false); return; }
   const r=sel.getBoundingClientRect();
   if(!r.width&&!r.height){ ssClose(false); return; } // select got hidden under us
-  inp.style.left=r.left+'px'; inp.style.top=r.top+'px';
+  const sx=window.scrollX, sy=window.scrollY, vw=window.innerWidth;
+  inp.style.left=(r.left+sx)+'px'; inp.style.top=(r.top+sy)+'px';
   inp.style.width=r.width+'px'; inp.style.height=r.height+'px';
   const below=window.innerHeight-r.bottom-6, above=r.top-6;
   const flip=below<160&&above>below;
   pop.style.maxHeight=Math.min(280,Math.max(80,flip?above:below))+'px';
-  pop.style.left=r.left+'px';
-  pop.style.minWidth=r.width+'px';
-  pop.style.maxWidth=Math.max(r.width,320)+'px';
-  if(flip){ pop.style.top='auto'; pop.style.bottom=(window.innerHeight-r.top+3)+'px'; }
-  else { pop.style.bottom='auto'; pop.style.top=(r.bottom+3)+'px'; }
+  pop.style.minWidth=Math.min(r.width,vw-12)+'px';
+  pop.style.maxWidth=Math.min(Math.max(r.width,320),vw-12)+'px';
+  // Measure AFTER sizing constraints, then clamp into the viewport — selects
+  // near the right edge (recipe pins, tier caps) used to push the list clean
+  // off-screen.
+  const popW=pop.offsetWidth, popH=pop.offsetHeight;
+  pop.style.left=Math.max(sx+6,Math.min(r.left+sx,sx+vw-popW-6))+'px';
+  pop.style.bottom='auto';
+  pop.style.top=flip?(r.top+sy-3-popH)+'px':(r.bottom+sy+3)+'px';
 }
 
+let ssSuppressSel=null, ssSuppressUntil=0;
 function ssClose(commit){
   const inp=document.getElementById('ss-inp'), pop=document.getElementById('ss-pop');
   if(!ssCur)return;
@@ -3787,7 +4009,13 @@ function ssClose(commit){
   ssCur=null;
   inp.style.display='none'; inp.value='';
   pop.style.display='none'; pop.innerHTML='';
-  if(commit&&sel.isConnected)sel.focus();
+  // The tap that commits an option synthesises a late click that can land on
+  // the select underneath — swallow it, or it reopens a picker over the value
+  // the user just chose (on mobile, the NATIVE one).
+  ssSuppressSel=sel; ssSuppressUntil=performance.now()+450;
+  // Refocusing the select is a nicety on desktop keyboards; on touch it's what
+  // pops the native picker straight after the overlay closes.
+  if(commit&&sel.isConnected&&matchMedia('(pointer:fine)').matches)sel.focus();
 }
 
 function ssOpen(sel){
@@ -3823,8 +4051,25 @@ function initSearchableSelects(){
   // Capture-phase mousedown: beat the native popup to it.
   document.addEventListener('mousedown',e=>{
     const sel=e.target.closest&&e.target.closest('select');
-    if(searchable(sel)){ e.preventDefault(); ssOpen(sel); return; }
+    if(searchable(sel)){ e.preventDefault(); if(!ssCur||ssCur.sel!==sel)ssOpen(sel); return; }
     if(ssCur&&!e.target.closest('#ss-pop')&&e.target!==inp)ssClose(false);
+  },true);
+  // Mobile browsers open the native picker on touchend/click, not mousedown —
+  // intercept those too, and swallow the synthetic click that trails a commit
+  // (it lands on the select underneath and used to reopen the NATIVE picker
+  // with the just-chosen value preselected).
+  document.addEventListener('touchend',e=>{
+    const sel=e.target.closest&&e.target.closest('select');
+    if(!searchable(sel)||!e.cancelable)return;
+    e.preventDefault();
+    if(!ssCur||ssCur.sel!==sel)ssOpen(sel);
+  },{capture:true,passive:false});
+  document.addEventListener('click',e=>{
+    const sel=e.target.closest&&e.target.closest('select');
+    if(!searchable(sel))return;
+    e.preventDefault();
+    if(sel===ssSuppressSel&&performance.now()<ssSuppressUntil)return; // trailing tap after close
+    if(!ssCur||ssCur.sel!==sel)ssOpen(sel);
   },true);
 
   // Typing straight into a focused select should search rather than jump-to-letter.
@@ -4122,13 +4367,32 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
   const svgW=Math.max(colX(0)+NW,maxByRight)+PAD;
   const svgH=totalH+nodeTop+PAD+LANE_BOT;
 
-  // Highway lane y-coordinates (above = small y, below = large y)
-  // Per-edge lane allocation to prevent parallel long edges from overlapping
-  let aboveLaneI=0, belowLaneI=0;
+  // Highway lane y-coordinates. Forward lanes stack in the TOP band; each
+  // allocation returns its index so the caller can stagger the ramp curves —
+  // parallel long edges used to pile every up/down curve onto the same x.
+  let aboveLaneI=0;
   const aboveLaneBase=PAD+6;
-  const belowLaneBase=svgH-PAD-6;
-  function allocLane(above){
-    return above?(aboveLaneBase+aboveLaneI++*LANE_STEP):(belowLaneBase-belowLaneI++*LANE_STEP);
+  function allocLane(){ const i=aboveLaneI++; return {y:aboveLaneBase+i*LANE_STEP,i}; }
+  // Backward (bottom) lanes are PER-SPAN: an edge loops just under the deepest
+  // machine/byproduct box it actually crosses, not under the entire diagram —
+  // a byproduct hopping back one column used to dive below the whole input
+  // stack. Overlapping spans that would share a y get pushed down a step.
+  const backIntervals=[];
+  let maxBackY=0;
+  function backLane(xa,xb){
+    let base=0;
+    nodes.forEach(n=>{const p=posR[n.rec.id]; if(p&&p.x+NW>=xa&&p.x<=xb)base=Math.max(base,p.y+NH);});
+    Object.values(posBy).forEach(b=>{ if(b.x+BW>=xa&&b.x<=xb)base=Math.max(base,b.y+BH);});
+    if(!base)base=nodeTop+totalH;
+    let k=0,y;
+    for(;;){
+      y=base+16+k*LANE_STEP;
+      if(!backIntervals.some(iv=>Math.abs(iv.y-y)<LANE_STEP-1&&iv.xa<xb&&iv.xb>xa))break;
+      k++;
+    }
+    backIntervals.push({y,xa,xb});
+    if(y>maxBackY)maxBackY=y;
+    return {y,i:k};
   }
 
   // ── Category colour palette for node borders/headings ──
@@ -4230,11 +4494,18 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
     const frac=(fromKey[0]==='n'&&besideBp[fromKey.slice(1)])?0.5:1;
     list.forEach((e,i)=>{e.x1=e.fx;e.y1=e.fyBase+e.fH*frac*(i+1)/(list.length+1);});
   });
-  // Entry points: spread along the consumer's left edge, ordered by source height
+  // Entry points: spread along the consumer's left edge. Arrivals take the
+  // slot nearest where they physically come from: top-highway (long forward)
+  // edges get the TOPMOST entries, adjacent-column edges the middle (ordered
+  // by source height), under-highway (backward) edges the bottom — a water
+  // belt dropping from the top lane used to cross the whole machine face to a
+  // bottom slot while the neighbouring column's belt sat above it, for no
+  // reason.
   const byTo={};
   edgeList.forEach(e=>{(byTo[e.toKey]=byTo[e.toKey]||[]).push(e);});
   Object.values(byTo).forEach(list=>{
-    list.sort((a,b)=>a.fyBase-b.fyBase);
+    const cls=e=>(e.fx>e.tx)?2:(e.isLong?0:1);
+    list.sort((a,b)=>(cls(a)-cls(b))||(a.fyBase-b.fyBase));
     list.forEach((e,i)=>{e.x2=e.tx;e.y2=e.tyBase+NH*(i+1)/(list.length+1);e.slots=list.length;});
   });
 
@@ -4259,22 +4530,47 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
     if(isLong||backward){
       // Highway routing: exit source → curve into a lane → horizontal → curve
       // out to target. FORWARD edges always run over the TOP lane; BACKWARD
-      // edges always run under the BOTTOM lane, so flow direction reads at a
-      // glance. The backward entry is a single continuous hook — it stays
-      // going left and rises up before curving forward into the machine's left
-      // edge, rather than overshooting and abruptly reversing.
-      laneY=allocLane(!backward);
-      const s=34;
-      path=backward
-        ? `M${x1},${y1} C${x1+s},${y1} ${x1+s},${laneY} ${x1},${laneY} L${x2-LEAD},${laneY} C${x2-LEAD-s},${laneY} ${x2-LEAD-s},${y2} ${x2-LEAD},${y2} L${x2-7},${y2}`
-        : `M${x1},${y1} C${x1+s},${y1} ${x1+s},${laneY} ${x1+s*2},${laneY} L${x2-s*2},${laneY} C${x2-s},${laneY} ${x2-s},${y2} ${x2-LEAD},${y2} L${x2-7},${y2}`;
+      // edges loop under just the machines they cross (backLane), so flow
+      // direction reads at a glance. The backward entry is a single continuous
+      // hook — it stays going left and rises before curving forward into the
+      // machine's left edge, rather than overshooting and abruptly reversing.
+      // Ramp spans are clamped to the clearance the source actually has: a
+      // byproduct box hangs in the inter-column gap, leaving only ~50px before
+      // the next column's machines — an unclamped stagger curve punched
+      // straight through them.
+      const outClear=(e.fromKey[0]==='b'?HGAP-BY_GAP-BW:HGAP)-8;
+      if(backward){
+        const s=Math.min(30+((backIntervals.length)%4)*8,Math.max(14,outClear));
+        const L=backLane(x2-LEAD-s,x1+s);
+        laneY=L.y;
+        path=`M${x1},${y1} C${x1+s},${y1} ${x1+s},${laneY} ${x1},${laneY} L${x2-LEAD},${laneY} C${x2-LEAD-s},${laneY} ${x2-LEAD-s},${y2} ${x2-LEAD},${y2} L${x2-7},${y2}`;
+      } else {
+        const L=allocLane();
+        laneY=L.y;
+        // EXIT ramps stagger by lane index (clamped to the source's clearance)
+        // so parallel edges rise at different x instead of piling up. The
+        // ENTRY descent stays compact: lane arrivals get the TOPMOST entry
+        // slots (see byTo ordering), so nothing sits above them to overlap —
+        // a longer lead-in only ran the descent through the previous column's
+        // byproduct boxes.
+        const sOut=Math.min(26+(L.i%6)*9,Math.max(14,outClear/2));
+        const sIn=34;
+        path=`M${x1},${y1} C${x1+sOut},${y1} ${x1+sOut},${laneY} ${x1+sOut*2},${laneY} L${x2-sIn*2},${laneY} C${x2-sIn},${laneY} ${x2-sIn},${y2} ${x2-LEAD},${y2} L${x2-7},${y2}`;
+      }
     } else {
       const bx=x2-LEAD;
       // Scale the bezier handle to the available horizontal run so a short
       // gap gets a gentle curve instead of an overshooting S.
       const span=bx-x1;
-      const dx=span>0?Math.min(Math.max(span*0.5,6),44):6;
-      path=`M${x1},${y1} C${x1+dx},${y1} ${bx-dx},${y2} ${bx},${y2} L${x2-7},${y2}`;
+      let dx1=span>0?Math.min(Math.max(span*0.5,6),44):6, dx2=dx1;
+      // A byproduct box can hang in this gap. If the mid-curve would sweep
+      // through it and the destination row itself clears the box, finish the
+      // vertical transition in the clear strip BEFORE the box instead.
+      const blocking=span>60&&Object.values(posBy).some(b=>
+        b.x<bx&&b.x+BW>x1&&Math.min(y1,y2)<b.y+BH&&Math.max(y1,y2)>b.y
+        &&!(y2>b.y-3&&y2<b.y+BH+3));
+      if(blocking){dx1=12;dx2=Math.max(span-34,span*0.6);}
+      path=`M${x1},${y1} C${x1+dx1},${y1} ${bx-dx2},${y2} ${bx},${y2} L${x2-7},${y2}`;
     }
     const beltStr=beltLabel(e.rate,e.resId);
     // Hover details ride on data-* attributes; initFlowTooltip reads them and
@@ -4302,14 +4598,16 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
 
   // Lanes stack toward the machines, so if more of them were allocated than the
   // reserved band holds, the later ones would sit on top of the machine rows.
-  // Redo once with bands sized to the counts we now know. Lane counts depend
-  // only on direction and depth (never on the band depth), so the second pass
-  // allocates exactly the same lanes and always fits — no further retry.
+  // Redo once with bands sized to what we now know: the top band from the lane
+  // count, the bottom band from how deep the deepest per-span backward lane
+  // actually went (relative to the node area — invariant across the retry, so
+  // the second pass always fits).
   if(!laneHints){
-    const need=n=>6+n*LANE_STEP+12;
-    if(need(aboveLaneI)>LANE_TOP||need(belowLaneI)>LANE_BOT)
+    const needTop=6+aboveLaneI*LANE_STEP+12;
+    const needBot=Math.max(52,maxBackY?maxBackY+12-(nodeTop+totalH):0);
+    if(needTop>LANE_TOP||needBot>LANE_BOT)
       return buildFlowSVG(targetIds,nodes,rawNeeds,
-        {top:Math.max(LANE_TOP,need(aboveLaneI)),bot:Math.max(LANE_BOT,need(belowLaneI))});
+        {top:Math.max(LANE_TOP,needTop),bot:Math.max(LANE_BOT,needBot)});
   }
 
   // ── Raw material boxes (border tinted by the resource's flow colour) ──
