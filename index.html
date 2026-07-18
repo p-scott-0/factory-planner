@@ -663,7 +663,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.11';
+const APP_VERSION = '1.0.12';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -1546,9 +1546,13 @@ function isFluidRes(resId){return !!resources.find(r=>r.id===resId)?.isFluid;}
 // reads as a bug unless the reason is spelled out.
 function rawSourceNote(resId){
   const r=resources.find(x=>x.id===resId);
-  if(!r||!(r.recipes||[]).length)return'';
-  if(!r.recipes.some(recipeAvailable))return resUnlocked(r)?'⚠ has recipes — all disabled':'⚠ recipes research-locked';
-  return'';
+  if(!r)return'';
+  const hasByRoutes=resources.some(res=>res.id!==resId&&(res.recipes||[]).some(rec=>(rec.byproducts||[]).some(b=>b.resourceId===resId)));
+  if(!(r.recipes||[]).length&&!hasByRoutes)return''; // genuinely raw
+  const anyUsable=(r.recipes||[]).some(recipeAvailable)
+    ||resources.some(res=>res.id!==resId&&resUnlocked(res)&&(res.recipes||[]).some(rec=>recipeAvailable(rec)&&(rec.byproducts||[]).some(b=>b.resourceId===resId)));
+  if(anyUsable)return''; // the planner has a route — if it still shows as raw, that's a pin/cycle choice, not a data gap
+  return resUnlocked(r)?'⚠ has production routes — all disabled':'⚠ routes research-locked';
 }
 // Power resources are continuous: their per-second rate IS megawatts, they
 // travel over power lines (no belts/pipes), and they display as "X MW"
@@ -2094,24 +2098,42 @@ function renderResTree(resId,recId){
   const el=document.getElementById(`rtree-${resId}`);
   if(!el)return;
   const res=resources.find(r=>r.id===resId);
-  const picker=(res&&res.recipes.length>1)
+  const routes=byproducerIndex()[resId]||[];
+  const opts=(res?.recipes||[]).map(rec=>({v:rec.id,
+      label:`${rec.name}${rec.id===res.defaultRecipeId?' ★':''}${recipeAvailable(rec)?'':' (disabled)'}`}))
+    .concat(routes.map(x=>({v:x.rec.id+'@'+resId,label:`↩ via ${x.res.name} (byproduct)`})));
+  const cur=recId||opts[0]?.v||'';
+  const picker=opts.length>1
     ?`<div style="margin-bottom:8px;max-width:340px"><select onchange="renderResTree('${resId}',this.value)">
-        ${res.recipes.map(rec=>`<option value="${rec.id}"${recId===rec.id||(!recId&&rec.id===(res.defaultRecipeId??res.recipes[0].id))?' selected':''}>${esc(rec.name)}${rec.id===res.defaultRecipeId?' ★':''}${recipeAvailable(rec)?'':' (disabled)'}</option>`).join('')}
+        ${opts.map(o=>`<option value="${o.v}"${cur===o.v?' selected':''}>${esc(o.label)}</option>`).join('')}
       </select></div>`:'';
   el.innerHTML=picker+buildResTreeSVG(resId,recId);
 }
 
 // Build recursive tree node (default recipe, unless the root pins a specific
-// one; tracks visited to break cycles)
-function treeNode(resId, visited, forceRecId){
+// one; tracks visited to break cycles). A resource with no own recipe that IS
+// byproduced renders as a byproduct-route node: titled with its co-producer
+// and continuing down through that recipe's inputs.
+function treeNode(resId, visited, forceRecId, idx){
   if(visited.has(resId)) return {resId,cyclic:true,children:[]};
   const vis2=new Set(visited); vis2.add(resId);
   const res=resources.find(r=>r.id===resId);
-  const rec=res?((forceRecId&&res.recipes.find(r=>r.id===forceRecId))
+  const routes=(idx||{})[resId]||[];
+  // an explicit byproduct-route selection (wrapper id "recId@resId") wins
+  const forcedRoute=forceRecId&&routes.find(x=>x.rec.id+'@'+resId===forceRecId);
+  const rec=(!forcedRoute&&res)?((forceRecId&&res.recipes.find(r=>r.id===forceRecId))
     ??res.recipes.find(r=>r.id===res.defaultRecipeId)??res.recipes[0]??null):null;
-  if(!rec) return {resId,raw:true,children:[]};
-  const mach=rec.machineId?machines.find(m=>m.id===rec.machineId):null;
-  return {resId,rec,mach,children:rec.inputs.map(i=>treeNode(i.resourceId,vis2))};
+  if(rec){
+    const mach=rec.machineId?machines.find(m=>m.id===rec.machineId):null;
+    return {resId,rec,mach,children:rec.inputs.map(i=>treeNode(i.resourceId,vis2,null,idx))};
+  }
+  const route=forcedRoute||routes[0];
+  if(route){
+    const mach=route.rec.machineId?machines.find(m=>m.id===route.rec.machineId):null;
+    return {resId,rec:route.rec,mach,byOf:route.res.name,
+      children:route.rec.inputs.map(i=>treeNode(i.resourceId,vis2,null,idx))};
+  }
+  return {resId,raw:true,children:[]};
 }
 
 // Post-order: compute minimum subtree width
@@ -2143,7 +2165,7 @@ function treeCollect(n,nodes=[],edges=[]){
 }
 
 function buildResTreeSVG(resId,rootRecId){
-  const root=treeNode(resId,new Set(),rootRecId||null);
+  const root=treeNode(resId,new Set(),rootRecId||null,byproducerIndex());
   treeWidth(root); treePos(root,0,0);
   const{nodes,edges}=treeCollect(root);
   const maxD=Math.max(...nodes.map(n=>n.depth));
@@ -2158,15 +2180,15 @@ function buildResTreeSVG(resId,rootRecId){
   }).join('');
 
   const nodeSVG=nodes.map(n=>{
-    const isRoot=n===root, isRaw=!!n.raw, isCyc=!!n.cyclic;
-    const bg   =isRoot?'#221808':isRaw?'#111a11':isCyc?'#1a1010':'#0e1a26';
-    const bord =isRoot?'#b07020':isRaw?'#2a4a2a':isCyc?'#663333':'#1e3a54';
+    const isRoot=n===root, isRaw=!!n.raw, isCyc=!!n.cyclic, isBy=!!n.byOf;
+    const bg   =isRoot?'#221808':isRaw?'#111a11':isCyc?'#1a1010':isBy?'#1a140e':'#0e1a26';
+    const bord =isRoot?'#b07020':isRaw?'#2a4a2a':isCyc?'#663333':isBy?'#8a6a20':'#1e3a54';
     const bdash=isRaw?'stroke-dasharray="5 3"':isCyc?'stroke-dasharray="3 2"':'';
-    const nameC=isRoot?'#e09030':isRaw?'#5aaa6a':isCyc?'#cc6666':'#4a8ab8';
+    const nameC=isRoot?'#e09030':isRaw?'#5aaa6a':isCyc?'#cc6666':isBy?'#e0a840':'#4a8ab8';
     const name =esc(clip(rname(n.resId),18));
-    const mline=isRaw?'raw resource':isCyc?'⚠ cycle detected':esc(n.mach?clip(n.mach.name,20):'no machine');
+    const mline=isRaw?'raw resource':isCyc?'⚠ cycle detected':isBy?esc(clip(`byproduct of ${n.byOf}`,24)):esc(n.mach?clip(n.mach.name,20):'no machine');
     const rline=(!isRaw&&!isCyc&&n.rec)?esc(clip(n.rec.name,22)):'';
-    const mCol =isRaw?'#3a7a4a':isCyc?'#aa5555':'#4a6a88';
+    const mCol =isRaw?'#3a7a4a':isCyc?'#aa5555':isBy?'#c08830':'#4a6a88';
     const sw   =isRoot?2:1.5;
     return`<rect x="${n.tx}" y="${n.ty}" width="${TW}" height="${TH}" rx="6" fill="${bg}" stroke="${bord}" stroke-width="${sw}" ${bdash}/>
       <text x="${n.tx+TW/2}" y="${n.ty+18}" text-anchor="middle" font-size="12" font-weight="700" fill="${nameC}">${name}</text>
@@ -2178,13 +2200,17 @@ function buildResTreeSVG(resId,rootRecId){
   return`<svg width="${svgW}" height="${svgH}" xmlns="http://www.w3.org/2000/svg">${edgeSVG}${nodeSVG}</svg>`;
 }
 
-function resItemHTML(r){
+function resItemHTML(r,vidx){
   const recCount=r.recipes.length;
   const defRec=r.recipes.find(x=>x.id===r.defaultRecipeId)??r.recipes[0];
+  const routes=(vidx||{})[r.id]||[];
+  const routeNames=[...new Set(routes.map(x=>x.res.name))];
+  // A byproduct is a real production route — say so instead of "raw resource"
+  const routeStr=routeNames.length?`<span style="color:#c08830;font-size:11px">byproduct of ${routeNames.map(esc).join(', ')}</span>`:'';
   const sub=recCount===0
-    ?'<span style="color:#444;font-size:11px">raw resource</span>'
-    :`<span style="color:#5a8a6a;font-size:11px">${recCount} recipe${recCount>1?'s':''}${defRec?` · ${esc(defRec.name||'(unnamed)')}`:''}</span>`;
-  const hasRec=recCount>0;
+    ?(routeStr||'<span style="color:#444;font-size:11px">raw resource</span>')
+    :`<span style="color:#5a8a6a;font-size:11px">${recCount} recipe${recCount>1?'s':''}${defRec?` · ${esc(defRec.name||'(unnamed)')}`:''}</span>${routeStr?' · '+routeStr:''}`;
+  const hasRec=recCount>0||routes.length>0;
   return`<div class="litem" style="${selResId===r.id?'border-color:var(--acc2)':''}">
     <div class="lh">
       <div><div class="ln"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${resColor(r.id)};margin-right:6px"></span>${esc(r.name)}${r.isFluid?' <span class="badge bm" title="Fluid — flows through pipes">💧 fluid</span>':''}${r.isPower?' <span class="badge bm" style="color:#e8b84a" title="Power — rates shown in MW">⚡ power</span>':''}</div><div style="margin-top:2px">${sub}</div></div>
@@ -2232,22 +2258,24 @@ function renderResources(){
   });
 
   let html='';
+  const vidx=byproducerIndex(); // for "byproduct of X" subtitles
+  const item=r=>resItemHTML(r,vidx);
   // Named categories (skip categories whose resources are all locked/absent)
   categories.forEach(cat=>{
     const items=buckets[cat.id];
     if(!items.length)return;
     html+=catHeaderHTML(cat.id,cat.name,`${items.length} resource${items.length!==1?'s':''}`,false);
-    html+=items.map(resItemHTML).join('');
+    html+=items.map(item).join('');
     html+='</div>'; // close cat-body
   });
   // Uncategorised (only show section header if there are named categories too)
   if(uncat.length){
     if(categories.length){
       html+=catHeaderHTML('__uncat','Uncategorised',`${uncat.length} resource${uncat.length!==1?'s':''}`,true);
-      html+=uncat.map(resItemHTML).join('');
+      html+=uncat.map(item).join('');
       html+='</div>';
     } else {
-      html+=uncat.map(resItemHTML).join('');
+      html+=uncat.map(item).join('');
     }
   }
   if(hiddenCt)html+=`<div class="empty">🔒 ${hiddenCt} resource${hiddenCt>1?'s':''} hidden above the unlocked research tier</div>`;
@@ -2341,7 +2369,30 @@ function setDefaultRecipe(recId,resId){
 function renderRecipesForResource(resId){
   const res=resources.find(r=>r.id===resId);
   const el=document.getElementById('rec-existing');
-  if(!res||!res.recipes.length){el.innerHTML='<div class="empty" style="padding:10px 0">No recipes yet.</div>';return;}
+  if(!res)return;
+  // Byproduct routes: recipes that live on ANOTHER resource but co-produce
+  // this one. Read-only here — the recipe (and its toggle) belongs to its
+  // primary resource — but they're real production routes and the planner
+  // treats them as such, so they deserve to be visible from this side too.
+  const routes=(byproducerIndex()[resId]||[]);
+  const routesHtml=routes.map(x=>{
+    const m=x.rec.machineId?machines.find(mm=>mm.id===x.rec.machineId):null;
+    const inBadges=x.rec.inputs.map(i=>`<span class="badge bi">${i.amount}× ${esc(rname(i.resourceId))}</span>`).join('');
+    return`<div class="litem" style="opacity:.88;border-style:dashed">
+      <div class="lh"><div>
+        <span class="ln">↩ ${esc(x.rec.name)}</span>
+        <span class="badge bp" style="margin-left:6px">byproduct route</span>
+        ${m?`<span class="badge bm" style="margin-left:4px">${esc(m.name)}</span>`:''}
+      </div></div>
+      <div style="margin-top:6px">${inBadges}${inBadges?'<span style="color:#333;margin:0 4px">→</span>':''}<span class="badge bp">+${x.amount}× ${esc(res.name)}</span><span class="badge bo">${x.rec.outputAmount??1}× ${esc(x.res.name)}</span></div>
+      <div class="ls">${x.rec.cycleTime}s cycle · recipe and toggle live on ${esc(x.res.name)}</div>
+    </div>`;
+  }).join('');
+  if(!res.recipes.length){
+    el.innerHTML=(routesHtml?`<div class="sl" style="margin:4px 0 6px">Byproduct routes</div>`+routesHtml
+      :'<div class="empty" style="padding:10px 0">No recipes yet.</div>');
+    return;
+  }
   el.innerHTML=res.recipes.map(rec=>{
     const m=rec.machineId?machines.find(m=>m.id===rec.machineId):null;
     const isDef=rec.id===res.defaultRecipeId;
@@ -2364,7 +2415,7 @@ function renderRecipesForResource(resId){
       <div style="margin-top:6px">${inBadges}${inBadges?'<span style="color:#333;margin:0 4px">→</span>':''}${outBadge}${byBadges?' '+byBadges:''}</div>
       <div class="ls">${rec.cycleTime}s cycle · ${rfmt((rec.outputAmount??1)/rec.cycleTime,3)} per machine${m?` · ${esc(m.name)}`:''}</div>
     </div>`;
-  }).join('');
+  }).join('')+(routesHtml?`<div class="sl" style="margin:10px 0 6px">Byproduct routes</div>`+routesHtml:'');
 }
 
 // ══════════════════════════════════════════════════════
@@ -2452,7 +2503,11 @@ function renderPlannerControls(){
   // The planner auto-selects among the enabled recipes.
   const recCard=document.getElementById('pl-rec-card');
   const recRows=document.getElementById('pl-rec-rows');
-  const multiRecRes=resources.filter(r=>resUnlocked(r)&&r.recipes.length>1);
+  const vidx=byproducerIndex();
+  // A resource belongs here when there's a real choice to make: several of its
+  // own recipes, or at least one own recipe plus byproduct routes to pin.
+  const multiRecRes=resources.filter(r=>resUnlocked(r)&&
+    (r.recipes.length>1||(r.recipes.length+((vidx[r.id]||[]).length))>1&&r.recipes.length>0));
   if(!multiRecRes.length){recCard.style.display='none';}
   else {
     recCard.style.display='';
@@ -2472,8 +2527,12 @@ function renderPlannerControls(){
       // pinnable — a pin on a disabled recipe silently fell back to auto, so
       // offering it was a lie. If the pinned recipe got disabled since, the
       // select correctly shows "auto" (which is what the engine does).
+      // Byproduct routes (make this via another recipe's byproduct) are
+      // pinnable alternatives too.
       const pinOpts='<option value="">auto</option>'+r.recipes.filter(recipeAvailable).map(rec=>
-        `<option value="${rec.id}"${pinned===rec.id?' selected':''}>📌 ${esc(rec.name)}</option>`).join('');
+        `<option value="${rec.id}"${pinned===rec.id?' selected':''}>📌 ${esc(rec.name)}</option>`).join('')
+        +virtualRoutesFor(r.id,vidx).map(v=>
+        `<option value="${v.id}"${pinned===v.id?' selected':''}>↩ via ${esc(rname(v.baseResId))} (byproduct)</option>`).join('');
       return`<div class="rec-override-row" data-name="${esc(r.name)}">
         <span>${esc(r.name)}</span>
         <div style="flex:1;min-width:200px">${boxes}</div>
@@ -2772,8 +2831,47 @@ function rawCostOf(res){
   return (typeof c==='number'&&isFinite(c)&&c>=0)?c:1;
 }
 
+// ── Byproduct routes ──
+// A recipe with a byproduct is a production route for the byproduct too:
+// Rubber (3 Crude → 2 Rubber + 2 HOR) is equally a way to MAKE Heavy Oil
+// Residue, with rubber as the co-product. Rather than duplicating the recipe
+// under both resources (two copies to keep in sync, toggle identity split),
+// these views are SYNTHESIZED at planning time: same machine, same inputs,
+// output = the byproduct amount, and the primary product joins the byproducts
+// list — so the existing surplus/crediting machinery handles the co-product,
+// and toggling the base recipe governs the route. Cost charges the FULL
+// inputs to the byproduct unit (conservative: joint-cost allocation is
+// ambiguous, and undercharging would make byproduct routes spuriously beat
+// direct recipes).
+function byproducerIndex(){
+  const map={};
+  resources.forEach(res=>(res.recipes||[]).forEach(rec=>{
+    (rec.byproducts||[]).forEach(bp=>{
+      if(bp.resourceId===res.id)return;
+      (map[bp.resourceId]=map[bp.resourceId]||[]).push({res,rec,amount:bp.amount});
+    });
+  }));
+  return map;
+}
+function virtualRoutesFor(resId,idx){
+  return ((idx||byproducerIndex())[resId]||[])
+    .filter(x=>recipeAvailable(x.rec)&&resUnlocked(x.res))
+    .map(x=>({
+      id:x.rec.id+'@'+resId, // runtime-only id — never persisted to the profile
+      name:`${x.rec.name} (byproduct)`,
+      virtual:true, baseResId:x.res.id, baseRecId:x.rec.id,
+      machineId:x.rec.machineId,
+      cycleTime:x.rec.cycleTime,
+      outputAmount:x.amount,
+      inputs:x.rec.inputs,
+      byproducts:[{resourceId:x.res.id,amount:x.rec.outputAmount??1},
+        ...(x.rec.byproducts||[]).filter(b=>b.resourceId!==resId)]
+    }));
+}
+
 function planRecipes(inputSet){
   const memo={}, choice={};
+  const vidx=byproducerIndex(); // byproduct routes are candidate recipes too
   // Two objectives, same machinery, different RAW PRICING:
   //  cheap   — supplied inputs are free (0), other raws cost rawCost. Picks the
   //            chain with the lowest total raw cost, even if it ignores what
@@ -2794,14 +2892,15 @@ function planRecipes(inputSet){
     const res=res0;
     if(!res)return memo[id]=optimal?0.001:1;
     if(!resUnlocked(res))return memo[id]=Infinity;
-    let recs=(res.recipes||[]).filter(recipeAvailable);
+    let recs=(res.recipes||[]).filter(recipeAvailable).concat(virtualRoutesFor(id,vidx));
     // A per-plan PIN forces this resource's recipe regardless of cost — the
     // pin travels with the saved plan, not the profile, so two plans can use
     // different recipes without flipping global toggles back and forth. A pin
     // on a recipe that's disabled or locked falls back to auto silently.
+    // (Byproduct routes are pinnable too — their ids are baseRecId@resId.)
     const pin=plannerPins[id];
     if(pin){const pr=recs.find(x=>x.id===pin);if(pr)recs=[pr];}
-    if(!recs.length)return memo[id]=rawCostOf(res); // no recipe defined — external raw input
+    if(!recs.length)return memo[id]=rawCostOf(res); // no production route at all — external raw input
     if(stack.has(id))return Infinity; // cycle guard (not memoised)
     stack.add(id);
     let best=Infinity,bestRec=null;
@@ -2831,13 +2930,14 @@ function planRecipes(inputSet){
 // planRecipes.
 function reachableFromInputs(inputSet){
   const memo={};
+  const vidx=byproducerIndex();
   function ok(id,stack){
     if(memo[id]!==undefined)return memo[id];
     if(inputSet.has(id))return memo[id]=true;
     if(stack.has(id))return false; // cycle guard, not memoised
     const res=resources.find(r=>r.id===id);
     if(!res||!resUnlocked(res))return memo[id]=false;
-    const recs=(res.recipes||[]).filter(recipeAvailable);
+    const recs=(res.recipes||[]).filter(recipeAvailable).concat(virtualRoutesFor(id,vidx));
     if(!recs.length)return memo[id]=false;
     stack.add(id);
     const feasible=recs.some(rec=>rec.inputs.length>0&&rec.inputs.every(inp=>ok(inp.resourceId,stack)));
@@ -3506,7 +3606,9 @@ function sanitizeSharedQuery(q){
     inpSecondaryTargets:T(q.inpSecondaryTargets),
     pins:{},clocks:{}
   };
-  if(q.pins&&typeof q.pins==='object')Object.entries(q.pins).slice(0,200).forEach(([k,v])=>{if(ID(k)&&ID(v))clean.pins[k]=v;});
+  // pin VALUES may be byproduct-route ids ("baseRecId@resId") — allow the @
+  const PID=v=>typeof v==='string'&&/^[A-Za-z0-9_-]+(@[A-Za-z0-9_-]+)?$/.test(v)?v:'';
+  if(q.pins&&typeof q.pins==='object')Object.entries(q.pins).slice(0,200).forEach(([k,v])=>{if(ID(k)&&PID(v))clean.pins[k]=v;});
   if(q.clocks&&typeof q.clocks==='object')Object.entries(q.clocks).slice(0,200).forEach(([k,v])=>{const n=parseFloat(v);if(ID(k)&&isFinite(n)&&n>0)clean.clocks[k]=Math.min(n,2.5);});
   clean.objective=q.objective==='cheap'?'cheap':'optimal';
   // A link whose content ALL failed sanitisation carries nothing worth loading
