@@ -1,6 +1,7 @@
 {
   "name": "Satisfactory",
-  "version": 5,
+  "version": 6,
+  "powerExponent": 1.321928,
   "researchTiers": [
     { "id": "rt0", "name": "Tier 0" },
     { "id": "rt1", "name": "Tier 1" },

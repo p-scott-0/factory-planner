@@ -11,6 +11,13 @@ Open `index.html` in any browser. No server or build step required.
 ## Features
 
 - **Type-to-filter dropdowns** — any dropdown with 8+ options turns into a search box in place: click it and type to filter, with a tight typo-tolerant match ("iorn" finds Iron, "hmf" finds Heavy Modular Frame) that stays quiet rather than burying you in loose fuzzy hits
+- **Named saved plans** — the planner holds any number of plans per profile, each with its own targets, recipe pins and overclocks; switch between them from the plan bar, and **Compare** any two as a side-by-side table of outputs, raw inputs, machine counts and total power
+- **Per-plan recipe pins** — pin a specific recipe for a resource in *this plan only* (📌 next to the recipe toggles), overriding the cheapest-chain choice without flipping profile-wide toggles
+- **Overclocking** — set a per-stage clock % in the results list; machines run faster (fewer needed) while power scales with clock^exponent (the exponent is a profile setting — the Satisfactory sample ships ≈1.32, matching the game)
+- **Raw supply limits** — set an available rate on any raw input (e.g. "my map slice has 3900 crude") and the planner flags any plan that exceeds it
+- **Share links** — copy a URL that encodes the whole plan; anyone with the same profile (e.g. the bundled sample) opens it to the exact same plan
+- **Plan export** — download the flow diagram as a standalone SVG, or the stage list + raw inputs as CSV
+- **Edit undo** — machine/resource/recipe edits and deletes have a 20-step undo (the layout editor has its own Ctrl+Z)
 - **Machines** with named tiers and speed multipliers (e.g. Mk1 x1.0, Mk2 x2.0)
 - **Resources** organised into collapsible categories, with inline dependency tree diagrams
 - **Recipes** assigned to machines, with multiple recipe alternatives per resource and a configurable default
@@ -49,6 +56,7 @@ A profile file is what **Export Profile** produces:
 {
   "name": "My Game",
   "version": 1,                                      // bundled samples only: bump to push a self-update
+  "powerExponent": 1.321928,                         // optional: machine power scales with clock^exponent (default 1)
   "researchTiers": [ { "id": "rt0", "name": "Tier 0" } ],  // ordered progression ladder
   "unlockedTierId": null,                            // highest unlocked tier (null = all)
   "maxBeltTierId": null,                             // planner belt cap (null = fastest unlocked)

@@ -289,6 +289,11 @@ body.sample-locked .la{display:none!important}
       <div id="pf-err"></div>
       <div class="act"><button class="ba bsm" onclick="addPipeTier()">Add Pipe Tier</button></div>
     </div>
+    <div class="card lock-hide">
+      <div class="card-title">Overclocking</div>
+      <label>Power exponent <span style="color:#555">(planner stages can be overclocked; a machine's power draw scales with clock^exponent. 1 = linear; Satisfactory uses ≈1.321928)</span></label>
+      <input id="pw-exp" type="number" min="0.1" step="0.000001" placeholder="1" onchange="setPowerExponent(this.value)">
+    </div>
   </div>
 </div>
 </div>
@@ -427,12 +432,23 @@ body.sample-locked .la{display:none!important}
 <div class="full-w">
 
   <div class="card" style="margin-bottom:14px">
+    <!-- Named saved plans: each holds its own targets, pins and clocks -->
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:12px;padding-bottom:11px;border-bottom:1px solid var(--b)">
+      <span class="sl" style="margin:0">Plan</span>
+      <select id="plan-sel" class="prof-sel" style="max-width:220px" onchange="switchPlan(this.value)"></select>
+      <button class="bb bsm" onclick="newPlan()" title="Start a new, separate saved plan">+ New</button>
+      <button class="bb bsm" onclick="renamePlan()">Rename</button>
+      <button class="bb bsm" onclick="deletePlan()" title="Delete this saved plan">Delete</button>
+      <span style="color:#444">|</span>
+      <button class="bb bsm" onclick="comparePlans()" title="Compare this plan's totals with another saved plan">⇄ Compare</button>
+      <button class="bb bsm" onclick="copyShareLink()" title="Copy a link that opens this plan (recipient needs the same profile)">🔗 Share link</button>
+    </div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
       <div class="mode-wrap">
         <button class="mode-btn active" id="mode-tgt" onclick="setPlanMode('target')">Target Output</button>
         <button class="mode-btn"        id="mode-inp" onclick="setPlanMode('inputs')">From Available Inputs</button>
       </div>
-      <button class="bb bsm" onclick="clearPlanner()" title="Clear every target and input in both modes to start a fresh plan">↺ Clear all</button>
+      <button class="bb bsm" onclick="clearPlanner()" title="Clear every target, input, pin and clock in this plan">↺ Clear all</button>
     </div>
 
     <!-- Target mode -->
@@ -573,6 +589,14 @@ let rateUnit      = localStorage.getItem('fp_rateunit')==='s'?'s':'m'; // global
 const catState    = {};  // catId → true=expanded (ephemeral)
 let planMode      = 'target';
 let lastPlan      = null;   // most recent planner result, for "Build in Layout"
+// ── Per-plan planner state (saved inside the active plan's query) ──
+let plans         = [];   // [{id,name,q}] — named saved plans, per profile
+let activePlanId  = null;
+let plannerPins   = {};   // resId → recipeId: force this recipe for this plan (overrides cheapest)
+let plannerClocks = {};   // recipeId → clock fraction (1 = 100%); scales rate, power via powerExponent
+// ── Profile-level usage settings ──
+let rawCaps       = {};   // resId → available supply (per second) — planner warns when a plan exceeds it
+let powerExponent = 1;    // machine power scales with clock^exponent (Satisfactory ≈ 1.321928)
 let editMachId    = null;
 let editResId     = null;
 let selResId      = null;
@@ -581,7 +605,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.8';
+const APP_VERSION = '1.0.9';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -613,6 +637,7 @@ function applyBundleToProfile(p,d){
   p.beltTiers=d.beltTiers||[];
   p.pipeTiers=d.pipeTiers||[];
   p.recToggles={...(d.recToggles||{}),...(p.recToggles||{})};
+  p.powerExponent=typeof d.powerExponent==='number'?d.powerExponent:p.powerExponent;
   p.sampleVersion=d.version||0;
 }
 
@@ -677,6 +702,16 @@ function loadActiveProfile(){
   pipeTiers     = p.pipeTiers     || [];
   maxPipeTierId = p.maxPipeTierId ?? null;
   blueprints    = p.blueprints    || [];
+  rawCaps       = isMap(p.rawCaps)?p.rawCaps:{};
+  powerExponent = (typeof p.powerExponent==='number'&&p.powerExponent>0)?p.powerExponent:1;
+  // Named saved plans; the legacy single p.planner query becomes plan #1
+  plans=(Array.isArray(p.plans)?p.plans:[]).filter(x=>x&&typeof x==='object');
+  plans.forEach(pl=>{if(!pl.id)pl.id=uid();if(typeof pl.name!=='string')pl.name=String(pl.name??'Plan');if(pl.q&&typeof pl.q!=='object')pl.q=null;});
+  if(!plans.length){
+    plans=[{id:uid(),name:'Plan 1',q:(p.planner&&typeof p.planner==='object')?p.planner:null}];
+    delete p.planner;
+  }
+  activePlanId=(p.activePlanId&&plans.some(x=>x.id===p.activePlanId))?p.activePlanId:plans[0].id;
   migrateTierCosts(machines);
   migrateData();
 }
@@ -820,8 +855,12 @@ function sanitizeProfileIds(p){
     arr(q.inputs).forEach(x=>{if(x)x.resourceId=re(x.resourceId);});
     arr(q.inpSecondaryTargets).forEach(t=>{if(t)t.resId=re(t.resId);});
     if(q.inpTargetId)q.inpTargetId=re(q.inpTargetId);
+    if(isMap(q.pins))q.pins=Object.fromEntries(Object.entries(q.pins).map(([k,v])=>[re(k),typeof v==='string'?re(v):v]));
+    if(isMap(q.clocks))q.clocks=Object.fromEntries(Object.entries(q.clocks).map(([k,v])=>[re(k),v]));
   };
   fixQuery(p.planner);
+  arr(p.plans).forEach(pl=>{fix(pl);fixQuery(pl?.q);});
+  if(isMap(p.rawCaps))p.rawCaps=Object.fromEntries(Object.entries(p.rawCaps).map(([k,v])=>[re(k),v]));
 }
 
 // Migration: build costs used to live on the machine; they now live per tier.
@@ -846,6 +885,9 @@ function saveActiveProfile(){
   p.recToggles=recToggles; p.unlockedTierId=unlockedTierId;
   p.maxBeltTierId=maxBeltTierId; p.maxPipeTierId=maxPipeTierId;
   p.blueprints=blueprints;
+  p.rawCaps=rawCaps;
+  p.powerExponent=powerExponent!==1?powerExponent:undefined;
+  p.plans=plans; p.activePlanId=activePlanId;
   if(typeof saveLayout==='function')saveLayout();
 }
 
@@ -885,6 +927,7 @@ function switchProfile(id){
 function reloadUI(){
   applyLockUI();
   updateDefUndoBtns();
+  reloadPowerExpInput();
   renderProfileSelector();
   renderUnlockSelector(); renderTierTab(); refreshTierSelects(); renderBeltTiers(); renderPipeTiers();
   renderMachines(); renderResources();
@@ -1017,7 +1060,11 @@ function importProfile(e){
         pipeTiers:d.pipeTiers||[],
         maxPipeTierId:d.maxPipeTierId??null,
         blueprints:d.blueprints||[],
-        layout:d.layout||{instances:[],belts:[]}
+        layout:d.layout||{instances:[],belts:[]},
+        rawCaps:d.rawCaps||{},
+        powerExponent:typeof d.powerExponent==='number'?d.powerExponent:undefined,
+        plans:Array.isArray(d.plans)?d.plans:[],
+        planner:d.planner
       };
       profiles.push(p);
       activeProfileId=p.id;
@@ -1067,7 +1114,8 @@ async function loadSampleProfile(key){
         pipeTiers:d.pipeTiers||[],
         maxPipeTierId:d.maxPipeTierId??null,
         blueprints:d.blueprints||[],
-        layout:d.layout||{instances:[],belts:[]}
+        layout:d.layout||{instances:[],belts:[]},
+        powerExponent:typeof d.powerExponent==='number'?d.powerExponent:undefined
       };
       profiles.push(p);
     }
@@ -1447,6 +1495,15 @@ function crateStr(resId,ratePerSec){ // compact form for diagram pills
 function flowTierById(id){return beltTiers.find(b=>b.id===id)||pipeTiers.find(b=>b.id===id)||null;}
 // Power draw of one machine at a given tier (MW, 0 if unset)
 function tierPower(machId){return activeTier(machId)?.power||0;}
+// Power draw of one machine at a given clock: base × clock^powerExponent.
+// The exponent is a profile setting (default 1 = linear; Satisfactory ≈ 1.32),
+// so overclocking trades power for throughput the way the game actually does.
+function clockedPower(machId,clock){
+  const base=activeTier(machId)?.power||0;
+  if(!base)return 0;
+  const c=clock>0?clock:1;
+  return c===1?base:base*Math.pow(c,powerExponent);
+}
 
 // Stable colours: hues are STORED on machines/resources (assigned once, never
 // shifting when other items are deleted). Used across planner + layout.
@@ -2304,18 +2361,30 @@ function renderPlannerControls(){
   if(!multiRecRes.length){recCard.style.display='none';}
   else {
     recCard.style.display='';
-    recRows.innerHTML=multiRecRes.map(r=>{
+    // Toggles are PROFILE state ("which alternates have I found"); the pin is
+    // PLAN state ("use this recipe for this plan") saved with the named plan.
+    const filterVal=document.getElementById('rec-filter')?.value||'';
+    recRows.innerHTML=`<input id="rec-filter" type="text" placeholder="Filter resources…" value="${esc(filterVal)}"
+        style="max-width:230px;margin-bottom:8px" oninput="filterRecRows(this.value)">`+
+      multiRecRes.map(r=>{
       const boxes=r.recipes.map(rec=>{
         const on=recToggles[rec.id]!==false;
         const isDef=rec.id===r.defaultRecipeId;
         return`<label style="display:inline-flex;align-items:center;gap:5px;margin:2px 12px 2px 0;font-size:12px;cursor:pointer;color:${on?'var(--tx)':'var(--dim)'}">
           <input type="checkbox" style="width:auto" ${on?'checked':''} onchange="toggleRecipe('${rec.id}',this.checked)">${esc(rec.name)}${isDef?' ★':''}</label>`;
       }).join('');
-      return`<div class="rec-override-row">
+      const pinned=plannerPins[r.id];
+      const pinOpts='<option value="">auto (cheapest)</option>'+r.recipes.map(rec=>
+        `<option value="${rec.id}"${pinned===rec.id?' selected':''}>📌 ${esc(rec.name)}</option>`).join('');
+      return`<div class="rec-override-row" data-name="${esc(r.name)}">
         <span>${esc(r.name)}</span>
         <div style="flex:1;min-width:200px">${boxes}</div>
+        <select style="width:auto;max-width:200px;font-size:11px;padding:2px 5px${pinned?';border-color:var(--acc)':''}"
+          title="Pin a recipe for THIS PLAN only — overrides the cheapest-chain choice; saved with the plan"
+          onchange="setRecipePin('${r.id}',this.value)">${pinOpts}</select>
       </div>`;
     }).join('');
+    if(filterVal)filterRecRows(filterVal);
   }
 }
 
@@ -2364,7 +2433,7 @@ function addTargetRow(containerId='pl-tgt-rows',resId='',rate='',unit='60'){
   row.className='tgt-row';
   row.innerHTML=`<span class="tgt-num"></span>
     <select class="tgt-res">${'<option value="">— select —</option>'+buildResOpts(resId)}</select>
-    <input type="number" class="tgt-rate" min="0" step="any" value="${rate}">
+    <input type="number" class="tgt-rate" min="0" step="any" value="${esc(String(rate))}">
     <select class="tgt-unit"><option value="60">minute</option><option value="1">second</option><option value="3600">hour</option></select>
     <button class="bx" onclick="removeTargetRow(this)">✕</button>`;
   row.querySelector('.tgt-res').value=resId;
@@ -2402,15 +2471,16 @@ function ensureTrailingBlankTargetRow(containerId='pl-tgt-rows'){
   if(!rows.length||rows[rows.length-1].querySelector('.tgt-res').value)addTargetRow(containerId);
 }
 
-// ── Planner query persistence (per profile) ──
+// ── Planner query persistence (into the ACTIVE named plan) ──
+function activePlan(){ return plans.find(x=>x.id===activePlanId); }
 function savePlannerQuery(){
-  const p=profiles.find(p=>p.id===activeProfileId);
-  if(!p)return;
+  const pl=activePlan();
+  if(!pl)return;
   const rowsToTargets=sel=>[...document.querySelectorAll(sel)].flatMap(row=>{
     const resId=row.querySelector('.tgt-res').value;
     return resId?[{resId,rate:row.querySelector('.tgt-rate').value,unit:row.querySelector('.tgt-unit').value}]:[];
   });
-  p.planner={
+  pl.q={
     mode:planMode,
     targets:rowsToTargets('#pl-tgt-rows .tgt-row'),
     inpTargetId:document.getElementById('pl-inp-target').value,
@@ -2418,12 +2488,19 @@ function savePlannerQuery(){
       const[s,i,u]=row.querySelectorAll('select,input');
       return{resourceId:s.value,rate:i.value,unit:u.value};
     }),
-    inpSecondaryTargets:rowsToTargets('#pl-inp-tgt-rows .tgt-row')
+    inpSecondaryTargets:rowsToTargets('#pl-inp-tgt-rows .tgt-row'),
+    pins:{...plannerPins},
+    clocks:{...plannerClocks}
   };
 }
 // Returns true when the restored query is complete enough to auto-run
 function restorePlannerQuery(){
-  const q=profiles.find(p=>p.id===activeProfileId)?.planner;
+  const q=activePlan()?.q;
+  plannerPins={}; plannerClocks={};
+  if(q&&q.pins&&typeof q.pins==='object')Object.entries(q.pins).forEach(([k,v])=>{if(typeof v==='string')plannerPins[k]=v;});
+  if(q&&q.clocks&&typeof q.clocks==='object')Object.entries(q.clocks).forEach(([k,v])=>{const n=parseFloat(v);if(isFinite(n)&&n>0&&n!==1)plannerClocks[k]=Math.min(n,2.5);});
+  renderPlanBar();
+  renderPlannerControls(); // pin selects reflect the restored plan
   if(!q){
     // No saved query yet (fresh profile / first-ever load) — still make sure
     // the target-rows containers aren't left empty.
@@ -2486,6 +2563,8 @@ function clearPlanner(){
   ensureTrailingBlankTargetRow('pl-inp-tgt-rows');
   document.getElementById('pl-results').innerHTML='';
   lastPlan=null;
+  plannerPins={}; plannerClocks={}; // pins and clocks belong to the plan being cleared
+  renderPlannerControls();
   savePlannerQuery(); saveState();
 }
 
@@ -2546,7 +2625,13 @@ function planRecipes(inputSet){
     const res=resources.find(r=>r.id===id);
     if(!res)return memo[id]=1;
     if(!resUnlocked(res))return memo[id]=Infinity;
-    const recs=(res.recipes||[]).filter(recipeAvailable);
+    let recs=(res.recipes||[]).filter(recipeAvailable);
+    // A per-plan PIN forces this resource's recipe regardless of cost — the
+    // pin travels with the saved plan, not the profile, so two plans can use
+    // different recipes without flipping global toggles back and forth. A pin
+    // on a recipe that's disabled or locked falls back to auto silently.
+    const pin=plannerPins[id];
+    if(pin){const pr=recs.find(x=>x.id===pin);if(pr)recs=[pr];}
     if(!recs.length)return memo[id]=rawCostOf(res); // no recipe defined — external raw input
     if(stack.has(id))return Infinity; // cycle guard (not memoised)
     stack.add(id);
@@ -2643,7 +2728,10 @@ function computeChain(targetResId, targetRatePerSec, inputSet=new Set(), useCeil
       if(!rec){rawNeeds[resId]=(rawNeeds[resId]??0)+d;continue;}
       const ct=effectiveCycleTime(rec);
       const outAmt=rec.outputAmount??1;
-      const fullPerMach=outAmt/ct;
+      // Per-plan overclock: scales this stage's rate AND its input/byproduct
+      // flows; power scales separately via clock^powerExponent (see clockedPower)
+      const clock=(plannerClocks[rec.id]>0)?Math.min(plannerClocks[rec.id],2.5):1;
+      const fullPerMach=(outAmt/ct)*clock;
       // Belt cap: a machine can't push out more than (output ports × best
       // allowed belt speed). A 600/min machine with one output on 480/min
       // belts is capped to 480/min — you can't attach a second belt to one
@@ -2661,10 +2749,11 @@ function computeChain(targetResId, targetRatePerSec, inputSet=new Set(), useCeil
       const capF=perMach/fullPerMach; // fraction of full speed the machine can actually run at
       const exact=d/perMach;
       // Each resource is processed exactly once in topological order, so one node per stage
-      nodes.push({rec,exact,resId,perMach,fullPerMach,capF,beltCapped});
+      nodes.push({rec,exact,resId,perMach,fullPerMach,capF,beltCapped,clock});
       // Propagate inputs for ceil (full capacity) or exact (constrained) depending
-      // on mode; belt-capped machines consume inputs at their reduced rate.
-      const propagate=(useCeil?Math.ceil(exact):exact)*capF;
+      // on mode; belt-capped machines consume inputs at their reduced rate, and
+      // an overclocked machine consumes clock× more per machine.
+      const propagate=(useCeil?Math.ceil(exact):exact)*capF*clock;
       rec.inputs.forEach(inp=>{
         demand[inp.resourceId]=(demand[inp.resourceId]??0)+(inp.amount/ct)*propagate;
       });
@@ -2860,8 +2949,9 @@ function planSecondaryTarget(t,pool){
     achievable:res.achievable,bottleneckRes:res.bottleneckRes,extras:res.extras,poolDrawn,converged:res.converged};
 }
 
-// Target mode entry point: target[0] has a fixed, user-specified rate.
-function runMultiTargetPlan(targets, resEl){
+// Target mode: target[0] has a fixed, user-specified rate. Compute and render
+// are split so saved-plan comparison and share links can run a plan headlessly.
+function computeMultiTargetResults(targets){
   const pool={}; // resourceId -> available surplus, per second
   const first=targets[0];
   const{nodes,rawNeeds,byproductSurplus,converged}=computeChain(first.resId,first.rate,new Set(),true);
@@ -2875,14 +2965,17 @@ function runMultiTargetPlan(targets, resEl){
     results=[{resId:first.resId,achievableStyle:false,nodes,rawNeeds,rawRate:first.rawRate,unitLbl:first.unitLbl,rate:first.rate,converged}];
   }
   targets.slice(1).forEach(t=>results.push(planSecondaryTarget(t,pool)));
-  renderMultiTargetResults(targets,results,resEl);
+  return results;
+}
+function runMultiTargetPlan(targets, resEl){
+  renderMultiTargetResults(targets,computeMultiTargetResults(targets),resEl);
 }
 
 // From-Inputs mode entry point: the primary target's achievable rate is
 // derived from `inputMap` (user-supplied inputs) instead of a fixed rate —
 // the one place the two modes differ. Everything after it (secondaryTargets)
 // is planned exactly like Target mode's targets[1+], via the shared pool.
-function runFromInputsPlan(primaryResId, inputMap, secondaryTargets, resEl){
+function computeFromInputsResults(primaryResId, inputMap, secondaryTargets){
   const pool={};
   const res=computeFromInputs(primaryResId,inputMap);
   let results;
@@ -2895,6 +2988,10 @@ function runFromInputsPlan(primaryResId, inputMap, secondaryTargets, resEl){
       achievable:res.achievable,bottleneckRes:res.bottleneckRes,extras:res.extras,converged:res.converged}];
   }
   secondaryTargets.forEach(t=>results.push(planSecondaryTarget(t,pool)));
+  return results;
+}
+function runFromInputsPlan(primaryResId, inputMap, secondaryTargets, resEl){
+  const results=computeFromInputsResults(primaryResId,inputMap,secondaryTargets);
   const allTargets=[{resId:primaryResId},...secondaryTargets];
   renderMultiTargetResults(allTargets,results,resEl);
 }
@@ -2991,7 +3088,7 @@ function renderMultiTargetResults(targets, results, el){
     el.innerHTML=top||'<div class="alert ae">No valid targets.</div>';
     return;
   }
-  lastPlan={nodes};
+  lastPlan={nodes,rawNeeds};
   renderPlanBody(new Set(targets.map(t=>t.resId)),nodes,rawNeeds,top,el);
 }
 
@@ -3055,6 +3152,277 @@ function runPlanner(){
   }
 }
 
+// ══════════════════════════════════════════════════════
+// NAMED PLANS · COMPARE · SHARE · PINS · CLOCKS · CAPS · EXPORT
+// ══════════════════════════════════════════════════════
+function renderPlanBar(){
+  const sel=document.getElementById('plan-sel');
+  if(!sel)return;
+  sel.innerHTML=plans.map(pl=>`<option value="${pl.id}"${pl.id===activePlanId?' selected':''}>${esc(pl.name)}</option>`).join('');
+}
+function switchPlan(id){
+  if(id===activePlanId)return;
+  savePlannerQuery();
+  activePlanId=id;
+  saveState();
+  document.getElementById('pl-results').innerHTML='';
+  lastPlan=null;
+  if(restorePlannerQuery())runPlanner();
+}
+function newPlan(){
+  savePlannerQuery();
+  const name=prompt('Name for the new plan:',`Plan ${plans.length+1}`);
+  if(name===null)return;
+  const pl={id:uid(),name:name.trim()||`Plan ${plans.length+1}`,q:null};
+  plans.push(pl);
+  activePlanId=pl.id;
+  clearPlanner(); // resets rows/pins/clocks and saves the fresh query into the new plan
+  renderPlanBar();
+}
+function renamePlan(){
+  const pl=activePlan();
+  if(!pl)return;
+  const v=prompt('Rename plan:',pl.name);
+  if(v===null)return;
+  pl.name=v.trim()||pl.name;
+  saveState(); renderPlanBar();
+}
+function deletePlan(){
+  if(plans.length<=1)return alert('Cannot delete the only plan — use ↺ Clear all to empty it instead.');
+  const pl=activePlan();
+  if(!confirm(`Delete plan "${pl.name}"?`))return;
+  plans=plans.filter(x=>x.id!==activePlanId);
+  activePlanId=plans[0].id;
+  saveState();
+  document.getElementById('pl-results').innerHTML='';
+  lastPlan=null;
+  if(restorePlannerQuery())runPlanner();
+}
+
+// Headless totals for a saved plan's query — used by Compare. Pins/clocks are
+// part of the query, so they're swapped in for the computation and restored.
+function computePlanTotals(q){
+  if(!q||typeof q!=='object')return null;
+  const sp=plannerPins, sc=plannerClocks;
+  plannerPins=(q.pins&&typeof q.pins==='object')?q.pins:{};
+  plannerClocks={};
+  if(q.clocks&&typeof q.clocks==='object')Object.entries(q.clocks).forEach(([k,v])=>{const n=parseFloat(v);if(isFinite(n)&&n>0&&n!==1)plannerClocks[k]=Math.min(n,2.5);});
+  try{
+    let targets, results;
+    const parseT=t=>{const r=parseFloat(t.rate),u=parseFloat(t.unit)||60;return{resId:t.resId,rawRate:t.rate,unitLbl:'',rate:(isFinite(r)&&r>0)?r/u:null};};
+    if(q.mode==='inputs'){
+      const inputMap={};
+      (q.inputs||[]).forEach(x=>{const r=parseFloat(x.rate),u=parseFloat(x.unit)||60;
+        if(x.resourceId&&isFinite(r)&&r>0)inputMap[x.resourceId]=(inputMap[x.resourceId]||0)+r/u;});
+      delete inputMap[q.inpTargetId];
+      if(!q.inpTargetId||!Object.keys(inputMap).length)return null;
+      const sec=(q.inpSecondaryTargets||[]).map(parseT).filter(t=>t.resId);
+      targets=[{resId:q.inpTargetId},...sec];
+      results=computeFromInputsResults(q.inpTargetId,inputMap,sec);
+    } else {
+      targets=(q.targets||[]).map(parseT).filter(t=>t.resId);
+      if(!targets.length||targets[0].rate==null)return null;
+      results=computeMultiTargetResults(targets);
+    }
+    const{nodes,rawNeeds}=mergeTargetNodes(results);
+    const machCounts={};
+    let totalMW=0;
+    nodes.forEach(n=>{
+      const mn=n.rec.machineId?mname(n.rec.machineId):'(no machine)';
+      machCounts[mn]=(machCounts[mn]||0)+Math.ceil(n.exact);
+      totalMW+=Math.ceil(n.exact)*(n.rec.machineId?clockedPower(n.rec.machineId,n.clock):0);
+    });
+    const outputs={};
+    results.forEach((r,i)=>{
+      const nm=rname(targets[i]?.resId);
+      outputs[nm]=r.error?null:(r.achievableStyle?r.achievable:r.rate);
+    });
+    return {rawNeeds,machCounts,totalMW,outputs};
+  } finally { plannerPins=sp; plannerClocks=sc; }
+}
+
+function comparePlans(){
+  if(plans.length<2)return alert('Save a second plan first (+ New), then compare.');
+  savePlannerQuery();
+  const others=plans.filter(x=>x.id!==activePlanId);
+  const pick=others.length===1?'1'
+    :prompt(`Compare "${activePlan().name}" with which plan?\n`+others.map((x,i)=>`${i+1}. ${x.name}`).join('\n')+'\n\nEnter a number:','1');
+  if(pick===null)return;
+  const other=others[parseInt(pick)-1];
+  if(!other)return alert('No plan with that number.');
+  const A=computePlanTotals(activePlan().q), B=computePlanTotals(other.q);
+  if(!A||!B)return alert('Both plans need a complete, runnable query to compare (a target with an amount, or inputs).');
+  const num=(v,rid)=>v==null?'—':(rid?rateStr(rid,v,2):rfmt(v,2));
+  const row=(label,a,b)=>`<tr><td style="padding:3px 10px 3px 0;color:var(--dim)">${label}</td>
+    <td style="padding:3px 12px;text-align:right">${a}</td><td style="padding:3px 12px;text-align:right">${b}</td></tr>`;
+  let rows='';
+  const outNames=[...new Set([...Object.keys(A.outputs),...Object.keys(B.outputs)])];
+  outNames.forEach(nm=>{
+    const rid=resources.find(r=>r.name===nm)?.id;
+    rows+=row(`▸ ${esc(nm)}`,num(A.outputs[nm],rid),num(B.outputs[nm],rid));
+  });
+  const rawIds=[...new Set([...Object.keys(A.rawNeeds),...Object.keys(B.rawNeeds)])];
+  if(rawIds.length)rows+=row('<span style="color:#555">— raw inputs —</span>','','');
+  rawIds.forEach(rid=>rows+=row(esc(rname(rid)),num(A.rawNeeds[rid],rid),num(B.rawNeeds[rid],rid)));
+  const machNames=[...new Set([...Object.keys(A.machCounts),...Object.keys(B.machCounts)])].sort();
+  if(machNames.length)rows+=row('<span style="color:#555">— machines —</span>','','');
+  machNames.forEach(mn=>rows+=row(esc(mn),A.machCounts[mn]??'—',B.machCounts[mn]??'—'));
+  rows+=row('<strong>⚡ Total power</strong>',`<strong>${fmt(A.totalMW,A.totalMW>=100?0:1)} MW</strong>`,`<strong>${fmt(B.totalMW,B.totalMW>=100?0:1)} MW</strong>`);
+  const el=document.getElementById('pl-results');
+  el.insertAdjacentHTML('afterbegin',`<div class="card" id="plan-compare" style="margin-bottom:14px">
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">Plan comparison
+      <button class="bb bsm" style="text-transform:none;letter-spacing:0" onclick="document.getElementById('plan-compare').remove()">✕ Close</button></div>
+    <div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:12.5px;min-width:340px">
+      <tr><td></td><th style="padding:3px 12px;text-align:right;color:var(--acc)">${esc(activePlan().name)}</th>
+      <th style="padding:3px 12px;text-align:right;color:var(--blu)">${esc(other.name)}</th></tr>${rows}</table></div>
+  </div>`);
+}
+
+// ── Share links: the whole query in the URL hash, nothing server-side ──
+const b64u={
+  enc:s=>btoa(unescape(encodeURIComponent(s))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''),
+  dec:s=>decodeURIComponent(escape(atob(s.replace(/-/g,'+').replace(/_/g,'/'))))
+};
+function copyShareLink(){
+  savePlannerQuery();
+  const pl=activePlan(), prof=activeProfile();
+  if(!pl?.q)return alert('Nothing to share yet — set up a plan first.');
+  const url=location.origin+location.pathname+'#plan='+b64u.enc(JSON.stringify({s:prof.sample||null,n:prof.name,q:pl.q}));
+  const done=()=>alert('Share link copied to clipboard.\n\nAnyone with the same profile (e.g. the bundled sample) can open it to see this exact plan.');
+  if(navigator.clipboard?.writeText)navigator.clipboard.writeText(url).then(done,()=>prompt('Copy this link:',url));
+  else prompt('Copy this link:',url);
+}
+// A shared query is UNTRUSTED input — rebuild it field by field with types
+// forced, so nothing from a crafted link reaches an HTML template as markup.
+function sanitizeSharedQuery(q){
+  if(!q||typeof q!=='object')return null;
+  const ID=v=>typeof v==='string'&&/^[A-Za-z0-9_-]+$/.test(v)?v:'';
+  const NUMSTR=v=>{const n=parseFloat(v);return isFinite(n)?String(n):'';};
+  const UNIT=v=>['60','1','3600'].includes(String(v))?String(v):'60';
+  const T=a=>Array.isArray(a)?a.slice(0,20).map(t=>({resId:ID(t?.resId),rate:NUMSTR(t?.rate),unit:UNIT(t?.unit)})).filter(t=>t.resId):[];
+  const clean={
+    mode:q.mode==='inputs'?'inputs':'target',
+    targets:T(q.targets),
+    inpTargetId:ID(q.inpTargetId),
+    inputs:Array.isArray(q.inputs)?q.inputs.slice(0,30).map(x=>({resourceId:ID(x?.resourceId),rate:NUMSTR(x?.rate),unit:UNIT(x?.unit)})).filter(x=>x.resourceId):[],
+    inpSecondaryTargets:T(q.inpSecondaryTargets),
+    pins:{},clocks:{}
+  };
+  if(q.pins&&typeof q.pins==='object')Object.entries(q.pins).slice(0,200).forEach(([k,v])=>{if(ID(k)&&ID(v))clean.pins[k]=v;});
+  if(q.clocks&&typeof q.clocks==='object')Object.entries(q.clocks).slice(0,200).forEach(([k,v])=>{const n=parseFloat(v);if(ID(k)&&isFinite(n)&&n>0)clean.clocks[k]=Math.min(n,2.5);});
+  // A link whose content ALL failed sanitisation carries nothing worth loading
+  if(!clean.targets.length&&!clean.inpTargetId)return null;
+  return clean;
+}
+function tryLoadSharedPlan(){
+  const m=location.hash.match(/#plan=([A-Za-z0-9_-]+)/);
+  if(!m)return false;
+  history.replaceState(null,'',location.pathname+location.search);
+  let payload;
+  try{ payload=JSON.parse(b64u.dec(m[1])); }catch{ alert('Could not read that shared-plan link.'); return false; }
+  const q=sanitizeSharedQuery(payload?.q);
+  if(!q)return false;
+  const apply=()=>{
+    let nm='Shared plan',k=2;
+    while(plans.some(x=>x.name===nm))nm=`Shared plan (${k++})`;
+    const pl={id:uid(),name:nm,q};
+    plans.push(pl); activePlanId=pl.id;
+    saveState();
+    goTab('planner');
+    if(restorePlannerQuery())runPlanner();
+  };
+  const wantSample=typeof payload.s==='string'?payload.s:null;
+  const wantName=typeof payload.n==='string'?payload.n:null;
+  let prof=(wantSample&&profiles.find(x=>x.sample===wantSample))||(wantName&&profiles.find(x=>x.name===wantName))||null;
+  if(prof){
+    if(prof.id!==activeProfileId)switchProfile(prof.id);
+    apply(); return true;
+  }
+  if(wantSample&&confirm(`This link is a plan for the "${wantSample}" sample profile, which isn't loaded yet. Load it now?`)){
+    loadSampleProfile(wantSample).then(()=>apply());
+    return true;
+  }
+  alert(`This link needs the profile "${wantName||wantSample||'?'}" — load or import it first, then open the link again.`);
+  return false;
+}
+
+// ── Per-stage overclock / per-resource pin / raw caps (results controls) ──
+function setStageClock(recId,pct){
+  const n=parseFloat(pct);
+  const c=(isFinite(n)&&n>0)?Math.min(Math.max(n,1),250)/100:1;
+  if(c===1)delete plannerClocks[recId]; else plannerClocks[recId]=c;
+  savePlannerQuery(); saveState(); runPlanner();
+}
+function setRecipePin(resId,recId){
+  if(recId)plannerPins[resId]=recId; else delete plannerPins[resId];
+  savePlannerQuery(); saveState(); replan();
+}
+function setRawCap(resId,val){
+  const unit=rateUnit==='m'?60:1;
+  const n=parseFloat(val);
+  if(isFinite(n)&&n>0)rawCaps[resId]=n/unit; else delete rawCaps[resId];
+  saveState(); replan();
+}
+
+// ── Plan export: the flow diagram as a standalone SVG, the numbers as CSV ──
+function planFileName(){
+  const cl=s=>String(s||'').replace(/[^a-z0-9_-]/gi,'_');
+  return `${cl(activeProfile()?.name)}-${cl(activePlan()?.name||'plan')}`;
+}
+function exportPlanSVG(){
+  const svg=document.querySelector('#pl-results .flow-card svg');
+  if(!svg)return alert('Run a plan first.');
+  const clone=svg.cloneNode(true);
+  clone.querySelector('.belt-marker')?.remove(); // hover artifact, not part of the plan
+  clone.setAttribute('xmlns','http://www.w3.org/2000/svg');
+  clone.insertAdjacentHTML('afterbegin',`<rect x="0" y="0" width="${svg.getAttribute('width')}" height="${svg.getAttribute('height')}" fill="#1f2225"/>`);
+  const blob=new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n'+clone.outerHTML],{type:'image/svg+xml'});
+  Object.assign(document.createElement('a'),{href:URL.createObjectURL(blob),download:planFileName()+'.svg'}).click();
+}
+function exportPlanCSV(){
+  if(!lastPlan?.nodes?.length)return alert('Run a plan first.');
+  const q=v=>{const s=String(v??'');return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
+  const unitLbl=rateUnit==='m'?'/min':'/s';
+  const lines=[['Machine','Tier','Recipe','Resource','Machines','Exact','Clock %','Rate'+unitLbl,'Power MW'].join(',')];
+  lastPlan.nodes.forEach(n=>{
+    const m=n.rec.machineId?machines.find(x=>x.id===n.rec.machineId):null;
+    const count=Math.ceil(n.exact);
+    const rate=n.exact*(n.perMach??((n.rec.outputAmount??1)/effectiveCycleTime(n.rec)));
+    lines.push([q(m?m.name:'(no machine)'),q(activeTierName(n.rec)),q(n.rec.name),q(rname(n.resId)),
+      count,n.exact.toFixed(3),Math.round((n.clock??1)*100),
+      (isPowerRes(n.resId)?rate:rate*(rateUnit==='m'?60:1)).toFixed(3)+(isPowerRes(n.resId)?' MW':''),
+      (count*(n.rec.machineId?clockedPower(n.rec.machineId,n.clock):0)).toFixed(1)].join(','));
+  });
+  if(lastPlan.rawNeeds&&Object.keys(lastPlan.rawNeeds).length){
+    lines.push('');
+    lines.push(['Raw input','Rate'+unitLbl].join(','));
+    Object.entries(lastPlan.rawNeeds).forEach(([rid,rate])=>{
+      lines.push([q(rname(rid)),(isPowerRes(rid)?rate:rate*(rateUnit==='m'?60:1)).toFixed(3)].join(','));
+    });
+  }
+  const blob=new Blob([lines.join('\r\n')],{type:'text/csv'});
+  Object.assign(document.createElement('a'),{href:URL.createObjectURL(blob),download:planFileName()+'.csv'}).click();
+}
+
+// Filter box for the (now 65-alternate) recipe card — reuses the search scorer
+function filterRecRows(qv){
+  document.querySelectorAll('#pl-rec-rows .rec-override-row').forEach(row=>{
+    const name=row.dataset.name||'';
+    row.style.display=(!qv.trim()||ssScore(qv,name)>=0)?'':'none';
+  });
+}
+
+function setPowerExponent(v){
+  if(lockGuard()){reloadPowerExpInput();return;}
+  const n=parseFloat(v);
+  powerExponent=(isFinite(n)&&n>0)?n:1;
+  saveState(); replan();
+}
+function reloadPowerExpInput(){
+  const el=document.getElementById('pw-exp');
+  if(el)el.value=powerExponent!==1?powerExponent:'';
+}
+
 // Shared results renderer: stage list + raw inputs + power banner + flow
 // diagram. `targetIds` is a Set (a single from-inputs target, or every
 // target in a multi-target plan). `topHtml` is caller-supplied content
@@ -3066,11 +3434,25 @@ function renderPlanBody(targetIds, nodes, rawNeeds, topHtml, el){
   let left=topHtml;
   left+=`<div class="act" style="margin:0 0 12px">
     <button class="bb bsm" onclick="planToLayout()" title="Place the calculated machines in the layout editor, one column per stage">Build in Layout →</button>
+    <button class="bb bsm" onclick="exportPlanSVG()" title="Download the flow diagram as a standalone SVG image">⬇ Diagram</button>
+    <button class="bb bsm" onclick="exportPlanCSV()" title="Download the stage list and raw inputs as CSV">⬇ CSV</button>
   </div>`;
+
+  // ── Raw supply budgets: warn when the plan wants more than the map gives ──
+  const overCap=[];
+  Object.entries(rawNeeds).forEach(([rid,rate])=>{
+    const cap=rawCaps[rid];
+    if(cap>0&&rate>cap+1e-9)overCap.push({rid,rate,cap});
+  });
+  if(overCap.length){
+    const rows=overCap.map(o=>`<li><strong>${esc(rname(o.rid))}</strong>: needs ${rateStr(o.rid,o.rate,2)}, limit ${rateStr(o.rid,o.cap,2)} (${rateStr(o.rid,o.rate-o.cap,2)} short)</li>`).join('');
+    left+=`<div class="alert ae" style="margin:0 0 10px">⛔ Over the raw supply limits you set:
+      <ul style="margin:6px 0 0 18px;padding:0">${rows}</ul></div>`;
+  }
 
   // ── Total power draw across all stages (installed: ceiled machines × MW) ──
   const totalMW=nodes.reduce((s,n)=>{
-    const p=n.rec.machineId?(activeTier(n.rec.machineId)?.power||0):0;
+    const p=n.rec.machineId?clockedPower(n.rec.machineId,n.clock):0;
     return s+Math.ceil(n.exact)*p;
   },0);
   if(totalMW>0){
@@ -3093,10 +3475,10 @@ function renderPlanBody(targetIds, nodes, rawNeeds, topHtml, el){
   const prod={}, cons={};
   nodes.forEach(n=>{
     const ct=effectiveCycleTime(n.rec);
-    const capF=n.capF??1;
+    const f=(n.capF??1)*(n.clock??1); // belt cap and overclock both scale flows
     prod[n.resId]=(prod[n.resId]||0)+n.exact*(n.perMach??((n.rec.outputAmount??1)/ct));
-    (n.rec.byproducts||[]).forEach(bp=>{ prod[bp.resourceId]=(prod[bp.resourceId]||0)+(bp.amount/ct)*n.exact*capF; });
-    n.rec.inputs.forEach(inp=>{ cons[inp.resourceId]=(cons[inp.resourceId]||0)+(inp.amount/ct)*n.exact*capF; });
+    (n.rec.byproducts||[]).forEach(bp=>{ prod[bp.resourceId]=(prod[bp.resourceId]||0)+(bp.amount/ct)*n.exact*f; });
+    n.rec.inputs.forEach(inp=>{ cons[inp.resourceId]=(cons[inp.resourceId]||0)+(inp.amount/ct)*n.exact*f; });
   });
   const byproductResIds=new Set();
   nodes.forEach(n=>(n.rec.byproducts||[]).forEach(bp=>byproductResIds.add(bp.resourceId)));
@@ -3134,7 +3516,7 @@ function renderPlanBody(targetIds, nodes, rawNeeds, topHtml, el){
     const effPct     = (eff*100).toFixed(1);
     const atCapacity = eff>0.999;
     const byproducts=(rec.byproducts||[]).map(b=>
-      `<span class="badge bp" title="Byproduct">+${rateStr(b.resourceId,(b.amount/ct)*exact*(n.capF??1),2)} ${esc(rname(b.resourceId))}</span>`
+      `<span class="badge bp" title="Byproduct">+${rateStr(b.resourceId,(b.amount/ct)*exact*(n.capF??1)*(n.clock??1),2)} ${esc(rname(b.resourceId))}</span>`
     ).join(' ');
 
     left+=`<div class="ri${isTgt?' tgt':''}">
@@ -3148,17 +3530,26 @@ function renderPlanBody(targetIds, nodes, rawNeeds, topHtml, el){
       <div class="ri-r">
         <div class="ri-cnt">${count}</div>
         <div class="ri-ex">${fmt(exact,2)} exact</div>
-        ${m&&(activeTier(m.id)?.power||0)>0?`<div class="ri-ex" style="color:#b8963a">⚡ ${fmt(count*(activeTier(m.id).power),0)} MW</div>`:''}
+        ${m&&clockedPower(m.id,n.clock)>0?`<div class="ri-ex" style="color:#b8963a">⚡ ${fmt(count*clockedPower(m.id,n.clock),0)} MW</div>`:''}
+        ${m?`<div class="ri-ex" style="margin-top:3px" title="Overclock this stage — machines run faster (fewer needed) but power scales with clock^${powerExponent}">
+          <input type="number" min="1" max="250" step="1" value="${Math.round((n.clock??1)*100)}" style="width:54px;font-size:10px;padding:2px 4px"
+            onchange="setStageClock('${rec.id}',this.value)"> % clock</div>`:''}
       </div></div>`;
   });
 
   if(Object.keys(rawNeeds).length){
-    left+=`<div class="sl" style="margin-top:12px">Raw inputs</div>`;
+    left+=`<div class="sl" style="margin-top:12px">Raw inputs <span style="color:#555;text-transform:none;letter-spacing:0;font-size:11px">— set a limit to be warned when a plan wants more than your map supplies</span></div>`;
+    const unitF=rateUnit==='m'?60:1, unitLbl=rateUnit==='m'?'/min':'/s';
     Object.entries(rawNeeds).forEach(([rid,rate])=>{
       const beltStr=beltLabel(rate,rid);
-      left+=`<div class="raw-i">
+      const cap=rawCaps[rid];
+      const over=cap>0&&rate>cap+1e-9;
+      left+=`<div class="raw-i"${over?' style="border-color:var(--red)"':''}>
         <span class="raw-n"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${resColor(rid)};margin-right:6px"></span>${esc(rname(rid))}</span>
-        <div class="ri-r"><div class="raw-v">${rateStr(rid,rate,3)}</div>${beltStr?`<div class="raw-s">${esc(beltStr)}</div>`:''}</div>
+        <div class="ri-r"><div class="raw-v"${over?' style="color:var(--red)"':''}>${rateStr(rid,rate,3)}</div>${beltStr?`<div class="raw-s">${esc(beltStr)}</div>`:''}
+        <div class="raw-s" title="Available supply of this raw resource — leave empty for unlimited">limit
+          <input type="number" min="0" step="any" value="${cap>0?+(cap*unitF).toFixed(3):''}" placeholder="∞"
+            style="width:64px;font-size:10px;padding:1px 4px" onchange="setRawCap('${rid}',this.value)">${isPowerRes(rid)?' MW':unitLbl}</div></div>
       </div>`;
     });
   }
@@ -3715,13 +4106,13 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
       // below) so outputs and byproducts don't overlap on the same edge.
       const key=n.rec.id+'|'+bp.resourceId;
       if(posBy[key]){ // recipe lists the same byproduct twice — merge, don't overwrite
-        posBy[key].rate+=(bp.amount/bct)*n.exact*(n.capF??1);
+        posBy[key].rate+=(bp.amount/bct)*n.exact*(n.capF??1)*(n.clock??1);
         return;
       }
       const bandI=dropToBand?(bandDropCount[consumer.rec.id]=(bandDropCount[consumer.rec.id]||0)+1)-1:0;
       const by=dropToBand?cPos.y+(NH-BH)/2+bandI*(BH+BGAP):p.y+NH/2+(besideI++)*(BH+BGAP);
       posBy[key]={x:bx,y:by,resId:bp.resourceId,producer:n,dropToBand,
-        rate:(bp.amount/bct)*n.exact*(n.capF??1)}; // capF: belt-capped machines byproduce less
+        rate:(bp.amount/bct)*n.exact*(n.capF??1)*(n.clock??1)}; // belt cap + overclock scale byproduct flow
       (byBoxesByRes[bp.resourceId]=byBoxesByRes[bp.resourceId]||[]).push(key);
       if(bx+BW>maxByRight)maxByRight=bx+BW;
     });
@@ -3766,7 +4157,7 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
     const ct=effectiveCycleTime(consumer.rec);
     const toLabel=`${consumer.rec.machineId?mname(consumer.rec.machineId):'(no machine)'} → ${rname(consumer.resId)}`;
     consumer.rec.inputs.forEach(inp=>{
-      const rate=(inp.amount/ct)*consumer.exact*(consumer.capF??1);
+      const rate=(inp.amount/ct)*consumer.exact*(consumer.capF??1)*(consumer.clock??1);
       const R=inp.resourceId;
       const srcs=[];
       (primaryBy[R]||[]).forEach(pn=>{
@@ -3975,8 +4366,8 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
     const actualRate=n.exact*ratePerMachine; // planned flow rate, not max capacity
     const eff=n.exact/count;
     const atCap=eff>0.999;
-    const machLine=(m?m.name:'no machine')+(tier?` · ${tier}`:'')+(n.beltCapped?' ⚠':'');
-    const nodeMW=m?(activeTier(m.id)?.power||0)*count:0;
+    const machLine=(m?m.name:'no machine')+(tier?` · ${tier}`:'')+((n.clock??1)!==1?` @${Math.round(n.clock*100)}%`:'')+(n.beltCapped?' ⚠':'');
+    const nodeMW=m?clockedPower(m.id,n.clock)*count:0;
     // Per-node flag: this node came from a byproduct/from-inputs-constrained
     // computation, so show its efficiency band when it isn't at 100%.
     const effBand=n.fromInputs&&!atCap
@@ -5311,8 +5702,12 @@ initSearchableSelects();
 cancelMachine();
 cancelResource();
 addIO('rec-inputs');
-// Restore the saved planner query for this profile and re-run it if complete
-if(restorePlannerQuery())runPlanner();
+reloadPowerExpInput();
+// A #plan= share link takes precedence over the profile's own saved query;
+// otherwise restore the active saved plan and re-run it if complete.
+if(!tryLoadSharedPlan()){
+  if(restorePlannerQuery())runPlanner();
+}
 
 // Best-effort refresh of any locked sample profiles from their bundled copy
 // (self-update). Runs after the UI is up so it never blocks first paint.
