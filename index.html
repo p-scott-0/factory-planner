@@ -254,7 +254,8 @@ body.sample-locked .la{display:none!important}
   </div>
   <div>
     <div class="card">
-      <div class="card-title">Machines <span id="mach-ct" style="color:#444;font-size:11px"></span></div>
+      <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">Machines <span id="mach-ct" style="color:#444;font-size:11px"></span>
+        <button class="bb bsm def-undo-btn lock-hide" onclick="undoDefEdit()" title="Undo the last machine/resource/recipe edit" disabled style="opacity:.4;margin-left:auto;text-transform:none;letter-spacing:0">↶ Undo edit</button></div>
       <div id="mach-list"><div class="empty">No machines yet.</div></div>
       <div class="act">
         <button class="bb bsm" onclick="exportData()">Export JSON</button>
@@ -395,7 +396,8 @@ body.sample-locked .la{display:none!important}
   </div>
 
   <div class="card">
-    <div class="card-title">Resources <span id="res-ct" style="color:#444;font-size:11px"></span></div>
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">Resources <span id="res-ct" style="color:#444;font-size:11px"></span>
+      <button class="bb bsm def-undo-btn lock-hide" onclick="undoDefEdit()" title="Undo the last machine/resource/recipe edit" disabled style="opacity:.4;margin-left:auto;text-transform:none;letter-spacing:0">↶ Undo edit</button></div>
     <div id="res-list"><div class="empty">No resources yet.</div></div>
   </div>
 </div>
@@ -579,7 +581,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.7';
+const APP_VERSION = '1.0.8';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -661,13 +663,15 @@ function loadState(){
 function loadActiveProfile(){
   const p=profiles.find(p=>p.id===activeProfileId);
   if(!p)return;
+  sanitizeProfileIds(p); // heal hostile/odd ids before anything renders them
+  const isMap=x=>x&&typeof x==='object'&&!Array.isArray(x);
   machines    = p.machines     || [];
   resources   = p.resources    || [];
   categories  = p.categories   || [];
-  selTiers    = p.selTiers     || {};
+  selTiers    = isMap(p.selTiers)?p.selTiers:{};
   researchTiers = p.researchTiers || [];
   beltTiers     = p.beltTiers     || [];
-  recToggles    = p.recToggles    || {};
+  recToggles    = isMap(p.recToggles)?p.recToggles:{};
   unlockedTierId= p.unlockedTierId?? null;
   maxBeltTierId = p.maxBeltTierId ?? null;
   pipeTiers     = p.pipeTiers     || [];
@@ -677,26 +681,157 @@ function loadActiveProfile(){
   migrateData();
 }
 
-// Assign stable hues, port ids, and repair machines with no tiers (only
-// possible via imported data — a tierless machine used to vanish as "locked").
+// Assign stable hues, port ids, and repair anything an imported or hand-edited
+// profile might be missing. Every render and planner path assumes these arrays
+// exist — a resource without `recipes` used to throw mid-init and leave the app
+// half-dead on every reload (the broken profile was already saved as active).
 function migrateData(){
+  const arr=x=>Array.isArray(x)?x:[];
+  machines=arr(machines).filter(m=>m&&typeof m==='object');
+  resources=arr(resources).filter(r=>r&&typeof r==='object');
+  categories=arr(categories).filter(c=>c&&typeof c==='object');
+  categories.forEach(c=>{if(!c.id)c.id=uid();if(typeof c.name!=='string')c.name=String(c.name??'Category');});
+  researchTiers=arr(researchTiers).filter(t=>t&&typeof t==='object');
+  researchTiers.forEach(t=>{if(!t.id)t.id=uid();if(typeof t.name!=='string')t.name=String(t.name??'Tier');});
+  beltTiers=arr(beltTiers).filter(b=>b&&typeof b==='object');
+  pipeTiers=arr(pipeTiers).filter(b=>b&&typeof b==='object');
+  beltTiers.concat(pipeTiers).forEach(b=>{
+    if(!b.id)b.id=uid();
+    if(typeof b.name!=='string')b.name=String(b.name??'Tier');
+    if(!(b.speed>0))b.speed=1;
+  });
+  blueprints=arr(blueprints).filter(b=>b&&typeof b==='object');
+  blueprints.forEach(b=>{
+    if(!b.id)b.id=uid();
+    if(typeof b.name!=='string')b.name=String(b.name??'Blueprint');
+    b.instances=arr(b.instances).filter(i=>i&&typeof i==='object');
+    b.belts=arr(b.belts).filter(x=>x&&typeof x==='object'&&x.from&&x.to);
+  });
   machines.forEach((m,i)=>{
+    if(!m.id)m.id=uid();
+    if(typeof m.name!=='string')m.name=String(m.name??'Machine');
     if(m.hue===undefined)m.hue=Math.round(i*137.5)%360;
-    if(!(m.tiers||[]).length)m.tiers=[{id:uid(),name:'Base',speedMult:1,buildCost:[]}];
-    (m.ports||[]).forEach(p=>{if(!p.id)p.id=uid();});
+    if(!Array.isArray(m.tiers))m.tiers=[];
+    m.tiers=m.tiers.filter(t=>t&&typeof t==='object');
+    if(!m.tiers.length)m.tiers=[{id:uid(),name:'Base',speedMult:1,buildCost:[]}];
+    m.tiers.forEach(t=>{
+      if(!t.id)t.id=uid();
+      if(!(t.speedMult>0))t.speedMult=1;
+      if(!Array.isArray(t.buildCost))t.buildCost=[];
+    });
+    if(!Array.isArray(m.ports))m.ports=[];
+    m.ports=m.ports.filter(p=>p&&typeof p==='object');
+    m.ports.forEach(p=>{if(!p.id)p.id=uid();});
   });
   resources.forEach((r,i)=>{
+    if(!r.id)r.id=uid();
+    if(typeof r.name!=='string')r.name=String(r.name??'Resource');
     if(r.hue===undefined)r.hue=Math.round(i*137.5+60)%360;
-    (r.recipes||[]).forEach(rec=>{if(!rec.byproducts)rec.byproducts=[];});
+    if(!Array.isArray(r.recipes))r.recipes=[];
+    r.recipes=r.recipes.filter(rec=>rec&&typeof rec==='object');
+    r.recipes.forEach(rec=>{
+      if(!rec.id)rec.id=uid();
+      if(!(rec.cycleTime>0))rec.cycleTime=1;
+      if(!(rec.outputAmount>0))rec.outputAmount=1;
+      if(!Array.isArray(rec.inputs))rec.inputs=[];
+      if(!Array.isArray(rec.byproducts))rec.byproducts=[];
+      rec.inputs=rec.inputs.filter(x=>x&&x.resourceId&&x.amount>0);
+      rec.byproducts=rec.byproducts.filter(x=>x&&x.resourceId&&x.amount>0);
+    });
+    if(r.defaultRecipeId&&!r.recipes.some(x=>x.id===r.defaultRecipeId))r.defaultRecipeId=r.recipes[0]?.id??null;
   });
+}
+
+// IDs are interpolated into inline handlers and element ids throughout the UI
+// (onclick="editRes('<id>')" …), which is safe for our own crypto.randomUUID()
+// ids and the samples' slugs — but profile JSON is a SHARED format, and a
+// crafted id in an imported file could break out of those attributes (XSS).
+// Rather than escaping at hundreds of sinks, regenerate any id that isn't a
+// plain [A-Za-z0-9_-]+ token and remap every reference to it. Clean profiles
+// (all our own output) take the empty-map fast path.
+function sanitizeProfileIds(p){
+  const ID_OK=/^[A-Za-z0-9_-]+$/;
+  const map=new Map();
+  // Defensive iteration: a hand-edited profile can hold a string or object
+  // where an array belongs — this function runs BEFORE normalization, so it
+  // must survive any shape rather than throw and leave the profile active.
+  const arr=x=>Array.isArray(x)?x:[];
+  const fix=obj=>{
+    if(!obj||typeof obj!=='object')return;
+    if(typeof obj.id==='string'&&!ID_OK.test(obj.id)){const n=uid();map.set(obj.id,n);obj.id=n;}
+    else if(obj.id!=null&&typeof obj.id!=='string'){const n=uid();map.set(String(obj.id),n);obj.id=n;}
+  };
+  arr(p.categories).forEach(fix);
+  arr(p.researchTiers).forEach(fix);
+  arr(p.beltTiers).forEach(fix);
+  arr(p.pipeTiers).forEach(fix);
+  arr(p.machines).forEach(m=>{fix(m);arr(m?.tiers).forEach(fix);arr(m?.ports).forEach(fix);});
+  arr(p.resources).forEach(r=>{fix(r);arr(r?.recipes).forEach(fix);});
+  arr(p.blueprints).forEach(b=>{fix(b);arr(b?.instances).forEach(fix);arr(b?.belts).forEach(fix);});
+  arr(p.layout?.instances).forEach(fix);
+  arr(p.layout?.belts).forEach(fix);
+  if(!map.size)return;
+  // References may be stored as numbers (map keys are String(id)) — normalise
+  // the lookup or a numeric reference dangles after its target was remapped.
+  const re=id=>{const m=map.get(typeof id==='string'?id:String(id));return m??id;};
+  const reIO=list=>arr(list).forEach(x=>{if(x)x.resourceId=re(x.resourceId);});
+  arr(p.resources).forEach(r=>{
+    if(!r)return;
+    r.categoryId=r.categoryId!=null?re(r.categoryId):r.categoryId;
+    r.researchTierId=r.researchTierId!=null?re(r.researchTierId):r.researchTierId;
+    r.defaultRecipeId=r.defaultRecipeId!=null?re(r.defaultRecipeId):r.defaultRecipeId;
+    arr(r.recipes).forEach(rec=>{
+      if(!rec)return;
+      rec.machineId=rec.machineId!=null?re(rec.machineId):rec.machineId;
+      reIO(rec.inputs); reIO(rec.byproducts);
+    });
+  });
+  arr(p.machines).forEach(m=>{
+    if(!m)return;
+    m.researchTierId=m.researchTierId!=null?re(m.researchTierId):m.researchTierId;
+    arr(m.tiers).forEach(t=>{
+      if(!t)return;
+      t.researchTierId=t.researchTierId!=null?re(t.researchTierId):t.researchTierId;
+      reIO(t.buildCost);
+    });
+  });
+  arr(p.beltTiers).concat(arr(p.pipeTiers)).forEach(b=>{
+    if(b)b.researchTierId=b.researchTierId!=null?re(b.researchTierId):b.researchTierId;
+  });
+  const isMap=x=>x&&typeof x==='object'&&!Array.isArray(x);
+  p.recToggles=Object.fromEntries(Object.entries(isMap(p.recToggles)?p.recToggles:{}).map(([k,v])=>[re(k),v]));
+  p.selTiers=Object.fromEntries(Object.entries(isMap(p.selTiers)?p.selTiers:{}).map(([k,v])=>[re(k),typeof v==='string'?re(v):v]));
+  if(p.unlockedTierId!=null)p.unlockedTierId=re(p.unlockedTierId);
+  if(p.maxBeltTierId!=null)p.maxBeltTierId=re(p.maxBeltTierId);
+  if(p.maxPipeTierId!=null)p.maxPipeTierId=re(p.maxPipeTierId);
+  const fixLayout=l=>{
+    arr(l?.instances).forEach(i=>{if(i){i.machineId=re(i.machineId);if(i.tierId!=null)i.tierId=re(i.tierId);}});
+    arr(l?.belts).forEach(b=>{
+      if(!b)return;
+      if(b.beltTierId!=null)b.beltTierId=re(b.beltTierId);
+      [b.from,b.to].forEach(end=>{if(end&&typeof end==='object'){end.instId=re(end.instId);if(end.portId!=null)end.portId=re(end.portId);}});
+    });
+  };
+  fixLayout(p.layout);
+  arr(p.blueprints).forEach(fixLayout);
+  const fixQuery=q=>{
+    if(!q||typeof q!=='object')return;
+    arr(q.targets).forEach(t=>{if(t)t.resId=re(t.resId);});
+    arr(q.inputs).forEach(x=>{if(x)x.resourceId=re(x.resourceId);});
+    arr(q.inpSecondaryTargets).forEach(t=>{if(t)t.resId=re(t.resId);});
+    if(q.inpTargetId)q.inpTargetId=re(q.inpTargetId);
+  };
+  fixQuery(p.planner);
 }
 
 // Migration: build costs used to live on the machine; they now live per tier.
 // Old data/imports get the machine-level cost copied onto every tier.
 function migrateTierCosts(machs){
-  (machs||[]).forEach(m=>{
-    (m.tiers||[]).forEach(t=>{
-      if(!t.buildCost)t.buildCost=m.buildCost?JSON.parse(JSON.stringify(m.buildCost)):[];
+  // Runs BEFORE migrateData's normalization, so trust nothing about shape
+  (Array.isArray(machs)?machs:[]).forEach(m=>{
+    if(!m||typeof m!=='object')return;
+    (Array.isArray(m.tiers)?m.tiers:[]).forEach(t=>{
+      if(t&&typeof t==='object'&&!t.buildCost)t.buildCost=m.buildCost?JSON.parse(JSON.stringify(m.buildCost)):[];
     });
     delete m.buildCost;
   });
@@ -749,6 +884,7 @@ function switchProfile(id){
 
 function reloadUI(){
   applyLockUI();
+  updateDefUndoBtns();
   renderProfileSelector();
   renderUnlockSelector(); renderTierTab(); refreshTierSelects(); renderBeltTiers(); renderPipeTiers();
   renderMachines(); renderResources();
@@ -824,7 +960,35 @@ function exportProfile(){
   const data=JSON.parse(JSON.stringify(p));
   delete data.id;
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
-  Object.assign(document.createElement('a'),{href:URL.createObjectURL(blob),download:`${p.name.replace(/[^a-z0-9_-]/gi,'_')}.json`}).click();
+  Object.assign(document.createElement('a'),{href:URL.createObjectURL(blob),download:`${String(p.name||'profile').replace(/[^a-z0-9_-]/gi,'_')}.json`}).click();
+}
+
+// Structural validation for imported profile JSON. Returns a list of problems
+// (empty = importable). Only SHAPE is validated — wrong numbers etc. are
+// normalised by migrateData afterwards; this just guarantees nothing an import
+// can contain will throw mid-render.
+function profileImportErrors(d){
+  const errs=[];
+  if(!d||typeof d!=='object'||Array.isArray(d))return['Top level must be a JSON object (see the README for the profile format).'];
+  const arrayFields=['machines','resources','categories','researchTiers','beltTiers','pipeTiers','blueprints'];
+  arrayFields.forEach(k=>{
+    if(d[k]!==undefined&&!Array.isArray(d[k]))errs.push(`"${k}" must be an array.`);
+  });
+  (Array.isArray(d.resources)?d.resources:[]).forEach((r,i)=>{
+    if(!r||typeof r!=='object'){errs.push(`resources[${i}] is not an object.`);return;}
+    if(r.recipes!==undefined&&!Array.isArray(r.recipes))errs.push(`resources[${i}] ("${r.name??'?'}"): "recipes" must be an array.`);
+    (Array.isArray(r.recipes)?r.recipes:[]).forEach((rec,j)=>{
+      if(!rec||typeof rec!=='object'){errs.push(`resources[${i}].recipes[${j}] is not an object.`);return;}
+      if(rec.inputs!==undefined&&!Array.isArray(rec.inputs))errs.push(`recipe "${rec.name??rec.id??j}": "inputs" must be an array.`);
+      if(rec.byproducts!==undefined&&!Array.isArray(rec.byproducts))errs.push(`recipe "${rec.name??rec.id??j}": "byproducts" must be an array.`);
+    });
+  });
+  (Array.isArray(d.machines)?d.machines:[]).forEach((m,i)=>{
+    if(!m||typeof m!=='object'){errs.push(`machines[${i}] is not an object.`);return;}
+    if(m.tiers!==undefined&&!Array.isArray(m.tiers))errs.push(`machines[${i}] ("${m.name??'?'}"): "tiers" must be an array.`);
+    if(m.ports!==undefined&&!Array.isArray(m.ports))errs.push(`machines[${i}] ("${m.name??'?'}"): "ports" must be an array.`);
+  });
+  return errs;
 }
 
 function importProfile(e){
@@ -833,9 +997,14 @@ function importProfile(e){
   r.onload=ev=>{
     try{
       const d=JSON.parse(ev.target.result);
+      const errs=profileImportErrors(d);
+      if(errs.length){
+        alert(`Can't import this profile — ${errs.length} problem${errs.length>1?'s':''} found:\n\n• `+errs.slice(0,6).join('\n• ')+(errs.length>6?`\n…and ${errs.length-6} more`:''));
+        return;
+      }
       const p={
         id:crypto.randomUUID(),
-        name:d.name||f.name.replace(/\.json$/i,''),
+        name:(typeof d.name==='string'&&d.name.trim())?d.name:f.name.replace(/\.json$/i,''),
         machines:d.machines||[],
         resources:d.resources||[],
         categories:d.categories||[],
@@ -854,7 +1023,7 @@ function importProfile(e){
       activeProfileId=p.id;
       loadActiveProfile();
       saveState(); reloadUI();
-    }catch{alert('Invalid profile JSON.');}
+    }catch(err){alert('Invalid profile JSON: '+(err&&err.message||'could not parse the file.'));}
   };
   r.readAsText(f); e.target.value='';
 }
@@ -1051,6 +1220,7 @@ function moveResearchTier(id,dir){
 function delResearchTier(id){
   if(lockGuard())return;
   if(!confirm('Delete research tier? Anything assigned to it becomes always available.'))return;
+  pushDefUndo();
   researchTiers=researchTiers.filter(t=>t.id!==id);
   machines.forEach(m=>{
     if(m.researchTierId===id)m.researchTierId=null;
@@ -1106,6 +1276,7 @@ function addBeltTier(){
 }
 function delBeltTier(id){
   if(lockGuard())return;
+  pushDefUndo();
   beltTiers=beltTiers.filter(b=>b.id!==id);
   if(typeof ly!=='undefined')ly.belts.forEach(b=>{if(b.beltTierId===id)b.beltTierId=null;});
   saveState(); renderBeltTiers();
@@ -1144,6 +1315,7 @@ function addPipeTier(){
 }
 function delPipeTier(id){
   if(lockGuard())return;
+  pushDefUndo();
   pipeTiers=pipeTiers.filter(b=>b.id!==id);
   if(typeof ly!=='undefined')ly.belts.forEach(b=>{if(b.beltTierId===id)b.beltTierId=null;});
   saveState(); renderPipeTiers();
@@ -1376,6 +1548,33 @@ function refreshCatSelect(){
 }
 
 // ══════════════════════════════════════════════════════
+// DEFINITION UNDO
+// ══════════════════════════════════════════════════════
+// Snapshot-based undo for machine/resource/recipe/tier edits — the layout has
+// had undo for a while; the data editor was the only place a slip was
+// unrecoverable. Snapshots are per-profile (switching profiles clears them,
+// like the layout's) and capped so localStorage never sees them (memory only).
+let _defUndo=[], _defUndoProfile=null;
+function pushDefUndo(){
+  if(_defUndoProfile!==activeProfileId){_defUndo.length=0;_defUndoProfile=activeProfileId;}
+  _defUndo.push(JSON.stringify({machines,resources,categories,researchTiers,beltTiers,pipeTiers}));
+  if(_defUndo.length>20)_defUndo.shift();
+  updateDefUndoBtns();
+}
+function undoDefEdit(){
+  if(lockGuard())return;
+  if(_defUndoProfile!==activeProfileId||!_defUndo.length)return;
+  const d=JSON.parse(_defUndo.pop());
+  machines=d.machines; resources=d.resources; categories=d.categories;
+  researchTiers=d.researchTiers; beltTiers=d.beltTiers; pipeTiers=d.pipeTiers;
+  saveState(); reloadUI(); updateDefUndoBtns();
+}
+function updateDefUndoBtns(){
+  const on=_defUndoProfile===activeProfileId&&_defUndo.length>0;
+  document.querySelectorAll('.def-undo-btn').forEach(b=>{b.disabled=!on;b.style.opacity=on?'':'0.4';});
+}
+
+// ══════════════════════════════════════════════════════
 // CATEGORIES
 // ══════════════════════════════════════════════════════
 function toggleCatForm(){
@@ -1407,6 +1606,7 @@ function editCat(id,e){
 function delCat(id,e){
   e.stopPropagation();
   if(!confirm('Delete category? Resources will become uncategorised.'))return;
+  pushDefUndo();
   categories=categories.filter(c=>c.id!==id);
   resources.forEach(r=>{if(r.categoryId===id)r.categoryId=null;});
   saveState(); refreshCatSelect(); renderResources();
@@ -1511,6 +1711,7 @@ function saveMachine(){
   const h=parseInt(document.getElementById('mf-h').value)||1;
   const ports=getPortRows();
   const researchTierId=document.getElementById('mf-rt').value||null;
+  pushDefUndo();
   let warn='';
   if(editMachId){
     const m=machines.find(x=>x.id===editMachId);
@@ -1582,8 +1783,14 @@ function editMach(id){
 
 function delMach(id){
   if(lockGuard())return;
-  if(!confirm('Delete machine? Recipes using it will lose the assignment, and placed instances are removed from the layout.'))return;
+  const recRefs=resources.reduce((s,r)=>s+r.recipes.filter(rec=>rec.machineId===id).length,0);
+  if(!confirm(`Delete machine?${recRefs?` ${recRefs} recipe${recRefs>1?'s':''} will lose the assignment (become machine-less),`:''} and placed instances are removed from the layout.`))return;
+  pushDefUndo();
   machines=machines.filter(m=>m.id!==id);
+  // Actually clear the assignments — a dangling machineId showed the raw id
+  // in the planner instead of "(no machine)".
+  resources.forEach(r=>r.recipes.forEach(rec=>{if(rec.machineId===id)rec.machineId=null;}));
+  delete selTiers[id];
   // Remove placed instances of this machine and any belts attached to them
   const gone=new Set(ly.instances.filter(i=>i.machineId===id).map(i=>i.id));
   if(gone.size){
@@ -1640,6 +1847,7 @@ function saveResource(){
   if(rc!==null&&(isNaN(rc)||rc<0))return setErr('rf-err','Raw cost must be 0 or greater.');
   const rawCost=(rc===null||rc===1)?undefined:rc; // omit the default so profiles stay clean
   setErr('rf-err','');
+  pushDefUndo();
   if(editResId){
     const r=resources.find(x=>x.id===editResId);
     if(r){r.name=name;r.categoryId=categoryId;r.researchTierId=researchTierId;r.isFluid=isFluid;r.isPower=isPower;
@@ -1696,8 +1904,32 @@ function editRes(id){
 
 function delRes(id){
   if(lockGuard())return;
-  if(!confirm('Delete resource?'))return;
+  // Count everything that references this resource, so the confirm says what
+  // the deletion will actually touch — and then CLEAN those references up.
+  // Leaving them dangling made the planner show the internal id ("res-screw")
+  // as if it were a material name.
+  let recRefs=0,costRefs=0;
+  resources.forEach(r=>r.id!==id&&r.recipes.forEach(rec=>{
+    if(rec.inputs.some(x=>x.resourceId===id)||(rec.byproducts||[]).some(x=>x.resourceId===id))recRefs++;
+  }));
+  machines.forEach(m=>(m.tiers||[]).forEach(t=>{
+    if((t.buildCost||[]).some(c=>c.resourceId===id))costRefs++;
+  }));
+  const uses=[recRefs?`${recRefs} recipe${recRefs>1?'s':''} use it as an ingredient or byproduct`:'',
+    costRefs?`${costRefs} machine tier${costRefs>1?'s':''} use it as a build cost`:''].filter(Boolean);
+  const msg=uses.length
+    ?`Delete "${rname(id)}"?\n\n${uses.join('; ')} — those references will be removed too.`
+    :`Delete "${rname(id)}"?`;
+  if(!confirm(msg))return;
+  pushDefUndo();
   resources=resources.filter(r=>r.id!==id);
+  resources.forEach(r=>r.recipes.forEach(rec=>{
+    rec.inputs=rec.inputs.filter(x=>x.resourceId!==id);
+    rec.byproducts=(rec.byproducts||[]).filter(x=>x.resourceId!==id);
+  }));
+  machines.forEach(m=>(m.tiers||[]).forEach(t=>{
+    t.buildCost=(t.buildCost||[]).filter(c=>c.resourceId!==id);
+  }));
   if(selResId===id){selResId=null;document.getElementById('rec-editor').style.display='none';}
   saveState(); renderResources(); refreshResSelects(); renderPlannerControls();
 }
@@ -1893,6 +2125,7 @@ function saveRecipe(){
   setErr('rec-err','');
   const res=resources.find(r=>r.id===selResId);
   if(!res)return;
+  pushDefUndo();
   const rec={
     id:editRecId||uid(),
     name:name||(machId?mname(machId)+' recipe':'Recipe'),
@@ -1950,6 +2183,7 @@ function delRecipe(recId,resId){
   if(lockGuard())return;
   const res=resources.find(r=>r.id===resId);
   if(!res)return;
+  pushDefUndo();
   res.recipes=res.recipes.filter(r=>r.id!==recId);
   if(res.defaultRecipeId===recId)res.defaultRecipeId=res.recipes[0]?.id??null;
   saveState(); renderRecipesForResource(resId); renderResources();
@@ -2104,6 +2338,9 @@ function replan(){
 function planPowerGeneration(mw){
   const pr=resources.find(r=>r.isPower&&resUnlocked(r)&&r.recipes.some(recipeAvailable));
   if(!pr)return alert('No Power resource with generator recipes is available — create one in Resources (⚡ Power) and give it recipes on your generator machines.');
+  // This replaces whatever targets are typed in — don't silently eat them
+  const hasTargets=[...document.querySelectorAll('#pl-tgt-rows .tgt-row .tgt-res')].some(s=>s.value);
+  if(hasTargets&&!confirm(`Replace the current targets with a ${Math.ceil(mw)} MW power-generation plan?`))return;
   setPlanMode('target');
   document.getElementById('pl-tgt-rows').innerHTML='';
   addTargetRow('pl-tgt-rows',pr.id,String(Math.ceil(mw)),'1'); // MW = per-second rate
@@ -2214,9 +2451,13 @@ function restorePlannerQuery(){
   const savedInpTargets=q.inpSecondaryTargets||[];
   savedInpTargets.forEach(t=>addTargetRow('pl-inp-tgt-rows',t.resId||'',t.rate||'',t.unit||'60'));
   ensureTrailingBlankTargetRow('pl-inp-tgt-rows');
+  // Only auto-run when the saved query still points at REAL resources — a
+  // target deleted since the query was saved restores as an empty select, and
+  // auto-running that just greets the user with an error banner.
+  const stillExists=id=>!!id&&resources.some(r=>r.id===id);
   return q.mode==='inputs'
-    ? !!(q.inpTargetId&&(q.inputs||[]).length)
-    : !!(savedTargets.length&&savedTargets[0].resId&&parseFloat(savedTargets[0].rate)>0);
+    ? !!(stillExists(q.inpTargetId)&&(q.inputs||[]).some(x=>stillExists(x.resourceId)))
+    : !!(savedTargets.length&&stillExists(savedTargets[0].resId)&&parseFloat(savedTargets[0].rate)>0);
 }
 
 function addInputRow(){
@@ -2389,6 +2630,7 @@ function computeChain(targetResId, targetRatePerSec, inputSet=new Set(), useCeil
   // pass with the previous pass's byproduct supply. Real recipe graphs settle in
   // one or two passes; the cap guards against a pathological feedback loop.
   let credit={}, nodes=[], rawNeeds={}, byproductSupply={}, grossDemand={};
+  let converged=false;
   for(let iter=0;iter<24;iter++){
     const demand={[targetResId]:targetRatePerSec};
     nodes=[]; rawNeeds={}; byproductSupply={};
@@ -2436,7 +2678,7 @@ function computeChain(targetResId, targetRatePerSec, inputSet=new Set(), useCeil
     let stable=true;
     for(const k of keys){ if(Math.abs((byproductSupply[k]??0)-(credit[k]??0))>1e-9){stable=false;break;} }
     credit=byproductSupply;
-    if(stable)break;
+    if(stable){converged=true;break;}
   }
   // Byproduct produced beyond what the chain itself consumes — the true surplus.
   const byproductSurplus={};
@@ -2444,7 +2686,7 @@ function computeChain(targetResId, targetRatePerSec, inputSet=new Set(), useCeil
     const s=(byproductSupply[k]??0)-(grossDemand[k]??0);
     if(s>1e-9)byproductSurplus[k]=s;
   });
-  return{nodes,rawNeeds,byproductSurplus};
+  return{nodes,rawNeeds,byproductSurplus,converged};
 }
 
 // Input-constrained mode: find max achievable rate then compute chain.
@@ -2475,7 +2717,7 @@ function computeFromInputs(targetResId, inputMap){
   if(!isFinite(achievable)||achievable<=0)return{noConsume:true,error:'The recipe chain does not consume any of the given inputs, so nothing constrains the rate. Use Target mode instead.'};
 
   // Final pass at achievable rate — still exact so consumption matches the inputs
-  const{nodes,rawNeeds,byproductSurplus}=computeChain(targetResId,achievable,inputSet,false);
+  const{nodes,rawNeeds,byproductSurplus,converged}=computeChain(targetResId,achievable,inputSet,false);
 
   // Anything in the plan that isn't producible purely from the supplied
   // inputs — e.g. Compacted Coal pulled in by a Turbofuel recipe when only
@@ -2537,7 +2779,7 @@ function computeFromInputs(targetResId, inputMap){
     }
   });
 
-  return{nodes,rawNeeds,achievable,bottleneckRes,extras,byproductSurplus};
+  return{nodes,rawNeeds,achievable,bottleneckRes,extras,byproductSurplus,converged};
 }
 
 // ══════════════════════════════════════════════════════
@@ -2577,12 +2819,13 @@ function addSurplusToPool(pool,surplus){
 // byproducts). Returns a result object in the same shape for either case.
 function planSecondaryTarget(t,pool){
   if(t.rate!=null){
-    const{nodes,rawNeeds,byproductSurplus}=computeChain(t.resId,t.rate,new Set(),true);
+    const{nodes,rawNeeds,byproductSurplus,converged}=computeChain(t.resId,t.rate,new Set(),true);
+    // Error strings are PLAIN text — renderMultiTargetResults escapes at render
     if(!nodes.length)return{resId:t.resId,achievableStyle:false,
-      error:`No recipe produces "${esc(rname(t.resId))}". Add one in Resources.`};
+      error:`No recipe produces "${rname(t.resId)}". Add one in Resources.`};
     nodes.forEach(n=>{n.fromInputs=false;});
     addSurplusToPool(pool,byproductSurplus);
-    return{resId:t.resId,achievableStyle:false,nodes,rawNeeds,rawRate:t.rawRate,unitLbl:t.unitLbl,rate:t.rate};
+    return{resId:t.resId,achievableStyle:false,nodes,rawNeeds,rawRate:t.rawRate,unitLbl:t.unitLbl,rate:t.rate,converged};
   }
   const supply=Object.entries(pool).filter(([,v])=>v>1e-9);
   if(!supply.length)return{resId:t.resId,achievableStyle:true,sourceLabel:'the byproduct',
@@ -2599,29 +2842,37 @@ function planSecondaryTarget(t,pool){
     return{resId:t.resId,achievableStyle:true,sourceLabel:'the byproduct',error:msg};
   }
   res.nodes.forEach(n=>{n.fromInputs=true;});
-  const poolSuppliedIds=supply.map(([id])=>id);
   // Whatever was actually drawn from the pool for this target's chain —
   // computeChain records supplied-resource consumption directly in
   // rawNeeds, so this is exact even when a resource wasn't the bottleneck.
-  poolSuppliedIds.forEach(id=>{pool[id]=Math.max(0,(pool[id]||0)-(res.rawNeeds[id]||0));});
+  // Record the drawn AMOUNTS (capped at what the pool held), not just the ids:
+  // the merged raw-inputs list subtracts these amounts, so a LATER target's
+  // genuine external need for the same resource still shows. Excluding the
+  // resource wholesale used to hide real raw requirements entirely.
+  const poolDrawn={};
+  supply.forEach(([id,avail])=>{
+    const drawn=Math.min(avail,res.rawNeeds[id]||0);
+    if(drawn>1e-12)poolDrawn[id]=drawn;
+    pool[id]=Math.max(0,(pool[id]||0)-(res.rawNeeds[id]||0));
+  });
   addSurplusToPool(pool,res.byproductSurplus);
   return{resId:t.resId,achievableStyle:true,sourceLabel:'the byproduct',nodes:res.nodes,rawNeeds:res.rawNeeds,
-    achievable:res.achievable,bottleneckRes:res.bottleneckRes,extras:res.extras,poolSuppliedIds};
+    achievable:res.achievable,bottleneckRes:res.bottleneckRes,extras:res.extras,poolDrawn,converged:res.converged};
 }
 
 // Target mode entry point: target[0] has a fixed, user-specified rate.
 function runMultiTargetPlan(targets, resEl){
   const pool={}; // resourceId -> available surplus, per second
   const first=targets[0];
-  const{nodes,rawNeeds,byproductSurplus}=computeChain(first.resId,first.rate,new Set(),true);
+  const{nodes,rawNeeds,byproductSurplus,converged}=computeChain(first.resId,first.rate,new Set(),true);
   let results;
   if(!nodes.length){
     results=[{resId:first.resId,achievableStyle:false,
-      error:`No recipe produces "${esc(rname(first.resId))}". Add one in Resources.`}];
+      error:`No recipe produces "${rname(first.resId)}". Add one in Resources.`}];
   } else {
     nodes.forEach(n=>{n.fromInputs=false;});
     addSurplusToPool(pool,byproductSurplus);
-    results=[{resId:first.resId,achievableStyle:false,nodes,rawNeeds,rawRate:first.rawRate,unitLbl:first.unitLbl,rate:first.rate}];
+    results=[{resId:first.resId,achievableStyle:false,nodes,rawNeeds,rawRate:first.rawRate,unitLbl:first.unitLbl,rate:first.rate,converged}];
   }
   targets.slice(1).forEach(t=>results.push(planSecondaryTarget(t,pool)));
   renderMultiTargetResults(targets,results,resEl);
@@ -2641,7 +2892,7 @@ function runFromInputsPlan(primaryResId, inputMap, secondaryTargets, resEl){
     res.nodes.forEach(n=>{n.fromInputs=true;});
     addSurplusToPool(pool,res.byproductSurplus);
     results=[{resId:primaryResId,achievableStyle:true,sourceLabel:'your supplied inputs',nodes:res.nodes,rawNeeds:res.rawNeeds,
-      achievable:res.achievable,bottleneckRes:res.bottleneckRes,extras:res.extras}];
+      achievable:res.achievable,bottleneckRes:res.bottleneckRes,extras:res.extras,converged:res.converged}];
   }
   secondaryTargets.forEach(t=>results.push(planSecondaryTarget(t,pool)));
   const allTargets=[{resId:primaryResId},...secondaryTargets];
@@ -2650,13 +2901,19 @@ function runFromInputsPlan(primaryResId, inputMap, secondaryTargets, resEl){
 
 // Merge each target's independently-computed node set into one combined
 // plan (summing demand when two targets land on the exact same resource AND
-// recipe), and combine raw-input needs — excluding any resource that was
-// actually supplied to a byproduct-driven target from an earlier target's
-// pool, since that's produced internally, not something the user must supply.
+// recipe), and combine raw-input needs. Amounts a byproduct-driven target
+// actually drew from an earlier target's pool are produced internally, so
+// they're SUBTRACTED from the combined raw list — subtracted, not excluded:
+// a later target's genuine external need for the same resource must survive
+// (excluding the id wholesale used to silently hide real raw requirements).
 function mergeTargetNodes(results){
   const merged={}, order=[], rawNeeds={};
-  const internalIds=new Set();
-  results.forEach(r=>{(r.poolSuppliedIds||[]).forEach(id=>internalIds.add(id));});
+  const internallySupplied={};
+  results.forEach(r=>{
+    Object.entries(r.poolDrawn||{}).forEach(([id,amt])=>{
+      internallySupplied[id]=(internallySupplied[id]||0)+amt;
+    });
+  });
   // The first target is the "main chain"; every later target (byproduct-driven
   // or an additional fixed target) plus its own extra requirements is tagged
   // "secondary" so the flow diagram can band it into its own row region. A
@@ -2676,15 +2933,25 @@ function mergeTargetNodes(results){
       }
     });
     Object.entries(r.rawNeeds||{}).forEach(([id,rate])=>{
-      if(internalIds.has(id))return;
       rawNeeds[id]=(rawNeeds[id]??0)+rate;
     });
+  });
+  Object.entries(internallySupplied).forEach(([id,amt])=>{
+    if(rawNeeds[id]==null)return;
+    rawNeeds[id]-=amt;
+    if(rawNeeds[id]<=1e-9)delete rawNeeds[id];
   });
   return{nodes:order.map(k=>merged[k]),rawNeeds};
 }
 
 function renderMultiTargetResults(targets, results, el){
   let top='';
+  // The byproduct-crediting fixpoint normally settles in a pass or two; if it
+  // hit the iteration cap without stabilising (a pathological feedback loop in
+  // a hand-authored profile), say so instead of presenting shaky numbers as fact.
+  if(results.some(r=>r&&!r.error&&r.converged===false)){
+    top+=`<div class="alert aw" style="margin-bottom:10px">⚠ Byproduct crediting didn't stabilise for this plan — the numbers below may be slightly off. This usually means a recipe's byproduct feeds its own chain in a loop that never settles; check the recipes involved.</div>`;
+  }
   results.forEach((r,i)=>{
     const t=targets[i];
     const num=`${i+1}.`;
@@ -2737,15 +3004,20 @@ function runPlanner(){
 
   if(planMode==='target'){
     const rows=[...document.querySelectorAll('#pl-tgt-rows .tgt-row')];
-    const targets=[];
-    rows.forEach(row=>{
+    const targets=[]; let badRow=0;
+    rows.forEach((row,i)=>{
       const resId=row.querySelector('.tgt-res').value;
       if(!resId)return; // skip blank rows (e.g. the trailing auto-added one)
-      const rawRate=parseFloat(row.querySelector('.tgt-rate').value);
+      const rateTxt=row.querySelector('.tgt-rate').value.trim();
+      const rawRate=parseFloat(rateTxt);
+      // A TYPED amount that isn't a positive number is an error, not a silent
+      // fall-through to "plan from byproducts" — only a BLANK field means that.
+      if(rateTxt!==''&&!(rawRate>0)&&!badRow)badRow=i+1;
       const unit=parseFloat(row.querySelector('.tgt-unit').value);
       const unitLbl=row.querySelector('.tgt-unit').selectedOptions[0].text;
       targets.push({resId,rawRate,unitLbl,rate:(!isNaN(rawRate)&&rawRate>0)?rawRate/unit:null});
     });
+    if(badRow)return resEl.innerHTML=`<div class="alert ae">Target ${badRow}'s amount isn't a positive number — fix it, or clear it to plan that target from byproducts.</div>`;
     if(!targets.length)return resEl.innerHTML='<div class="alert ae">Select at least one target resource.</div>';
     if(targets[0].rate==null)return resEl.innerHTML='<div class="alert ae">Enter an amount for the first (primary) target.</div>';
     runMultiTargetPlan(targets,resEl);
@@ -2767,15 +3039,18 @@ function runPlanner(){
       ?'<div class="alert ae">The target resource can\'t be its own only input — supply its ingredients instead.</div>'
       :'<div class="alert ae">No valid input rows.</div>';
     const secRows=[...document.querySelectorAll('#pl-inp-tgt-rows .tgt-row')];
-    const secondaryTargets=[];
-    secRows.forEach(row=>{
+    const secondaryTargets=[]; let badSec=0;
+    secRows.forEach((row,i)=>{
       const resId=row.querySelector('.tgt-res').value;
       if(!resId)return;
-      const rawRate=parseFloat(row.querySelector('.tgt-rate').value);
+      const rateTxt=row.querySelector('.tgt-rate').value.trim();
+      const rawRate=parseFloat(rateTxt);
+      if(rateTxt!==''&&!(rawRate>0)&&!badSec)badSec=i+1;
       const unit=parseFloat(row.querySelector('.tgt-unit').value);
       const unitLbl=row.querySelector('.tgt-unit').selectedOptions[0].text;
       secondaryTargets.push({resId,rawRate,unitLbl,rate:(!isNaN(rawRate)&&rawRate>0)?rawRate/unit:null});
     });
+    if(badSec)return resEl.innerHTML=`<div class="alert ae">Secondary target ${badSec}'s amount isn't a positive number — fix it, or clear it to plan that target from byproducts.</div>`;
     runFromInputsPlan(targetId,inputMap,secondaryTargets,resEl);
   }
 }
@@ -2859,7 +3134,7 @@ function renderPlanBody(targetIds, nodes, rawNeeds, topHtml, el){
     const effPct     = (eff*100).toFixed(1);
     const atCapacity = eff>0.999;
     const byproducts=(rec.byproducts||[]).map(b=>
-      `<span class="badge bp" title="Byproduct">+${rateStr(b.resourceId,(b.amount/ct)*exact,2)} ${esc(rname(b.resourceId))}</span>`
+      `<span class="badge bp" title="Byproduct">+${rateStr(b.resourceId,(b.amount/ct)*exact*(n.capF??1),2)} ${esc(rname(b.resourceId))}</span>`
     ).join(' ');
 
     left+=`<div class="ri${isTgt?' tgt':''}">
@@ -2912,8 +3187,12 @@ function byproductSupplyLinks(nodes, rawNeeds){
     consumer.rec.inputs.forEach(inp=>{
       const R=inp.resourceId;
       if(primaryOut.has(R)||raw[R]!=null)return; // sourced from a node's primary output or a raw box
-      const producer=nodes.find(n=>n!==consumer&&(n.rec.byproducts||[]).some(bp=>bp.resourceId===R));
-      if(producer)(links[producer.rec.id]=links[producer.rec.id]||[]).push(consumer.rec.id);
+      // EVERY byproducing stage supplies the consumer (draws are split
+      // proportionally), so each one gets the upstream-of-consumer constraint.
+      nodes.forEach(n=>{
+        if(n!==consumer&&(n.rec.byproducts||[]).some(bp=>bp.resourceId===R))
+          (links[n.rec.id]=links[n.rec.id]||[]).push(consumer.rec.id);
+      });
     });
   });
   return links;
@@ -3026,12 +3305,30 @@ function ssScore(q,label){
 }
 
 // Bold the matched run so it's obvious WHY a row survived the filter.
+// The match is found in NORMALIZED space but the bold is applied to the RAW
+// label, and ssNorm collapses runs of non-alphanumerics ("🔒 Iron" → "iron"),
+// so the two index spaces drift apart. Build the normalized string while
+// recording each normalized char's raw index, then map the range back.
 function ssMark(label,q){
-  const n=ssNorm(label), nq=ssNorm(q);
+  const nq=ssNorm(q);
   if(!nq)return esc(label);
-  const at=n.indexOf(nq);
+  const lower=label.toLowerCase();
+  let norm='';
+  const map=[]; // map[i] = raw index of norm[i] (-1 for collapsed separators)
+  let pendingSep=false;
+  for(let i=0;i<lower.length;i++){
+    if(/[a-z0-9]/.test(lower[i])){
+      if(pendingSep&&norm){norm+=' ';map.push(-1);}
+      pendingSep=false;
+      norm+=lower[i];map.push(i);
+    } else pendingSep=true;
+  }
+  const at=norm.indexOf(nq);
   if(at<0)return esc(label); // fuzzy/initials hit — nothing contiguous to underline
-  return esc(label.slice(0,at))+'<span class="ss-hit">'+esc(label.slice(at,at+nq.length))+'</span>'+esc(label.slice(at+nq.length));
+  let s=-1,e=-1;
+  for(let i=at;i<at+nq.length;i++){ if(map[i]>=0){ if(s<0)s=map[i]; e=map[i]+1; } }
+  if(s<0)return esc(label);
+  return esc(label.slice(0,s))+'<span class="ss-hit">'+esc(label.slice(s,e))+'</span>'+esc(label.slice(e));
 }
 
 let ssCur=null; // {sel, items, view, hi}
@@ -3250,8 +3547,13 @@ function initFlowTooltip(){
 function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
   if(!nodes.length)return'<div class="empty">Nothing to display.</div>';
 
-  const byOut={};
-  nodes.forEach(n=>{ byOut[n.resId]=n; });
+  // Primary producers per resource — a LIST, not a single node: a merged
+  // multi-target plan can genuinely contain two stages making the same
+  // resource via different recipes (pool-priced costing picks a different
+  // recipe for a byproduct-fed target than the main chain used). Keeping only
+  // one produced dead-end stages and overstated edge rates.
+  const primaryBy={};
+  nodes.forEach(n=>{ (primaryBy[n.resId]=primaryBy[n.resId]||[]).push(n); });
 
   const dc=stageDepths(nodes,byproductSupplyLinks(nodes,rawNeeds));
   const maxD=Math.max(...nodes.map(n=>dc[n.rec.id]));
@@ -3289,9 +3591,11 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
     const prodOf={}, consOf={};
     nodes.forEach(n=>{prodOf[n.rec.id]=[];consOf[n.rec.id]=[];});
     nodes.forEach(c=>c.rec.inputs.forEach(inp=>{
-      const src=byOut[inp.resourceId]
-        ||nodes.find(n=>n!==c&&(n.rec.byproducts||[]).some(b=>b.resourceId===inp.resourceId));
-      if(src&&src!==c){prodOf[c.rec.id].push(src.rec.id);consOf[src.rec.id].push(c.rec.id);}
+      const srcs=primaryBy[inp.resourceId]
+        ??nodes.filter(n=>n!==c&&(n.rec.byproducts||[]).some(b=>b.resourceId===inp.resourceId));
+      srcs.forEach(src=>{
+        if(src!==c){prodOf[c.rec.id].push(src.rec.id);consOf[src.rec.id].push(c.rec.id);}
+      });
     }));
     const idx={};
     const reindex=()=>{for(let d=0;d<=maxD;d++)byD[d].forEach((n,i)=>{idx[n.rec.id]=i;});};
@@ -3380,17 +3684,21 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
   // to its right (toward the consumer column). Drawn for every recipe with
   // byproducts whether or not anything downstream in this plan claims them —
   // an unclaimed one is dashed, like a raw box, flagging it as surplus. If
-  // the same resource also has its own primary producer in this plan (e.g. a
-  // dedicated extraction recipe chosen elsewhere), that primary node wins for
-  // any consumer edge — see byOut lookup below — so the byproduct box then
-  // correctly shows as unclaimed. A byproduct off the target node (rightmost
+  // the same resource is also made by primary stages (or supplied via a raw
+  // box), every consumer's draw is split proportionally across ALL of those
+  // sources — see the edge collection below. A byproduct off the target node (rightmost
   // column) sticks out past it, so svgW is widened to keep it in view.
   // When a byproduct feeds a node down in the secondary band, its box drops
   // into that band (aligned with the consumer) so the whole byproduct chain
   // lives in one row region, with a dashed connector dropping from the
   // producer up top; otherwise it hangs beside its producer as before.
   const BW=104, BH=42, BGAP=6, BY_GAP=40;
-  const posBy={}, besideBp={}; // besideBp[recId] = # byproduct boxes hanging beside that node
+  // One box PER PRODUCER per byproduct resource (keyed producerRecId|resId) —
+  // two stages can both byproduce the same thing (e.g. Aluminum Scrap and
+  // Fertile Uranium both returning Water); keying by resource alone dropped
+  // all but the last producer's box while the crediting math counted both.
+  const posBy={}, byBoxesByRes={}, besideBp={}; // besideBp[recId] = # boxes hanging beside that node
+  const bandDropCount={}; // consumerRecId → boxes already dropped beside it (stagger, don't overlap)
   let maxByRight=0;
   nodes.forEach(n=>{
     const p=posR[n.rec.id];
@@ -3405,8 +3713,16 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
       // Beside boxes stack down the BOTTOM half of the machine's right edge;
       // the top half is reserved for the primary output belts (exit spreading
       // below) so outputs and byproducts don't overlap on the same edge.
-      const by=dropToBand?cPos.y+(NH-BH)/2:p.y+NH/2+(besideI++)*(BH+BGAP);
-      posBy[bp.resourceId]={x:bx,y:by,producer:n,dropToBand,rate:(bp.amount/bct)*n.exact};
+      const key=n.rec.id+'|'+bp.resourceId;
+      if(posBy[key]){ // recipe lists the same byproduct twice — merge, don't overwrite
+        posBy[key].rate+=(bp.amount/bct)*n.exact*(n.capF??1);
+        return;
+      }
+      const bandI=dropToBand?(bandDropCount[consumer.rec.id]=(bandDropCount[consumer.rec.id]||0)+1)-1:0;
+      const by=dropToBand?cPos.y+(NH-BH)/2+bandI*(BH+BGAP):p.y+NH/2+(besideI++)*(BH+BGAP);
+      posBy[key]={x:bx,y:by,resId:bp.resourceId,producer:n,dropToBand,
+        rate:(bp.amount/bct)*n.exact*(n.capF??1)}; // capF: belt-capped machines byproduce less
+      (byBoxesByRes[bp.resourceId]=byBoxesByRes[bp.resourceId]||[]).push(key);
       if(bx+BW>maxByRight)maxByRight=bx+BW;
     });
     if(besideI)besideBp[n.rec.id]=besideI;
@@ -3435,20 +3751,14 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
 
   let edges='',edgeLabels='',raws='',boxes='';
 
-  // A resource can be produced by BOTH a primary stage and as a byproduct
-  // (e.g. Silica from a Quartz constructor AND from Alumina Solution). Each
-  // consumer's demand is then split proportionally between the two sources so
-  // the drawn edge rates add up to what the stages actually make.
-  const byproductSupply={}, primaryOut={};
-  nodes.forEach(n=>{
-    const ct=effectiveCycleTime(n.rec);
-    primaryOut[n.resId]=(primaryOut[n.resId]||0)+n.exact*(n.perMach??((n.rec.outputAmount??1)/ct));
-    (n.rec.byproducts||[]).forEach(bp=>{ byproductSupply[bp.resourceId]=(byproductSupply[bp.resourceId]||0)+(bp.amount/ct)*n.exact*(n.capF??1); });
-  });
-
   // ── Edge collection ──
   // Each edge later gets its own entry/exit point along the node side, so
   // multiple flows into one machine no longer converge on a single midpoint.
+  // A consumer's draw of a resource is split proportionally across EVERY
+  // source of it in the plan — any number of primary stages (e.g. Silica from
+  // a Quartz constructor) and any number of byproduct boxes (e.g. Silica from
+  // Alumina Solution) — so the drawn edge rates always add up to what the
+  // stages actually make, whichever combination exists.
   const edgeList=[];
   nodes.forEach(consumer=>{
     const cp=posR[consumer.rec.id];
@@ -3457,48 +3767,66 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
     const toLabel=`${consumer.rec.machineId?mname(consumer.rec.machineId):'(no machine)'} → ${rname(consumer.resId)}`;
     consumer.rec.inputs.forEach(inp=>{
       const rate=(inp.amount/ct)*consumer.exact*(consumer.capF??1);
-      const pn=byOut[inp.resourceId];
-      const byBox=posBy[inp.resourceId];
-      if(pn&&posR[pn.rec.id]){
-        const pp=posR[pn.rec.id];
-        // If the resource is also produced as a byproduct, split this consumer's
-        // draw between the primary stage and the byproduct box proportionally.
-        const bSup=byproductSupply[inp.resourceId]||0, pOut=primaryOut[inp.resourceId]||0;
-        const split=bSup>1e-9&&byBox&&pOut>1e-9;
-        edgeList.push({fromKey:'n'+pn.rec.id,toKey:'n'+consumer.rec.id,
-          fx:pp.x+NW,fyBase:pp.y,fH:NH,tx:cp.x,tyBase:cp.y,
-          rate:split?rate*pOut/(pOut+bSup):rate,resId:inp.resourceId,
-          fromLabel:pn.rec.machineId?mname(pn.rec.machineId):'(no machine)',
-          toLabel,
-          isLong:(dc[pn.rec.id]-dc[consumer.rec.id])>1});
-        if(split){
-          edgeList.push({fromKey:'b'+inp.resourceId,toKey:'n'+consumer.rec.id,
-            fx:byBox.x+BW,fyBase:byBox.y,fH:BH,tx:cp.x,tyBase:cp.y,
-            rate:rate*bSup/(pOut+bSup),resId:inp.resourceId,isByproduct:true,
-            fromLabel:`${byBox.producer.rec.machineId?mname(byBox.producer.rec.machineId):'(no machine)'} (byproduct)`,
-            toLabel,
-            isLong:(dc[byBox.producer.rec.id]-dc[consumer.rec.id])>1});
-        }
-      } else if(posRaw[inp.resourceId]){
-        const rp=posRaw[inp.resourceId];
-        edgeList.push({fromKey:'r'+inp.resourceId,toKey:'n'+consumer.rec.id,
+      const R=inp.resourceId;
+      const srcs=[];
+      (primaryBy[R]||[]).forEach(pn=>{
+        if(pn===consumer||!posR[pn.rec.id])return;
+        srcs.push({kind:'n',node:pn,
+          supply:pn.exact*(pn.perMach??((pn.rec.outputAmount??1)/effectiveCycleTime(pn.rec)))});
+      });
+      (byBoxesByRes[R]||[]).forEach(key=>{
+        const box=posBy[key];
+        if(box.producer===consumer)return;
+        srcs.push({kind:'b',key,box,supply:box.rate});
+      });
+      // The raw/supplied box is a source like any other: a resource can be
+      // BOTH supplied externally AND byproduced in-chain (supply Water in
+      // from-inputs mode while Aluminum Scrap also returns it) — the raw box
+      // covers exactly the demand the byproducts don't (that's what rawNeeds
+      // holds), so it joins the proportional split rather than being orphaned.
+      if(posRaw[R]&&rawNeeds[R]>1e-12)srcs.push({kind:'r',supply:rawNeeds[R]});
+      const totalSupply=srcs.reduce((s,x)=>s+x.supply,0);
+      if(srcs.length&&totalSupply>1e-12){
+        srcs.forEach(s=>{
+          const r=rate*s.supply/totalSupply;
+          if(r<=1e-12)return;
+          if(s.kind==='n'){
+            const pp=posR[s.node.rec.id];
+            edgeList.push({fromKey:'n'+s.node.rec.id,toKey:'n'+consumer.rec.id,
+              fx:pp.x+NW,fyBase:pp.y,fH:NH,tx:cp.x,tyBase:cp.y,
+              rate:r,resId:R,
+              fromLabel:s.node.rec.machineId?mname(s.node.rec.machineId):'(no machine)',
+              toLabel,
+              isLong:(dc[s.node.rec.id]-dc[consumer.rec.id])>1});
+          } else if(s.kind==='b'){
+            edgeList.push({fromKey:'b'+s.key,toKey:'n'+consumer.rec.id,
+              fx:s.box.x+BW,fyBase:s.box.y,fH:BH,tx:cp.x,tyBase:cp.y,
+              rate:r,resId:R,isByproduct:true,byKey:s.key,
+              fromLabel:`${s.box.producer.rec.machineId?mname(s.box.producer.rec.machineId):'(no machine)'} (byproduct)`,
+              toLabel,
+              isLong:(dc[s.box.producer.rec.id]-dc[consumer.rec.id])>1});
+          } else {
+            const rp=posRaw[R];
+            edgeList.push({fromKey:'r'+R,toKey:'n'+consumer.rec.id,
+              fx:rp.x+RW,fyBase:rp.y,fH:RH,tx:cp.x,tyBase:cp.y,
+              rate:r,resId:R,
+              fromLabel:'Raw input',
+              toLabel,
+              isLong:dc[consumer.rec.id]<maxD});
+          }
+        });
+      } else if(posRaw[R]){
+        const rp=posRaw[R];
+        edgeList.push({fromKey:'r'+R,toKey:'n'+consumer.rec.id,
           fx:rp.x+RW,fyBase:rp.y,fH:RH,tx:cp.x,tyBase:cp.y,
-          rate,resId:inp.resourceId,
+          rate,resId:R,
           fromLabel:'Raw input',
           toLabel,
           isLong:dc[consumer.rec.id]<maxD});
-      } else if(byBox){
-        const bp=byBox;
-        edgeList.push({fromKey:'b'+inp.resourceId,toKey:'n'+consumer.rec.id,
-          fx:bp.x+BW,fyBase:bp.y,fH:BH,tx:cp.x,tyBase:cp.y,
-          rate,resId:inp.resourceId,isByproduct:true,
-          fromLabel:`${bp.producer.rec.machineId?mname(bp.producer.rec.machineId):'(no machine)'} (byproduct)`,
-          toLabel,
-          isLong:(dc[bp.producer.rec.id]-dc[consumer.rec.id])>1});
       }
     });
   });
-  const claimedByproducts=new Set(edgeList.filter(e=>e.fromKey[0]==='b').map(e=>e.resId));
+  const claimedByproducts=new Set(edgeList.filter(e=>e.byKey).map(e=>e.byKey));
   // Exit points: spread along the producer's right edge, ordered by target
   // height. A producer with byproduct boxes beside it keeps its primary output
   // belts in the TOP half of the edge (the byproduct connectors sit in the
@@ -3607,10 +3935,11 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
   // ── Byproduct boxes — small, dashed-connector satellite off the producer.
   // Solid border when something in this plan draws from it, dashed (like a
   // raw box) when it's unclaimed surplus. ──
-  Object.entries(posBy).forEach(([resId,bp])=>{
+  Object.entries(posBy).forEach(([key,bp])=>{
+    const resId=bp.resId;
     const pp=posR[bp.producer.rec.id];
     if(!pp)return;
-    const claimed=claimedByproducts.has(resId);
+    const claimed=claimedByproducts.has(key);
     const col=resColor(resId);
     const midY=bp.y+BH/2;
     // Connector: a short horizontal stub when the box hangs beside its
@@ -3695,11 +4024,20 @@ function importData(e){
   r.onload=ev=>{
     try{
       const d=JSON.parse(ev.target.result);
+      const errs=profileImportErrors(d);
+      if(errs.length){
+        alert(`Can't import this data — ${errs.length} problem${errs.length>1?'s':''} found:\n\n• `+errs.slice(0,6).join('\n• ')+(errs.length>6?`\n…and ${errs.length-6} more`:''));
+        return;
+      }
       if(d.machines)machines=d.machines;
       if(d.resources)resources=d.resources;
       if(d.categories)categories=d.categories;
       migrateTierCosts(machines);
       migrateData();
+      saveActiveProfile();
+      const ap=profiles.find(p=>p.id===activeProfileId);
+      if(ap)sanitizeProfileIds(ap);
+      loadActiveProfile();
       // Prune layout objects that reference machines which no longer exist
       const ids=new Set(machines.map(m=>m.id));
       const gone=new Set(ly.instances.filter(i=>!ids.has(i.machineId)).map(i=>i.id));
@@ -3739,9 +4077,13 @@ function loadLayout(){
   // tab (which also lands here) must not wipe it.
   if(ly.profileId!==activeProfileId){_lyUndo.length=0;_lyRedo.length=0;ly.selIds=new Set();}
   ly.profileId=activeProfileId;
-  ly.instances=(p?.layout?.instances)||[];
-  ly.belts=(p?.layout?.belts)||[];
-  ly.bpBox=(p?.layout?.bpBox)||{w:32,h:32,show:false};
+  // Shape-guarded: a hand-edited profile can hold anything here, and the
+  // canvas/draw paths dereference these on every frame.
+  ly.instances=Array.isArray(p?.layout?.instances)?p.layout.instances.filter(i=>i&&typeof i==='object'):[];
+  ly.belts=Array.isArray(p?.layout?.belts)?p.layout.belts.filter(b=>b&&typeof b==='object'&&b.from&&b.to):[];
+  if(p&&p.layout&&typeof p.layout==='object'){p.layout.instances=ly.instances;p.layout.belts=ly.belts;}
+  const bb=p?.layout?.bpBox;
+  ly.bpBox=(bb&&typeof bb==='object')?{w:+bb.w>0?+bb.w:32,h:+bb.h>0?+bb.h:32,show:!!bb.show}:{w:32,h:32,show:false};
   const bw=document.getElementById('bp-box-w'), bh=document.getElementById('bp-box-h'), bs=document.getElementById('bp-box-show');
   if(bw){bw.value=ly.bpBox.w;bh.value=ly.bpBox.h;bs.checked=!!ly.bpBox.show;}
   // Heal legacy belts: derive waypoints from the stored path, tag kind, resolve
@@ -4259,16 +4601,27 @@ function lyMouseDown(e){
     lyRender();
   }
   if(ly.tool==='belt'){
+    // Belts carry items, pipes carry fluids — a port only accepts its own kind,
+    // and one port holds one belt (the planner's output caps assume exactly
+    // that). Mismatches used to connect silently and quietly break the model.
+    const wantFlow=ly.flowKind==='pipe'?'fluid':'item';
+    const portTaken=p=>ly.belts.some(b=>
+      (b.from&&b.from.instId===p.instId&&b.from.portId===p.portId)||
+      (b.to&&b.to.instId===p.instId&&b.to.portId===p.portId));
     if(!ly.beltStart){
       // Start routing — must click an output port
       const p=portAt(gx,gy);
       if(p&&p.type==='output'){
+        if((p.port.flow||'item')!==wantFlow){lyToast(`That port carries ${(p.port.flow||'item')==='fluid'?'fluid — use a pipe':'items — use a belt'}`);lyRender();return;}
+        if(portTaken(p)){lyToast('That port already has a connection');lyRender();return;}
         ly.beltStart=p; ly.beltPath=[portExternalCell(p)];
       }
     } else {
       // Check if clicking an input port to finish
       const p=portAt(gx,gy);
       if(p&&p.type==='input'&&p.instId!==ly.beltStart.instId){
+        if((p.port.flow||'item')!==wantFlow){lyToast(`That port carries ${(p.port.flow||'item')==='fluid'?'fluid — use a pipe':'items — use a belt'}`);lyRender();return;}
+        if(portTaken(p)){lyToast('That port already has a connection');lyRender();return;}
         lyPushUndo();
         const endCell=portExternalCell(p);
         const waypoints=ly.beltPath.slice(1).map(c=>({x:c.x,y:c.y}));

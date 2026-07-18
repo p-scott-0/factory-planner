@@ -1,6 +1,6 @@
 {
   "name": "Satisfactory",
-  "version": 4,
+  "version": 5,
   "researchTiers": [
     { "id": "rt0", "name": "Tier 0" },
     { "id": "rt1", "name": "Tier 1" },
@@ -587,7 +587,7 @@
       "defaultRecipeId": "rec-heat-sink" },
     { "id": "res-battery", "name": "Battery", "categoryId": "cat-electronics", "researchTierId": "rt7",
       "recipes": [
-        { "id": "rec-battery", "name": "Battery", "machineId": "mach-blender", "cycleTime": 3, "outputAmount": 1, "inputs": [ { "resourceId": "res-sulfuric-acid", "amount": 2.5 }, { "resourceId": "res-alumina-solution", "amount": 2 }, { "resourceId": "res-aluminum-casing", "amount": 1 } ] },
+        { "id": "rec-battery", "name": "Battery", "machineId": "mach-blender", "cycleTime": 3, "outputAmount": 1, "inputs": [ { "resourceId": "res-sulfuric-acid", "amount": 2.5 }, { "resourceId": "res-alumina-solution", "amount": 2 }, { "resourceId": "res-aluminum-casing", "amount": 1 } ], "byproducts": [ { "resourceId": "res-water", "amount": 1.5 } ] },
         { "id": "rec-classic-battery", "name": "Alternate: Classic Battery", "machineId": "mach-manufacturer", "cycleTime": 8, "outputAmount": 4, "inputs": [ { "resourceId": "res-sulfur", "amount": 6 }, { "resourceId": "res-alclad-sheet", "amount": 7 }, { "resourceId": "res-plastic", "amount": 8 }, { "resourceId": "res-wire", "amount": 12 } ] }
       ],
       "defaultRecipeId": "rec-battery" },
