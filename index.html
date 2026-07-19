@@ -667,7 +667,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.18';
+const APP_VERSION = '1.0.19';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -2983,6 +2983,20 @@ function reachableFromInputs(inputSet){
 //                                   machine is fully supplied and runs at 100% capacity.
 // useCeil=false (from-inputs mode): propagate fractional exact demand; machines may run
 //                                   below 100% when inputs are the binding constraint.
+// A machine count comes out of a floating-point solve, so an exact integer can
+// arrive a hair off — 15 as 15.000000000000002 from accumulated rounding, or
+// 3 as 3.0000000000000004. Naively ceiling that conjures a whole extra machine
+// running at ~0%. Snap to the nearest integer when we're within a small
+// RELATIVE tolerance of one, then ceil the genuine remainder. The tolerance is
+// deliberately tight (1e-6) so it only absorbs float noise: a real fractional
+// stage (6.75 machines, or 14.9985 from a recipe that truly doesn't divide
+// evenly) is well outside it and still rounds up to the next whole machine.
+function machineCount(exact){
+  const near=Math.round(exact);
+  if(Math.abs(exact-near)<=1e-6*Math.max(1,Math.abs(exact)))return near;
+  return Math.ceil(exact);
+}
+
 function computeChain(targetResId, targetRatePerSec, inputSet=new Set(), useCeil=false, freeSet=new Set()){
   const {costOf,choice}=planRecipes(inputSet,freeSet);
   if(!isFinite(costOf(targetResId)))return{nodes:[],rawNeeds:{},infeasible:true};
@@ -3056,7 +3070,7 @@ function computeChain(targetResId, targetRatePerSec, inputSet=new Set(), useCeil
       // Propagate inputs for ceil (full capacity) or exact (constrained) depending
       // on mode; belt-capped machines consume inputs at their reduced rate, and
       // an overclocked machine consumes clock× more per machine.
-      const propagate=(useCeil?Math.ceil(exact):exact)*capF*clock;
+      const propagate=(useCeil?machineCount(exact):exact)*capF*clock;
       rec.inputs.forEach(inp=>{
         demand[inp.resourceId]=(demand[inp.resourceId]??0)+(inp.amount/ct)*propagate;
       });
@@ -3764,8 +3778,8 @@ function computePlanTotals(q){
     let totalMW=0;
     nodes.forEach(n=>{
       const mn=n.rec.machineId?mname(n.rec.machineId):'(no machine)';
-      machCounts[mn]=(machCounts[mn]||0)+Math.ceil(n.exact);
-      totalMW+=Math.ceil(n.exact)*(n.rec.machineId?clockedPower(n.rec.machineId,n.clock):0);
+      machCounts[mn]=(machCounts[mn]||0)+machineCount(n.exact);
+      totalMW+=machineCount(n.exact)*(n.rec.machineId?clockedPower(n.rec.machineId,n.clock):0);
     });
     const outputs={};
     results.forEach((r,i)=>{
@@ -3963,7 +3977,7 @@ function exportPlanCSV(){
   const lines=[['Machine','Tier','Recipe','Resource','Machines','Exact','Clock %','Rate'+unitLbl,'Power MW'].join(',')];
   lastPlan.nodes.forEach(n=>{
     const m=n.rec.machineId?machines.find(x=>x.id===n.rec.machineId):null;
-    const count=Math.ceil(n.exact);
+    const count=machineCount(n.exact);
     const rate=n.exact*(n.perMach??((n.rec.outputAmount??1)/effectiveCycleTime(n.rec)));
     lines.push([q(m?m.name:'(no machine)'),q(activeTierName(n.rec)),q(n.rec.name),q(rname(n.resId)),
       count,n.exact.toFixed(3),Math.round((n.clock??1)*100),
@@ -4108,7 +4122,7 @@ function renderPlanBody(targetIds, nodes, rawNeeds, topHtml, el){
   // ── Total power draw across all stages (installed: ceiled machines × MW) ──
   const totalMW=nodes.reduce((s,n)=>{
     const p=n.rec.machineId?clockedPower(n.rec.machineId,n.clock):0;
-    return s+Math.ceil(n.exact)*p;
+    return s+machineCount(n.exact)*p;
   },0);
   if(totalMW>0){
     const genRes=resources.find(r=>r.isPower&&resUnlocked(r)&&r.recipes.some(recipeAvailable));
@@ -4165,7 +4179,7 @@ function renderPlanBody(targetIds, nodes, rawNeeds, topHtml, el){
   });
   const stageRow=n=>{
     const {rec,exact,resId}=n;
-    const count=Math.ceil(exact);
+    const count=machineCount(exact);
     const isTgt=targetIds.has(resId);
     const m=rec.machineId?machines.find(m=>m.id===rec.machineId):null;
     const tier=activeTierName(rec);
@@ -4203,8 +4217,8 @@ function renderPlanBody(targetIds, nodes, rawNeeds, topHtml, el){
   };
   machGroups.forEach(g=>{
     const m=g.machineId?machines.find(x=>x.id===g.machineId):null;
-    const total=g.nodes.reduce((s,n)=>s+Math.ceil(n.exact),0);
-    const mw=g.nodes.reduce((s,n)=>s+Math.ceil(n.exact)*(g.machineId?clockedPower(g.machineId,n.clock):0),0);
+    const total=g.nodes.reduce((s,n)=>s+machineCount(n.exact),0);
+    const mw=g.nodes.reduce((s,n)=>s+machineCount(n.exact)*(g.machineId?clockedPower(g.machineId,n.clock):0),0);
     const hasTgt=g.nodes.some(n=>targetIds.has(n.resId));
     // open when the user opened it, or by default when it holds a target stage
     const open=planMachOpen[g.key]??hasTgt;
@@ -5300,7 +5314,7 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
   nodes.forEach(n=>{
     const p=posR[n.rec.id];
     if(!p)return;
-    const count=Math.ceil(n.exact);
+    const count=machineCount(n.exact);
     const isTgt=targetIds.has(n.resId);
     const m=n.rec.machineId?machines.find(m=>m.id===n.rec.machineId):null;
     const tier=activeTierName(n.rec);
@@ -6498,7 +6512,7 @@ function buildPlanLayout(){
     const grp=[];
     nodes.filter(n=>dc[n.rec.id]===d).forEach(n=>{
       const m=n.rec.machineId?machines.find(m=>m.id===n.rec.machineId):null;
-      if(m)grp.push({n,m,count:Math.ceil(n.exact)});
+      if(m)grp.push({n,m,count:machineCount(n.exact)});
     });
     grp.sort((A,B)=>{
       const bUsesA=B.n.rec.inputs.some(i=>i.resourceId===A.n.resId);

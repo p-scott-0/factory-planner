@@ -1,6 +1,6 @@
 {
   "name": "Satisfactory",
-  "version": 7,
+  "version": 8,
   "powerExponent": 1.321928,
   "researchTiers": [
     { "id": "rt0", "name": "Tier 0" },
@@ -674,12 +674,12 @@
     { "id": "res-power", "name": "Power", "categoryId": "cat-power", "researchTierId": "rt3", "isPower": true, "hue": 45,
       "recipes": [
         { "id": "rec-power-coal", "name": "Coal Generator", "machineId": "mach-coal-gen", "cycleTime": 1, "outputAmount": 75, "inputs": [ { "resourceId": "res-coal", "amount": 0.25 }, { "resourceId": "res-water", "amount": 0.75 } ] },
-        { "id": "rec-power-fuel", "name": "Fuel Generator", "machineId": "mach-fuel-gen", "cycleTime": 1, "outputAmount": 250, "inputs": [ { "resourceId": "res-fuel", "amount": 0.33333 } ] },
+        { "id": "rec-power-fuel", "name": "Fuel Generator", "machineId": "mach-fuel-gen", "cycleTime": 1, "outputAmount": 250, "inputs": [ { "resourceId": "res-fuel", "amount": 0.3333333333333333 } ] },
         { "id": "rec-power-turbofuel", "name": "Fuel Generator (Turbofuel)", "machineId": "mach-fuel-gen", "cycleTime": 1, "outputAmount": 250, "inputs": [ { "resourceId": "res-turbofuel", "amount": 0.125 } ] },
-        { "id": "rec-power-rocket-fuel", "name": "Fuel Generator (Rocket Fuel)", "machineId": "mach-fuel-gen", "cycleTime": 1, "outputAmount": 250, "inputs": [ { "resourceId": "res-rocket-fuel", "amount": 0.069444 } ] },
+        { "id": "rec-power-rocket-fuel", "name": "Fuel Generator (Rocket Fuel)", "machineId": "mach-fuel-gen", "cycleTime": 1, "outputAmount": 250, "inputs": [ { "resourceId": "res-rocket-fuel", "amount": 0.06944444444444445 } ] },
         { "id": "rec-power-ionized-fuel", "name": "Fuel Generator (Ionized Fuel)", "machineId": "mach-fuel-gen", "cycleTime": 1, "outputAmount": 250, "inputs": [ { "resourceId": "res-ionized-fuel", "amount": 0.05 } ] },
-        { "id": "rec-power-nuclear", "name": "Nuclear Power Plant", "machineId": "mach-nuclear-plant", "cycleTime": 1, "outputAmount": 2500, "inputs": [ { "resourceId": "res-uranium-fuel-rod", "amount": 0.003333 }, { "resourceId": "res-water", "amount": 4 } ], "byproducts": [ { "resourceId": "res-uranium-waste", "amount": 0.16667 } ] },
-        { "id": "rec-power-plutonium", "name": "Nuclear Power Plant (Plutonium)", "machineId": "mach-nuclear-plant", "cycleTime": 1, "outputAmount": 2500, "inputs": [ { "resourceId": "res-plutonium-fuel-rod", "amount": 0.001667 }, { "resourceId": "res-water", "amount": 4 } ], "byproducts": [ { "resourceId": "res-plutonium-waste", "amount": 0.016667 } ] }
+        { "id": "rec-power-nuclear", "name": "Nuclear Power Plant", "machineId": "mach-nuclear-plant", "cycleTime": 1, "outputAmount": 2500, "inputs": [ { "resourceId": "res-uranium-fuel-rod", "amount": 0.0033333333333333335 }, { "resourceId": "res-water", "amount": 4 } ], "byproducts": [ { "resourceId": "res-uranium-waste", "amount": 0.16666666666666666 } ] },
+        { "id": "rec-power-plutonium", "name": "Nuclear Power Plant (Plutonium)", "machineId": "mach-nuclear-plant", "cycleTime": 1, "outputAmount": 2500, "inputs": [ { "resourceId": "res-plutonium-fuel-rod", "amount": 0.0016666666666666668 }, { "resourceId": "res-water", "amount": 4 } ], "byproducts": [ { "resourceId": "res-plutonium-waste", "amount": 0.016666666666666666 } ] }
       ],
       "defaultRecipeId": "rec-power-coal" }
   ],
