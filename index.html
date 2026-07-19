@@ -666,7 +666,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.15';
+const APP_VERSION = '1.0.16';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -2877,7 +2877,11 @@ function virtualRoutesFor(resId,idx){
     }));
 }
 
-function planRecipes(inputSet){
+// freeSet: resources available as FREE surplus (another target's byproducts).
+// Unlike inputSet (the user's budget, priced at rawCost under the optimal
+// objective), surplus costs ~nothing in every objective — using it is the
+// whole point, so chains that consume it should win.
+function planRecipes(inputSet,freeSet=new Set()){
   const memo={}, choice={};
   const vidx=byproducerIndex(); // byproduct routes are candidate recipes too
   let cycleHits=0; // counts cycle-guard trips, so tainted verdicts aren't cached
@@ -2897,6 +2901,10 @@ function planRecipes(inputSet){
   function costOf(id,stack){
     if(memo[id]!==undefined)return memo[id];
     const res0=resources.find(r=>r.id===id);
+    // Free surplus beats everything — cheaper than budget inputs AND cheaper
+    // than the ε-priced auto-supplied raws, so a chain that can run on another
+    // target's byproducts is always preferred.
+    if(freeSet.has(id)&&!inputSet.has(id))return memo[id]=optimal?0.0001:0;
     if(inputSet.has(id))return memo[id]=optimal?Math.max(rawCostOf(res0),1):0;
     const res=res0;
     if(!res)return memo[id]=optimal?0.001:1;
@@ -2974,13 +2982,13 @@ function reachableFromInputs(inputSet){
 //                                   machine is fully supplied and runs at 100% capacity.
 // useCeil=false (from-inputs mode): propagate fractional exact demand; machines may run
 //                                   below 100% when inputs are the binding constraint.
-function computeChain(targetResId, targetRatePerSec, inputSet=new Set(), useCeil=false){
-  const {costOf,choice}=planRecipes(inputSet);
+function computeChain(targetResId, targetRatePerSec, inputSet=new Set(), useCeil=false, freeSet=new Set()){
+  const {costOf,choice}=planRecipes(inputSet,freeSet);
   if(!isFinite(costOf(targetResId)))return{nodes:[],rawNeeds:{},infeasible:true};
   const seen={}, depsOf={};
   function explore(id){
     if(seen[id])return; seen[id]=1;
-    if(inputSet.has(id))return;
+    if(inputSet.has(id)||freeSet.has(id))return;
     costOf(id); // make sure a recipe has been chosen for this node
     const rec=choice[id];
     if(!rec)return;
@@ -3014,7 +3022,7 @@ function computeChain(targetResId, targetRatePerSec, inputSet=new Set(), useCeil
       const gross=demand[resId]??0;
       const d=gross-(credit[resId]??0); // net demand after byproduct produced elsewhere
       if(d<=1e-12)continue;             // fully covered by byproduct (or unused)
-      if(inputSet.has(resId)){rawNeeds[resId]=(rawNeeds[resId]??0)+d;continue;}
+      if(inputSet.has(resId)||freeSet.has(resId)){rawNeeds[resId]=(rawNeeds[resId]??0)+d;continue;}
       const rec=choice[resId];
       if(!rec){rawNeeds[resId]=(rawNeeds[resId]??0)+d;continue;}
       const ct=effectiveCycleTime(rec);
@@ -3230,13 +3238,40 @@ function addSurplusToPool(pool,surplus){
 // byproducts). Returns a result object in the same shape for either case.
 function planSecondaryTarget(t,pool){
   if(t.rate!=null){
-    const{nodes,rawNeeds,byproductSurplus,converged}=computeChain(t.resId,t.rate,new Set(),true);
+    // Fixed-amount targets also feed on EARLIER targets' byproduct surplus:
+    // the pool resources are offered as free supply, so a chain that can run
+    // on surplus (Residual Plastic on leftover Polymer Resin) beats one that
+    // buys fresh inputs. Whatever the chain draws is taken from the pool;
+    // any excess beyond the pool is a genuine external need.
+    const freeSet=new Set(Object.keys(pool).filter(k=>pool[k]>1e-9));
+    const{nodes,rawNeeds,byproductSurplus,converged}=computeChain(t.resId,t.rate,new Set(),true,freeSet);
     // Error strings are PLAIN text — renderMultiTargetResults escapes at render
     if(!nodes.length)return{resId:t.resId,achievableStyle:false,
       error:`No recipe produces "${rname(t.resId)}". Add one in Resources.`};
     nodes.forEach(n=>{n.fromInputs=false;});
+    const poolDrawn={};
+    freeSet.forEach(id=>{
+      const need=rawNeeds[id]||0;
+      if(need<=1e-12)return;
+      const drawn=Math.min(pool[id]||0,need);
+      if(drawn>1e-12)poolDrawn[id]=drawn;
+      pool[id]=Math.max(0,(pool[id]||0)-need);
+      // Surplus only partly covered the draw — produce the remainder rather
+      // than reporting it as an unexplained external input.
+      const uncovered=need-drawn;
+      if(uncovered>1e-9){
+        const sup=computeChain(id,uncovered,new Set(),true);
+        if(sup.nodes.length){
+          sup.nodes.forEach(n=>{n.fromInputs=false;});
+          nodes.push(...sup.nodes);
+          rawNeeds[id]=drawn;
+          Object.keys(sup.rawNeeds).forEach(rid=>{rawNeeds[rid]=(rawNeeds[rid]||0)+sup.rawNeeds[rid];});
+          addSurplusToPool(pool,sup.byproductSurplus);
+        }
+      }
+    });
     addSurplusToPool(pool,byproductSurplus);
-    return{resId:t.resId,achievableStyle:false,nodes,rawNeeds,rawRate:t.rawRate,unitLbl:t.unitLbl,rate:t.rate,converged};
+    return{resId:t.resId,achievableStyle:false,nodes,rawNeeds,rawRate:t.rawRate,unitLbl:t.unitLbl,rate:t.rate,converged,poolDrawn};
   }
   const supply=Object.entries(pool).filter(([,v])=>v>1e-9);
   if(!supply.length)return{resId:t.resId,achievableStyle:true,sourceLabel:'the byproduct',
@@ -3298,49 +3333,108 @@ function runMultiTargetPlan(targets, resEl){
 // the one place the two modes differ. Everything after it (secondaryTargets)
 // is planned exactly like Target mode's targets[1+], via the shared pool.
 function computeFromInputsResults(primaryResId, inputMap, secondaryTargets){
-  const pool={};
   // FIXED-amount secondary targets carve their consumption out of the supplied
   // budget FIRST, and the primary is planned from what remains — the amount
   // field is the priority dial ("600/min Plastic, Power gets the rest of the
-  // crude"). Previously a fixed secondary planned a fully independent chain
-  // and its supplied-input use just appeared as EXTRA input at the bottom,
-  // instead of reallocating the budget away from the primary.
-  const remaining={...inputMap};
+  // crude").
+  //
+  // The wrinkle: those secondaries are computed BEFORE the primary, so they
+  // can't see the byproducts the primary will make — the Power chain's spare
+  // Polymer Resin sat unused while the Plastic chain bought fuel instead of
+  // running Residual Plastic on it. Surplus must flow BACKWARD, so the whole
+  // computation iterates to a fixpoint: each pass seeds the fixed secondaries
+  // with the previous pass's surplus (offered as free supply — recipe choice
+  // prefers it over everything), re-carves the budget, re-plans the primary,
+  // and stops when the surplus map stabilises. Real plans settle in 2-3
+  // passes; the cap guards pathological recipe flip-flops.
   const inputSet=new Set(Object.keys(inputMap));
-  const preComputed=new Map();
-  secondaryTargets.filter(t=>t.rate!=null).forEach(t=>{
-    const{nodes,rawNeeds,byproductSurplus,converged}=computeChain(t.resId,t.rate,inputSet,true);
-    if(!nodes.length){
-      preComputed.set(t,{resId:t.resId,achievableStyle:false,
-        error:`No recipe produces "${rname(t.resId)}". Add one in Resources.`});
-      return;
-    }
-    nodes.forEach(n=>{n.fromInputs=false;});
-    let short=null;
-    Object.keys(rawNeeds).forEach(id=>{
-      if(!inputSet.has(id))return;
-      if(rawNeeds[id]>(remaining[id]||0)+1e-9&&!short)short=id;
-      remaining[id]=Math.max(0,(remaining[id]||0)-rawNeeds[id]);
+  const fixed=secondaryTargets.filter(t=>t.rate!=null);
+  let seed={};
+  let results=null;
+  for(let iter=0;iter<5;iter++){
+    const pool={};
+    const gross={}; // total surplus produced this pass (before any draws) — next pass's seed
+    const remaining={...inputMap};
+    const seedLeft={...seed};
+    const preComputed=new Map();
+    fixed.forEach(t=>{
+      const freeSet=new Set(Object.keys(seedLeft).filter(k=>seedLeft[k]>1e-9&&!inputSet.has(k)));
+      const{nodes,rawNeeds,byproductSurplus,converged}=computeChain(t.resId,t.rate,inputSet,true,freeSet);
+      if(!nodes.length){
+        preComputed.set(t,{resId:t.resId,achievableStyle:false,
+          error:`No recipe produces "${rname(t.resId)}". Add one in Resources.`});
+        return;
+      }
+      nodes.forEach(n=>{n.fromInputs=false;});
+      const poolDrawn={};
+      // Surplus coverage first: whatever the surplus can't fully cover gets
+      // PRODUCED by a supplemental chain from the budget, instead of being
+      // dumped on the user as an unexplained external input (the freeSet
+      // pricing is quantity-blind — it can prefer surplus that only partly
+      // exists).
+      freeSet.forEach(id=>{
+        const need=rawNeeds[id]||0;
+        if(need<=1e-12)return;
+        const drawn=Math.min(seedLeft[id]||0,need);
+        if(drawn>1e-12)poolDrawn[id]=drawn;
+        seedLeft[id]=Math.max(0,(seedLeft[id]||0)-need);
+        const uncovered=need-drawn;
+        if(uncovered>1e-9){
+          const sup=computeChain(id,uncovered,inputSet,true);
+          if(sup.nodes.length){
+            sup.nodes.forEach(n=>{n.fromInputs=false;});
+            nodes.push(...sup.nodes);
+            rawNeeds[id]=drawn; // covered part only — the rest is made in-plan now
+            Object.keys(sup.rawNeeds).forEach(rid=>{rawNeeds[rid]=(rawNeeds[rid]||0)+sup.rawNeeds[rid];});
+            Object.entries(sup.byproductSurplus||{}).forEach(([bid,r])=>{
+              gross[bid]=(gross[bid]||0)+r; pool[bid]=(pool[bid]||0)+r;
+            });
+          }
+        }
+      });
+      let short=null;
+      Object.keys(rawNeeds).forEach(id=>{
+        if(inputSet.has(id)){ // real budget
+          if(rawNeeds[id]>(remaining[id]||0)+1e-9&&!short)short=id;
+          remaining[id]=Math.max(0,(remaining[id]||0)-rawNeeds[id]);
+        }
+      });
+      Object.entries(byproductSurplus).forEach(([id,r])=>{gross[id]=(gross[id]||0)+r;});
+      addSurplusToPool(pool,byproductSurplus);
+      preComputed.set(t,{resId:t.resId,achievableStyle:false,nodes,rawNeeds,
+        rawRate:t.rawRate,unitLbl:t.unitLbl,rate:t.rate,converged,poolDrawn,
+        budgetNote:short?`This target consumes more ${rname(short)} than the supplied budget had left — it takes priority, and the primary target gets what remains (nothing, for ${rname(short)}).`:null});
     });
-    addSurplusToPool(pool,byproductSurplus);
-    preComputed.set(t,{resId:t.resId,achievableStyle:false,nodes,rawNeeds,
-      rawRate:t.rawRate,unitLbl:t.unitLbl,rate:t.rate,converged,
-      budgetNote:short?`This target consumes more ${rname(short)} than the supplied budget had left — it takes priority, and the primary target gets what remains (nothing, for ${rname(short)}).`:null});
-  });
-  Object.keys(remaining).forEach(k=>{if(remaining[k]<=1e-9)delete remaining[k];});
-  const res=Object.keys(remaining).length
-    ?computeFromInputs(primaryResId,remaining)
-    :{error:'The supplied inputs are fully consumed by the fixed-amount secondary targets — nothing remains for the primary target. Lower their amounts to give it a share.'};
-  let results;
-  if(res.error){
-    results=[{resId:primaryResId,achievableStyle:true,sourceLabel:'your supplied inputs',error:res.error}];
-  } else {
-    res.nodes.forEach(n=>{n.fromInputs=true;});
-    addSurplusToPool(pool,res.byproductSurplus);
-    results=[{resId:primaryResId,achievableStyle:true,sourceLabel:'your supplied inputs',nodes:res.nodes,rawNeeds:res.rawNeeds,
-      achievable:res.achievable,bottleneckRes:res.bottleneckRes,extras:res.extras,converged:res.converged}];
+    Object.keys(remaining).forEach(k=>{if(remaining[k]<=1e-9)delete remaining[k];});
+    const res=Object.keys(remaining).length
+      ?computeFromInputs(primaryResId,remaining)
+      :{error:'The supplied inputs are fully consumed by the fixed-amount secondary targets — nothing remains for the primary target. Lower their amounts to give it a share.'};
+    if(res.error){
+      results=[{resId:primaryResId,achievableStyle:true,sourceLabel:'your supplied inputs',error:res.error}];
+    } else {
+      res.nodes.forEach(n=>{n.fromInputs=true;});
+      Object.entries(res.byproductSurplus||{}).forEach(([id,r])=>{gross[id]=(gross[id]||0)+r;});
+      addSurplusToPool(pool,res.byproductSurplus);
+      results=[{resId:primaryResId,achievableStyle:true,sourceLabel:'your supplied inputs',nodes:res.nodes,rawNeeds:res.rawNeeds,
+        achievable:res.achievable,bottleneckRes:res.bottleneckRes,extras:res.extras,converged:res.converged}];
+    }
+    // What the fixed secondaries drew came out of this pass's surplus — the
+    // blank targets feed on what's genuinely left.
+    fixed.forEach(t=>{
+      const r=preComputed.get(t);
+      Object.entries(r?.poolDrawn||{}).forEach(([id,amt])=>{pool[id]=Math.max(0,(pool[id]||0)-amt);});
+    });
+    secondaryTargets.forEach(t=>results.push(t.rate!=null?preComputed.get(t):planSecondaryTarget(t,pool)));
+    // Converged when the surplus available to seed the next pass matches what
+    // this pass was seeded with. No fixed secondaries → nothing flows
+    // backward → one pass is exact.
+    if(!fixed.length)break;
+    const keys=new Set([...Object.keys(gross),...Object.keys(seed)]);
+    let stable=true;
+    for(const k of keys){ if(Math.abs((gross[k]||0)-(seed[k]||0))>1e-6){stable=false;break;} }
+    if(stable)break;
+    seed=gross;
   }
-  secondaryTargets.forEach(t=>results.push(t.rate!=null?preComputed.get(t):planSecondaryTarget(t,pool)));
   return results;
 }
 function runFromInputsPlan(primaryResId, inputMap, secondaryTargets, resEl){
@@ -3416,6 +3510,8 @@ function renderMultiTargetResults(targets, results, el){
         :`${r.rawRate} ${esc(rname(t.resId))}/${r.unitLbl}`;
       top+=`<div class="card-title" style="${mt}">${num} ${header}</div>`;
       if(r.budgetNote)top+=`<div class="alert aw" style="margin-bottom:10px">⚠ ${esc(r.budgetNote)}</div>`;
+      const fed=Object.entries(r.poolDrawn||{}).filter(([,v])=>v>1e-9);
+      if(fed.length)top+=`<div class="ach-banner" style="margin-bottom:10px">♻ Fed from the plan's byproduct surplus: ${fed.map(([id,v])=>`<strong>${rateStr(id,v,2)} ${esc(rname(id))}</strong>`).join(', ')}</div>`;
     } else {
       const fromByLbl=r.sourceLabel==='the byproduct'?' <span style="color:#555;text-transform:none;letter-spacing:0">— from byproduct</span>':'';
       top+=`<div class="card-title" style="${mt}">${num} ${esc(rname(t.resId))}${fromByLbl}</div>`;
