@@ -480,6 +480,7 @@ body.sample-locked .lock-hide{display:none!important}
       <span class="sl" style="margin:0">Plan</span>
       <select id="plan-sel" class="prof-sel" style="max-width:220px" onchange="switchPlan(this.value)"></select>
       <button class="bb bsm" onclick="newPlan()" title="Start a new, separate saved plan">+ New</button>
+      <button class="bb bsm" onclick="duplicatePlan()" title="Copy this plan — targets, pins, clocks and all — into a new one">Duplicate</button>
       <button class="bb bsm" onclick="renamePlan()">Rename</button>
       <button class="bb bsm" onclick="deletePlan()" title="Delete this saved plan">Delete</button>
       <span style="color:#444">|</span>
@@ -666,7 +667,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.16';
+const APP_VERSION = '1.0.17';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -3629,6 +3630,21 @@ function newPlan(){
   clearPlanner(); // resets rows/pins/clocks and saves the fresh query into the new plan
   renderPlanBar();
 }
+function duplicatePlan(){
+  savePlannerQuery();
+  const src=activePlan();
+  if(!src)return;
+  let nm=`${src.name} (copy)`,k=2;
+  while(plans.some(p=>p.name===nm))nm=`${src.name} (copy ${k++})`;
+  const pl={id:uid(),name:nm,q:src.q?JSON.parse(JSON.stringify(src.q)):null};
+  plans.push(pl);
+  activePlanId=pl.id;
+  saveState();
+  document.getElementById('pl-results').innerHTML='';
+  lastPlan=null;
+  if(restorePlannerQuery())runPlanner();
+}
+
 function renamePlan(){
   const pl=activePlan();
   if(!pl)return;
@@ -5006,7 +5022,7 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
             const rp=posRaw[R];
             edgeList.push({fromKey:'r'+R,toKey:'n'+consumer.rec.id,
               fx:rp.x+RW,fyBase:rp.y,fH:RH,tx:cp.x,tyBase:cp.y,
-              rate:r,resId:R,dstD,srcRaw:true,
+              rate:r,resId:R,dstD,dstGroup,srcRaw:true,
               fromLabel:'Raw input'+(rawSourceNote(R)?' — no enabled recipe':''),
               toLabel,
               isLong:dstD<maxD});
@@ -5016,7 +5032,7 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
         const rp=posRaw[R];
         edgeList.push({fromKey:'r'+R,toKey:'n'+consumer.rec.id,
           fx:rp.x+RW,fyBase:rp.y,fH:RH,tx:cp.x,tyBase:cp.y,
-          rate,resId:R,dstD:dc[consumer.rec.id],srcRaw:true,
+          rate,resId:R,dstD:dc[consumer.rec.id],dstGroup:consumer.group||'main',srcRaw:true,
           fromLabel:'Raw input'+(rawSourceNote(R)?' — no enabled recipe':''),
           toLabel,
           isLong:dc[consumer.rec.id]<maxD});
@@ -5096,10 +5112,14 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
         laneY=L.y;
         path=`M${x1},${y1} C${x1+s},${y1} ${x1+s},${laneY} ${x1},${laneY} L${x2-leadB},${laneY} C${x2-leadB-sIn},${laneY} ${x2-leadB-sIn},${y2} ${x2-leadB},${y2} L${x2-7},${y2}`;
       } else {
-        // A long edge WITHIN the secondary band uses the gutter lanes just
-        // above that band — climbing to the main top band meant crossing the
-        // entire main chain twice for no reason.
-        const L=(e.dstGroup==='secondary'&&e.srcGroup==='secondary')?allocSecLane():allocLane();
+        // ANY long edge landing in the secondary band uses the gutter lanes
+        // just above it — whether its source is secondary too, a main-band
+        // stage, a byproduct box dropped into the band (Polymer Resin used
+        // to ride all the way up to the top highway and back down to reach
+        // Residual Plastic), or the raw-inputs box. Descending into the
+        // gutter never crosses the main chain; the top band is for main-band
+        // consumers only.
+        const L=(e.dstGroup==='secondary')?allocSecLane():allocLane();
         laneY=L.y;
         // EXIT ramps stagger by lane index within the source's clearance, so
         // parallel edges rise at different x instead of piling up. The ENTRY
