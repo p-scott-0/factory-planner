@@ -663,7 +663,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.13';
+const APP_VERSION = '1.0.14';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -2872,6 +2872,7 @@ function virtualRoutesFor(resId,idx){
 function planRecipes(inputSet){
   const memo={}, choice={};
   const vidx=byproducerIndex(); // byproduct routes are candidate recipes too
+  let cycleHits=0; // counts cycle-guard trips, so tainted verdicts aren't cached
   // Two objectives, same machinery, different RAW PRICING:
   //  cheap   — supplied inputs are free (0), other raws cost rawCost. Picks the
   //            chain with the lowest total raw cost, even if it ignores what
@@ -2901,8 +2902,9 @@ function planRecipes(inputSet){
     const pin=plannerPins[id];
     if(pin){const pr=recs.find(x=>x.id===pin);if(pr)recs=[pr];}
     if(!recs.length)return memo[id]=rawCostOf(res); // no production route at all — external raw input
-    if(stack.has(id))return Infinity; // cycle guard (not memoised)
+    if(stack.has(id)){cycleHits++;return Infinity;} // cycle guard (never memoised)
     stack.add(id);
+    const hitsBefore=cycleHits;
     let best=Infinity,bestRec=null;
     for(const rec of recs){
       const out=rec.outputAmount??1;
@@ -2915,7 +2917,19 @@ function planRecipes(inputSet){
       if(c<best-1e-9||(Math.abs(c-best)<=1e-9&&isDef)){best=c;bestRec=rec;}
     }
     stack.delete(id);
-    if(!bestRec||!isFinite(best))return memo[id]=rawCostOf(res); // nothing usable — treat as external raw
+    if(!bestRec||!isFinite(best)){
+      // Every candidate failed. If a cycle guard fired while judging them, the
+      // failure is CONTEXT-DEPENDENT — an ancestor on the stack blocked the
+      // chain, and the same resource evaluates fine from a clean stack. Cache
+      // that transient verdict and it poisons every later lookup: costing
+      // Power's turbofuel generator walks into Compacted Coal, whose ionized
+      // route asks for Rocket Fuel while turbofuel is on the stack → Rocket
+      // Fuel got memoised as a RAW INPUT, and the rocket-fuel generator plan
+      // then showed a dashed box instead of the whole chain. Return the raw
+      // fallback for THIS evaluation only; memoise only context-free dead ends.
+      if(cycleHits>hitsBefore)return rawCostOf(res);
+      return memo[id]=rawCostOf(res);
+    }
     memo[id]=best; choice[id]=bestRec;
     return best;
   }
@@ -4494,18 +4508,24 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
       keyed.sort((a,b)=>(a.b==null||b.b==null)?a.i-b.i:(a.b-b.b||a.i-b.i));
       byD[d]=keyed.map(k=>k.n);
     };
-    // Crossings between every pair of edges that span the same two columns.
+    // Chord intersections between EVERY pair of edges, not just pairs spanning
+    // the same two columns — a 3-column lane chord crossing a neighbouring
+    // 1-column chord is a real crossing too, and scoring only same-span pairs
+    // let "free" swaps quietly worsen exactly those. Edges are chords in
+    // (column, slot) space; shared endpoints don't count as crossings.
     const crossings=()=>{
-      const groups={};
+      const segs=[];
       nodes.forEach(c=>prodOf[c.rec.id].forEach(pid=>{
-        const k=dc[pid]+'|'+dc[c.rec.id];
-        (groups[k]=groups[k]||[]).push([idx[pid],idx[c.rec.id]]);
+        segs.push({x1:-dc[pid],y1:idx[pid],x2:-dc[c.rec.id],y2:idx[c.rec.id]});
       }));
+      const d=(ax,ay,bx,by,cx,cy)=>(cy-ay)*(bx-ax)-(by-ay)*(cx-ax);
       let x=0;
-      Object.values(groups).forEach(es=>{
-        for(let i=0;i<es.length;i++)for(let j=i+1;j<es.length;j++)
-          if((es[i][0]-es[j][0])*(es[i][1]-es[j][1])<0)x++;
-      });
+      for(let i=0;i<segs.length;i++)for(let j=i+1;j<segs.length;j++){
+        const a=segs[i],b=segs[j];
+        const d1=d(b.x1,b.y1,b.x2,b.y2,a.x1,a.y1), d2=d(b.x1,b.y1,b.x2,b.y2,a.x2,a.y2);
+        const d3=d(a.x1,a.y1,a.x2,a.y2,b.x1,b.y1), d4=d(a.x1,a.y1,a.x2,a.y2,b.x2,b.y2);
+        if(((d1>0&&d2<0)||(d1<0&&d2>0))&&((d3>0&&d4<0)||(d3<0&&d4>0)))x++;
+      }
       return x;
     };
     const snap=()=>{const o={};for(let d=0;d<=maxD;d++)o[d]=byD[d].slice();return o;};
@@ -4518,6 +4538,50 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
       if(x<bestX){bestX=x;bestSnap=snap();}
     }
     for(let d=0;d<=maxD;d++)byD[d]=bestSnap[d];
+    reindex();
+    // ── Highway-affinity bias ──
+    // The top lane band serves nodes whose belts ramp up to it — a node
+    // sending to or fed from the highway sits better near the TOP of its
+    // column, so the ramps cross fewer neighbours on the way. Bubble such
+    // nodes upward, but only keep a swap when the crossing count doesn't get
+    // worse: this is a free-improvement pass, never a trade-off against the
+    // barycenter result.
+    const laneScore=n=>{
+      let s=0;
+      (consOf[n.rec.id]||[]).forEach(cid=>{if(dc[n.rec.id]-dc[cid]>1)s++;}); // output rides the highway
+      (prodOf[n.rec.id]||[]).forEach(pid=>{if(dc[pid]-dc[n.rec.id]>1)s++;}); // input arrives from it
+      return s;
+    };
+    if(window.__laneBias!==false){ // flag: diagnostics escape hatch
+      // Lexicographic: crossings are the hard constraint; among layouts with
+      // EQUAL crossings, prefer lane-connected nodes higher (smaller summed
+      // slot depth). Whole-insertion moves rather than adjacent swaps — a
+      // direct jump to a higher slot often keeps the crossing count where
+      // every intermediate single swap wouldn't.
+      const laneDepth=()=>{
+        let s=0;
+        for(let d=0;d<=maxD;d++)byD[d].forEach((n,i)=>{const ls=laneScore(n);if(ls)s+=i*ls;});
+        return s;
+      };
+      let curX=crossings(), curD=laneDepth();
+      let improved=true, guard=0;
+      while(improved&&guard++<20){
+        improved=false;
+        for(let d=0;d<=maxD;d++){
+          const arr=byD[d];
+          for(let i=1;i<arr.length;i++){
+            const n=arr[i];
+            if(!laneScore(n))continue;
+            for(let j=0;j<i;j++){
+              arr.splice(i,1); arr.splice(j,0,n); reindex();
+              const x=crossings(), dd=laneDepth();
+              if(x<curX||(x===curX&&dd<curD)){curX=x;curD=dd;improved=true;i=j;break;}
+              arr.splice(j,1); arr.splice(i,0,n); reindex();
+            }
+          }
+        }
+      }
+    }
   }
 
   // ── Dimensions ──
@@ -4551,7 +4615,9 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
       if(!(maxPill[dcc]>=w))maxPill[dcc]=w;
       const srcDepths=(primaryBy[R]||[]).filter(x=>x!==consumer).map(x=>dc[x.rec.id])
         .concat(nodes.filter(x=>x!==consumer&&(x.rec.byproducts||[]).some(b=>b.resourceId===R)).map(x=>dc[x.rec.id]));
-      if(srcDepths.some(d0=>d0-dcc>1))laneInto[dcc]=true;
+      // Highway arrivals need the descent/rise zone: forward lanes (source >1
+      // column left) AND backward returns (source at or right of the consumer)
+      if(srcDepths.some(d0=>d0-dcc>1||d0<=dcc))laneInto[dcc]=true;
       else if(!srcDepths.length&&rawNeeds[R]!=null&&dcc<maxD)laneInto[dcc]=true;
     });
   });
@@ -4828,9 +4894,15 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
         :gapRight(e.srcD)-10);
       if(backward){
         const s=Math.min(30+((backIntervals.length)%4)*8,Math.max(14,outClear));
-        const L=backLane(x2-LEAD-s,x1+s);
+        // The rise into the machine gets the same dynamic lead-in as forward
+        // descents: finish the climb LEFT of the column's widest rate pill,
+        // then run straight in — return belts were climbing straight through
+        // the labels of the entries above their slot.
+        const leadB=LEADL[e.dstD]??46;
+        const sIn=Math.min(s,Math.max(14,((gapOf[e.dstD]??196)-(boxesRightOf[e.dstD+1]?BY_GAP+BW+10:0)-leadB-8)));
+        const L=backLane(x2-leadB-sIn,x1+s);
         laneY=L.y;
-        path=`M${x1},${y1} C${x1+s},${y1} ${x1+s},${laneY} ${x1},${laneY} L${x2-LEAD},${laneY} C${x2-LEAD-s},${laneY} ${x2-LEAD-s},${y2} ${x2-LEAD},${y2} L${x2-7},${y2}`;
+        path=`M${x1},${y1} C${x1+s},${y1} ${x1+s},${laneY} ${x1},${laneY} L${x2-leadB},${laneY} C${x2-leadB-sIn},${laneY} ${x2-leadB-sIn},${y2} ${x2-leadB},${y2} L${x2-7},${y2}`;
       } else {
         const L=allocLane();
         laneY=L.y;
