@@ -667,7 +667,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.17';
+const APP_VERSION = '1.0.18';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -3091,7 +3091,11 @@ function computeChain(targetResId, targetRatePerSec, inputSet=new Set(), useCeil
 // chain needs beyond the supplied inputs is computed and returned as "extras"
 // (with the recipe used, so an unwanted alternate can be spotted and toggled
 // off) instead of erroring the whole plan.
-function computeFromInputs(targetResId, inputMap){
+// One greedy pass: pick the single best recipe chain for `targetResId` from
+// `inputMap`, derive its achievable rate from the tightest supplied input, and
+// return that chain. `computeFromInputs` (below) calls this repeatedly on the
+// shrinking budget so every supplied input gets used.
+function computeFromInputsOnce(targetResId, inputMap){
   const inputSet=new Set(Object.keys(inputMap));
   const probeAchievable=()=>{
     // Rate-1 pass with exact math to find proportional raw needs for bottleneck calc
@@ -3202,6 +3206,66 @@ function computeFromInputs(targetResId, inputMap){
   return{nodes,rawNeeds,achievable,bottleneckRes,extras,byproductSurplus,converged};
 }
 
+// From-Inputs with MULTIPLE supplied inputs. computeFromInputsOnce picks ONE
+// recipe path and scales it by ONE bottleneck input, so a second input that
+// feeds the target through a DIFFERENT recipe was left entirely unused —
+// supply Crude Oil + Heavy Oil Residue for Power and the cheaper HOR->Fuel
+// route wins, orphaning every drop of the crude (the reported bug: adding HOR
+// "removed" the crude). We consume the budget in GREEDY passes: each pass
+// plans the best chain from what's LEFT, banks it, and subtracts what it drew.
+// A successful pass always scales until its bottleneck input hits zero, so it
+// removes at least one input per pass and terminates in <= |inputs| passes.
+// The passes merge into one plan — a resource produced two different ways (Fuel
+// from HOR and Fuel from crude) becomes two stages, and an input consumed both
+// as raw supply and re-made from another input shows both sources honestly.
+function computeFromInputs(targetResId, inputMap){
+  const ids=Object.keys(inputMap);
+  if(ids.length<=1)return computeFromInputsOnce(targetResId,inputMap); // common case, unchanged
+  const budget={...inputMap};
+  const passes=[];
+  for(let pass=0;pass<ids.length;pass++){
+    const active=Object.fromEntries(Object.entries(budget).filter(([,v])=>v>1e-9));
+    if(!Object.keys(active).length)break;
+    const r=computeFromInputsOnce(targetResId,active);
+    // A genuine failure (infeasible / no recipe / nothing consumes the inputs)
+    // is the real result only if NO pass has succeeded yet; once at least one
+    // has, "the remainder feeds nothing" is just the natural stop.
+    if(r.error||r.noConsume){ if(!passes.length)return r; break; }
+    passes.push(r);
+    let progressed=false;
+    ids.forEach(id=>{
+      const used=r.rawNeeds[id]||0;
+      if(used>1e-9){
+        const before=budget[id];
+        budget[id]=Math.max(0,budget[id]-used);
+        if(budget[id]<before-1e-9)progressed=true;
+      }
+    });
+    if(!progressed)break; // safety: a pass that drains nothing can't make progress
+  }
+  if(passes.length<=1)return passes[0]||computeFromInputsOnce(targetResId,inputMap);
+  // Merge the banked passes into one plan (same key/sum scheme as mergeTargetNodes).
+  const merged={},order=[],rawNeeds={},extras={},byproductSurplus={},bottlenecks=[];
+  let achievable=0,converged=true;
+  passes.forEach(p=>{
+    achievable+=p.achievable||0;
+    if(p.converged===false)converged=false;
+    if(p.bottleneckRes&&!bottlenecks.includes(p.bottleneckRes))bottlenecks.push(p.bottleneckRes);
+    (p.nodes||[]).forEach(n=>{
+      const key=n.resId+'|'+n.rec.id;
+      if(merged[key])merged[key].exact+=n.exact;
+      else{merged[key]={...n};order.push(key);}
+    });
+    Object.entries(p.rawNeeds||{}).forEach(([id,v])=>{rawNeeds[id]=(rawNeeds[id]||0)+v;});
+    Object.entries(p.byproductSurplus||{}).forEach(([id,v])=>{byproductSurplus[id]=(byproductSurplus[id]||0)+v;});
+    Object.entries(p.extras||{}).forEach(([id,ex])=>{
+      if(extras[id])extras[id].rate+=ex.rate; else extras[id]={...ex};
+    });
+  });
+  return{nodes:order.map(k=>merged[k]),rawNeeds,achievable,
+    bottleneckRes:bottlenecks[0]||null,bottlenecks,extras,byproductSurplus,converged};
+}
+
 // ══════════════════════════════════════════════════════
 // MULTI-TARGET PLANNING (shared by Target Output and From-Inputs modes)
 // ══════════════════════════════════════════════════════
@@ -3304,7 +3368,7 @@ function planSecondaryTarget(t,pool){
   });
   addSurplusToPool(pool,res.byproductSurplus);
   return{resId:t.resId,achievableStyle:true,sourceLabel:'the byproduct',nodes:res.nodes,rawNeeds:res.rawNeeds,
-    achievable:res.achievable,bottleneckRes:res.bottleneckRes,extras:res.extras,poolDrawn,converged:res.converged};
+    achievable:res.achievable,bottleneckRes:res.bottleneckRes,bottlenecks:res.bottlenecks,extras:res.extras,poolDrawn,converged:res.converged};
 }
 
 // Target mode: target[0] has a fixed, user-specified rate. Compute and render
@@ -3417,7 +3481,7 @@ function computeFromInputsResults(primaryResId, inputMap, secondaryTargets){
       Object.entries(res.byproductSurplus||{}).forEach(([id,r])=>{gross[id]=(gross[id]||0)+r;});
       addSurplusToPool(pool,res.byproductSurplus);
       results=[{resId:primaryResId,achievableStyle:true,sourceLabel:'your supplied inputs',nodes:res.nodes,rawNeeds:res.rawNeeds,
-        achievable:res.achievable,bottleneckRes:res.bottleneckRes,extras:res.extras,converged:res.converged}];
+        achievable:res.achievable,bottleneckRes:res.bottleneckRes,bottlenecks:res.bottlenecks,extras:res.extras,converged:res.converged}];
     }
     // What the fixed secondaries drew came out of this pass's surplus — the
     // blank targets feed on what's genuinely left.
@@ -3516,8 +3580,10 @@ function renderMultiTargetResults(targets, results, el){
     } else {
       const fromByLbl=r.sourceLabel==='the byproduct'?' <span style="color:#555;text-transform:none;letter-spacing:0">— from byproduct</span>':'';
       top+=`<div class="card-title" style="${mt}">${num} ${esc(rname(t.resId))}${fromByLbl}</div>`;
-      const bName=r.bottleneckRes?esc(rname(r.bottleneckRes)):'?';
-      top+=`<div class="ach-banner">Bottleneck: <strong>${bName}</strong> · achievable: <strong>${rateStr(t.resId,r.achievable,3)}</strong></div>`;
+      const bList=(r.bottlenecks&&r.bottlenecks.length)?r.bottlenecks:(r.bottleneckRes?[r.bottleneckRes]:[]);
+      const bName=bList.length?bList.map(id=>esc(rname(id))).join(', '):'?';
+      const bLabel=bList.length>1?'Bottlenecks (each fully consumed)':'Bottleneck';
+      top+=`<div class="ach-banner">${bLabel}: <strong>${bName}</strong> · achievable: <strong>${rateStr(t.resId,r.achievable,3)}</strong></div>`;
       const extraEntries=Object.entries(r.extras||{});
       if(extraEntries.length){
         const rows=extraEntries.map(([id,ex])=>{
