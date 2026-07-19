@@ -663,7 +663,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.12';
+const APP_VERSION = '1.0.13';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -4986,7 +4986,10 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
 
   // Labels are the topmost layer of all — they must never be hidden behind
   // a line OR a node box, regardless of draw order elsewhere in the diagram.
-  return`<div style="overflow-x:auto"><svg width="${svgW}" height="${svgH}" xmlns="http://www.w3.org/2000/svg" style="display:block;font-family:'Segoe UI',system-ui,sans-serif">${bands}${edges}${raws}${boxes}${edgeLabels}</svg></div>`;
+  // viewBox is what makes the zoom controls actually SCALE the drawing:
+  // without it, resizing the element just crops the viewport — machines and
+  // belts stayed 1:1 while the right/bottom of the diagram got cut off.
+  return`<div style="overflow-x:auto"><svg width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}" xmlns="http://www.w3.org/2000/svg" style="display:block;font-family:'Segoe UI',system-ui,sans-serif">${bands}${edges}${raws}${boxes}${edgeLabels}</svg></div>`;
 }
 
 // ══════════════════════════════════════════════════════
