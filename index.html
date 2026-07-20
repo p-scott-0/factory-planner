@@ -381,11 +381,11 @@ body.sample-locked .lock-hide{display:none!important}
           </div>
           <div>
             <label>Cycle time (s)</label>
-            <input id="rf-time" type="number" min="0.001" step="any" placeholder="e.g. 3.2">
+            <input id="rf-time" type="text" inputmode="text" title="A number or a fraction like 1/300" placeholder="e.g. 3.2">
           </div>
         </div>
         <label>Output per cycle</label>
-        <input id="rf-outamt" type="number" min="0.001" step="any" value="1" placeholder="1">
+        <input id="rf-outamt" type="text" inputmode="text" title="A number or a fraction like 1/300" value="1" placeholder="1">
         <div class="sl">Inputs per cycle</div>
         <div id="rf-inputs"></div>
         <button class="bb bsm" onclick="addIO('rf-inputs')">+ Input</button>
@@ -420,11 +420,11 @@ body.sample-locked .lock-hide{display:none!important}
         </div>
         <div>
           <label>Cycle time (s)</label>
-          <input id="rec-time" type="number" min="0.001" step="any" placeholder="3.2">
+          <input id="rec-time" type="text" inputmode="text" title="A number or a fraction like 1/300" placeholder="3.2">
         </div>
       </div>
       <label>Output amount per cycle</label>
-      <input id="rec-outamt" type="number" min="0.001" step="any" value="1" placeholder="1">
+      <input id="rec-outamt" type="text" inputmode="text" title="A number or a fraction like 1/300" value="1" placeholder="1">
       <hr>
       <div class="sl">Inputs per cycle</div>
       <div id="rec-inputs"></div>
@@ -667,7 +667,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.19';
+const APP_VERSION = '1.0.20';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -1623,6 +1623,36 @@ function buildResOpts(selectedId='', exclude=''){
   return html;
 }
 
+// Recipe quantities may be typed as a fraction ("1/300") or a decimal. A
+// fraction is evaluated at full double precision, so an exact ratio like 1/3
+// stores as 0.3333333333333333 rather than a hand-truncated 0.33333 — a
+// rounding that otherwise surfaces as a phantom extra machine in From-Inputs
+// (see machineCount). Accepts "a/b", plain decimals, and surrounding space.
+function parseQty(str){
+  if(typeof str==='number')return str;
+  const s=String(str==null?'':str).trim();
+  if(!s)return NaN;
+  const m=s.match(/^(\d*\.?\d+)\s*\/\s*(\d*\.?\d+)$/);
+  if(m){const b=parseFloat(m[2]);return b>0?parseFloat(m[1])/b:NaN;}
+  return parseFloat(s);
+}
+// Round-trip a stored quantity to the cleanest string: an exact simple
+// fraction (denominator <= 1000) comes back as "1/300" when the decimal is
+// long, so the editor and recipe cards show "1/300" instead of a 19-digit
+// number. Short, tidy decimals (0.5, 3.2, 0.25) are left alone.
+function qtyToStr(n){
+  if(typeof n!=='number'||!isFinite(n))return '';
+  if(n===Math.round(n))return String(n);
+  const dec=String(n);
+  if(dec.length>7){
+    for(let q=2;q<=1000;q++){
+      const p=Math.round(n*q);
+      if(p>0&&Math.abs(p/q-n)<=1e-12){const frac=`${p}/${q}`;if(frac.length<dec.length)return frac;break;}
+    }
+  }
+  return dec;
+}
+
 function addIO(listId,resourceId='',amount=''){
   // Only exclude selResId for the recipe-editor's own input/byproduct lists —
   // a recipe shouldn't list its own resource as one of its ingredients or
@@ -1631,7 +1661,7 @@ function addIO(listId,resourceId='',amount=''){
   const excl=(listId==='rec-inputs'||listId==='rec-byproducts')?(selResId||''):'';
   const row=document.createElement('div');
   row.className='io-row';
-  row.innerHTML=`<input type="number" class="io-amt" min="0" step="any" placeholder="Qty" value="${amount}">
+  row.innerHTML=`<input type="text" class="io-amt" inputmode="text" placeholder="Qty (e.g. 1/300)" title="A number or a fraction like 1/300" value="${qtyToStr(amount)}">
     <select class="io-res" data-exclude="${excl}">${buildResOpts(resourceId,excl)}</select>
     <button class="bx" onclick="this.parentElement.remove()">✕</button>`;
   document.getElementById(listId).appendChild(row);
@@ -1639,7 +1669,7 @@ function addIO(listId,resourceId='',amount=''){
 
 function getIORows(listId){
   return[...document.querySelectorAll(`#${listId} .io-row`)].flatMap(row=>{
-    const amt=parseFloat(row.querySelector('input').value);
+    const amt=parseQty(row.querySelector('input').value);
     const rid=row.querySelector('select').value;
     return(rid&&!isNaN(amt)&&amt>0)?[{resourceId:rid,amount:amt}]:[];
   });
@@ -1992,8 +2022,8 @@ function saveResource(){
     const newRes={id:uid(),name,categoryId,researchTierId,isFluid,isPower,recipes:[],defaultRecipeId:null,hue:Math.round(resources.length*137.5+60)%360};
     if(rawCost!==undefined)newRes.rawCost=rawCost;
     const machId=document.getElementById('rf-mach').value;
-    const ct=parseFloat(document.getElementById('rf-time').value);
-    const outAmt=parseFloat(document.getElementById('rf-outamt').value)||1;
+    const ct=parseQty(document.getElementById('rf-time').value);
+    const outAmt=parseQty(document.getElementById('rf-outamt').value)||1;
     const inputs=getIORows('rf-inputs');
     const byproducts=getIORows('rf-byproducts');
     if(!isNaN(ct)&&ct>0){
@@ -2295,8 +2325,8 @@ function saveRecipe(){
   if(!selResId)return;
   const name    = document.getElementById('rec-name').value.trim();
   const machId  = document.getElementById('rec-mach').value;
-  const ct      = parseFloat(document.getElementById('rec-time').value);
-  const outAmt  = parseFloat(document.getElementById('rec-outamt').value)||1;
+  const ct      = parseQty(document.getElementById('rec-time').value);
+  const outAmt  = parseQty(document.getElementById('rec-outamt').value)||1;
   const inputs  = getIORows('rec-inputs');
   const byproducts = getIORows('rec-byproducts');
   if(isNaN(ct)||ct<=0)return setErr('rec-err','Cycle time must be > 0.');
@@ -2347,8 +2377,8 @@ function editRecipe(recId, resId){
   editRecId=recId;
   document.getElementById('rec-name').value=rec.name||'';
   document.getElementById('rec-mach').value=rec.machineId||'';
-  document.getElementById('rec-time').value=rec.cycleTime;
-  document.getElementById('rec-outamt').value=rec.outputAmount??1;
+  document.getElementById('rec-time').value=qtyToStr(rec.cycleTime);
+  document.getElementById('rec-outamt').value=qtyToStr(rec.outputAmount??1);
   document.getElementById('rec-inputs').innerHTML='';
   rec.inputs.forEach(i=>addIO('rec-inputs',i.resourceId,i.amount));
   if(!rec.inputs.length)addIO('rec-inputs');
@@ -2384,14 +2414,14 @@ function renderRecipesForResource(resId){
   const routes=(byproducerIndex()[resId]||[]);
   const routesHtml=routes.map(x=>{
     const m=x.rec.machineId?machines.find(mm=>mm.id===x.rec.machineId):null;
-    const inBadges=x.rec.inputs.map(i=>`<span class="badge bi">${i.amount}× ${esc(rname(i.resourceId))}</span>`).join('');
+    const inBadges=x.rec.inputs.map(i=>`<span class="badge bi">${qtyToStr(i.amount)}× ${esc(rname(i.resourceId))}</span>`).join('');
     return`<div class="litem" style="opacity:.88;border-style:dashed">
       <div class="lh"><div>
         <span class="ln">↩ ${esc(x.rec.name)}</span>
         <span class="badge bp" style="margin-left:6px">byproduct route</span>
         ${m?`<span class="badge bm" style="margin-left:4px">${esc(m.name)}</span>`:''}
       </div></div>
-      <div style="margin-top:6px">${inBadges}${inBadges?'<span style="color:#333;margin:0 4px">→</span>':''}<span class="badge bp">+${x.amount}× ${esc(res.name)}</span><span class="badge bo">${x.rec.outputAmount??1}× ${esc(x.res.name)}</span></div>
+      <div style="margin-top:6px">${inBadges}${inBadges?'<span style="color:#333;margin:0 4px">→</span>':''}<span class="badge bp">+${qtyToStr(x.amount)}× ${esc(res.name)}</span><span class="badge bo">${qtyToStr(x.rec.outputAmount??1)}× ${esc(x.res.name)}</span></div>
       <div class="ls">${x.rec.cycleTime}s cycle · recipe and toggle live on ${esc(x.res.name)}</div>
     </div>`;
   }).join('');
@@ -2403,9 +2433,9 @@ function renderRecipesForResource(resId){
   el.innerHTML=res.recipes.map(rec=>{
     const m=rec.machineId?machines.find(m=>m.id===rec.machineId):null;
     const isDef=rec.id===res.defaultRecipeId;
-    const inBadges=rec.inputs.map(i=>`<span class="badge bi">${i.amount}× ${esc(rname(i.resourceId))}</span>`).join('');
-    const outBadge=`<span class="badge bo">${rec.outputAmount??1}× ${esc(res.name)}</span>`;
-    const byBadges=(rec.byproducts||[]).map(b=>`<span class="badge bp" title="Byproduct">+${b.amount}× ${esc(rname(b.resourceId))}</span>`).join('');
+    const inBadges=rec.inputs.map(i=>`<span class="badge bi">${qtyToStr(i.amount)}× ${esc(rname(i.resourceId))}</span>`).join('');
+    const outBadge=`<span class="badge bo">${qtyToStr(rec.outputAmount??1)}× ${esc(res.name)}</span>`;
+    const byBadges=(rec.byproducts||[]).map(b=>`<span class="badge bp" title="Byproduct">+${qtyToStr(b.amount)}× ${esc(rname(b.resourceId))}</span>`).join('');
     return`<div class="litem" style="${isDef?'border-color:#2a5a2a;background:#151e15':''}">
       <div class="lh">
         <div>
@@ -3035,7 +3065,16 @@ function computeChain(targetResId, targetRatePerSec, inputSet=new Set(), useCeil
     nodes=[]; rawNeeds={}; byproductSupply={};
     for(const resId of order){
       const gross=demand[resId]??0;
-      const d=gross-(credit[resId]??0); // net demand after byproduct produced elsewhere
+      // A byproduct never credits the chain's OWN TARGET. If producing the
+      // target's ingredients happens to re-emit the target — Uranium Waste is
+      // byproduct-only, made by the Uranium plant's virtual route, which also
+      // re-emits Power; so making waste to feed a pinned Plutonium plant
+      // "produces" the very Power the plan is for — crediting it against the
+      // target demand cancels the target's primary chain, and because the
+      // producer sits downstream the fixpoint oscillates and collapses to zero
+      // nodes ("No recipe found"). Build the target for its full demand; any
+      // incidental self-production is reported as surplus below.
+      const d=(resId===targetResId)?gross:gross-(credit[resId]??0); // net demand after byproduct produced elsewhere
       if(d<=1e-12)continue;             // fully covered by byproduct (or unused)
       if(inputSet.has(resId)||freeSet.has(resId)){rawNeeds[resId]=(rawNeeds[resId]??0)+d;continue;}
       const rec=choice[resId];
@@ -3087,9 +3126,11 @@ function computeChain(targetResId, targetRatePerSec, inputSet=new Set(), useCeil
     if(stable){converged=true;break;}
   }
   // Byproduct produced beyond what the chain itself consumes — the true surplus.
+  // The target is never credited (see above), so its primary chain already
+  // covers the full demand and ALL of any re-emitted target is surplus.
   const byproductSurplus={};
   Object.keys(byproductSupply).forEach(k=>{
-    const s=(byproductSupply[k]??0)-(grossDemand[k]??0);
+    const s=(k===targetResId)?(byproductSupply[k]??0):(byproductSupply[k]??0)-(grossDemand[k]??0);
     if(s>1e-9)byproductSurplus[k]=s;
   });
   return{nodes,rawNeeds,byproductSurplus,converged};
