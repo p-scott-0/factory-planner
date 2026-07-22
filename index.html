@@ -670,7 +670,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.24';
+const APP_VERSION = '1.0.25';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -4066,7 +4066,13 @@ function copyShareLink(){
   savePlannerQuery();
   const pl=activePlan(), prof=activeProfile();
   if(!pl?.q)return alert('Nothing to share yet — set up a plan first.');
-  const url=location.origin+location.pathname+'#plan='+b64u.enc(JSON.stringify({s:prof.sample||null,n:prof.name,q:pl.q}));
+  // Carry the profile's disabled-recipe set with the plan. The plan's auto-
+  // chosen chain — and its pins, which silently fall back to auto when their
+  // recipe is disabled — depend on WHICH alternates are enabled, so a plan
+  // isn't reproducible without them. Only the OFF ids travel (everything else
+  // is enabled), so the payload stays small.
+  const off=Object.keys(recToggles).filter(k=>recToggles[k]===false);
+  const url=location.origin+location.pathname+'#plan='+b64u.enc(JSON.stringify({s:prof.sample||null,n:prof.name,q:pl.q,t:off}));
   const done=()=>alert('Share link copied to clipboard.\n\nAnyone with the same profile (e.g. the bundled sample) can open it to see this exact plan.');
   if(navigator.clipboard?.writeText)navigator.clipboard.writeText(url).then(done,()=>prompt('Copy this link:',url));
   else prompt('Copy this link:',url);
@@ -4106,7 +4112,21 @@ function tryLoadSharedPlan(){
   try{ payload=JSON.parse(b64u.dec(m[1])); }catch{ alert('Could not read that shared-plan link.'); return false; }
   const q=sanitizeSharedQuery(payload?.q);
   if(!q)return false;
+  // Untrusted: the disabled-recipe ids the plan was built with. Applied to the
+  // profile so the plan reproduces with the same alternates enabled/disabled;
+  // absent on older links (then toggles are left as-is).
+  const sharedOff=Array.isArray(payload?.t)
+    ? payload.t.filter(id=>typeof id==='string'&&/^[A-Za-z0-9_-]+$/.test(id)).slice(0,800)
+    : null;
   const apply=()=>{
+    if(sharedOff){
+      const next={}; sharedOff.forEach(id=>{next[id]=false;});
+      const keys=new Set([...Object.keys(recToggles),...Object.keys(next)]);
+      let changed=0; keys.forEach(k=>{ if((recToggles[k]===false)!==(next[k]===false))changed++; });
+      recToggles=next; // saveState() below persists it onto the active profile
+      if(changed){renderPlannerControls();
+        setTimeout(()=>alert(`This plan enabled/disabled ${changed} alternate recipe${changed>1?'s':''} so it matches the setup it was built on — see Recipe Toggles to review.`),60);}
+    }
     let nm='Shared plan',k=2;
     while(plans.some(x=>x.name===nm))nm=`Shared plan (${k++})`;
     const pl={id:uid(),name:nm,q};
