@@ -670,7 +670,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.22';
+const APP_VERSION = '1.0.23';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -3615,6 +3615,22 @@ function optimizeFromInputsMix(primaryResId, inputMap, secondaryTargets, greedy)
   };
   const base=primaryOf(greedy);
   if(!isFinite(base))return null; // greedy failed — nothing to climb from
+  // EFFICIENCY FLOOR. "Achievable" treats EXTRAS (ingredients beyond the
+  // supplied inputs — reported as "you'll also need these") as free, so a
+  // naive max-achievable climb inflates the target by importing a bulk
+  // external feedstock: pinning base Turbofuel pulls in ~3200/min Compacted
+  // Coal and turns "506,667 MW from 2400 crude" into "…from 2400 crude AND
+  // 3200 coal", which is not the question. Anchor the climb to greedy's
+  // output-per-external-unit: a candidate may raise achievable only if its
+  // external footprint stays PROPORTIONAL to the gain (genuine gains — feed a
+  // fixed target from the primary's own surplus, freeing supply — grow
+  // externals in step with output and pass; import-inflation balloons them and
+  // is rejected). Footprint is raw-cost-weighted so cheap auxiliaries (Water)
+  // barely count. Anchored to GREEDY, not the incumbent, so it can't drift.
+  const resCost=id=>{const r=resources.find(x=>x.id===id);return (r&&r.rawCost)||1;};
+  const extCost=rs=>{let c=0;(rs||[]).forEach(r=>{if(r&&r.extras)for(const id in r.extras)c+=(r.extras[id].rate||0)*resCost(id);});return c;};
+  const baseExt=extCost(greedy);
+  const EXT_SLACK=1.05; // 5% headroom for rounding + slightly-super-proportional aux
   // The plan's ECONOMY: every resource the greedy plan already touches
   // (stages, their inputs/byproducts, raw draws, reported extras) plus
   // everything producible purely from the supplied inputs. A candidate mix
@@ -3692,8 +3708,12 @@ function optimizeFromInputsMix(primaryResId, inputMap, secondaryTargets, greedy)
           try{rs=computeFromInputsResultsGreedy(primaryResId,inputMap,secondaryTargets);}
           catch(e){continue;}
           const s=valid(rs)?primaryOf(rs):-Infinity;
-          // Strictly better only (relative tolerance) — a tie keeps greedy.
-          if(s>bestScore*(1+1e-9)+1e-12&&(!roundBest||s>roundBest.s)){
+          // Strictly better only (relative tolerance) — a tie keeps greedy —
+          // AND the gain must not be bought by leaning harder on free extras:
+          // the candidate's external footprint stays within greedy's, scaled
+          // by how much more target it makes.
+          const extOk=extCost(rs)<=baseExt*(s/base)*EXT_SLACK+1e-9;
+          if(s>bestScore*(1+1e-9)+1e-12&&extOk&&(!roundBest||s>roundBest.s)){
             roundBest={resId:c.id,rec,s,rs};
           }
         }
