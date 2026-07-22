@@ -656,6 +656,9 @@ let plannerPins   = {};   // resId → recipeId: force this recipe for this plan
 let plannerClocks = {};   // recipeId → clock fraction (1 = 100%); scales rate, power via powerExponent
 let plannerGroupClocks={};// machineId → clock fraction applied to ALL that machine's stages (stage clock overrides)
 let plannerObjective='optimal'; // from-inputs recipe choice: 'optimal' (max target from the supplied inputs) | 'cheap' (min raw cost)
+let plannerAutoPins={};   // resId → recipeId: TRANSIENT overrides set by the route-mix optimizer
+                          // while it evaluates candidate recipe mixes. A user pin always wins over
+                          // these; never persisted, always {} outside an optimizer evaluation.
 // ── Profile-level usage settings ──
 let rawCaps       = {};   // resId → available supply (per second) — planner warns when a plan exceeds it
 let powerExponent = 1;    // machine power scales with clock^exponent (Satisfactory ≈ 1.321928)
@@ -667,7 +670,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.21';
+const APP_VERSION = '1.0.22';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -1496,6 +1499,17 @@ function recipeAvailable(rec){
   if(recToggles[rec.id]===false)return false;
   if(rec.machineId){const m=machines.find(m=>m.id===rec.machineId);if(m&&!machUnlocked(m))return false;}
   return true;
+}
+// Spoiler guard for recipe LISTS: a recipe is only shown when everything it
+// touches is inside the unlocked tiers — its machine, its inputs, and its
+// byproducts. The engine already prices locked-tier chains at Infinity, so a
+// hidden recipe was never usable anyway; showing "Iron Ore (Limestone)" (a
+// Tier 9 Converter route) on the Tier-0 Iron Ore row both teased inaccessible
+// content and leaked late-game resource names.
+function recipeTierVisible(rec){
+  if(rec.machineId){const m=machines.find(m=>m.id===rec.machineId);if(m&&!machUnlocked(m))return false;}
+  const resOk=id=>{const r=resources.find(x=>x.id===id);return !r||resUnlocked(r);};
+  return (rec.inputs||[]).every(i=>resOk(i.resourceId))&&(rec.byproducts||[]).every(b=>resOk(b.resourceId));
 }
 function researchTierOpts(sel){
   return '<option value="">— always —</option>'+researchTiers.map(t=>`<option value="${t.id}"${t.id===sel?' selected':''}>${esc(t.name)}</option>`).join('');
@@ -2543,8 +2557,14 @@ function renderPlannerControls(){
   const vidx=byproducerIndex();
   // A resource belongs here when there's a real choice to make: several of its
   // own recipes, or at least one own recipe plus byproduct routes to pin.
-  const multiRecRes=resources.filter(r=>resUnlocked(r)&&
-    (r.recipes.length>1||(r.recipes.length+((vidx[r.id]||[]).length))>1&&r.recipes.length>0));
+  // Only tier-visible recipes count (and render below) — a Tier-9 Converter
+  // route on the Iron Ore row is inaccessible AND a spoiler at Tier 5.
+  const visOf=new Map(resources.map(r=>[r.id,r.recipes.filter(recipeTierVisible)]));
+  const multiRecRes=resources.filter(r=>{
+    if(!resUnlocked(r))return false;
+    const v=visOf.get(r.id);
+    return v.length>1||(v.length+((vidx[r.id]||[]).length))>1&&v.length>0;
+  });
   if(!multiRecRes.length){recCard.style.display='none';}
   else {
     recCard.style.display='';
@@ -2553,7 +2573,7 @@ function renderPlannerControls(){
     // Rows are grouped under their resource's category, each group collapsed by
     // default — 65 alternates were swallowing the page as one flat list.
     const rowFor=r=>{
-      const boxes=r.recipes.map(rec=>{
+      const boxes=visOf.get(r.id).map(rec=>{
         const on=recToggles[rec.id]!==false;
         const isDef=rec.id===r.defaultRecipeId;
         return`<label style="display:inline-flex;align-items:center;gap:5px;margin:2px 12px 2px 0;font-size:12px;cursor:pointer;color:${on?'var(--tx)':'var(--dim)'}">
@@ -2566,7 +2586,7 @@ function renderPlannerControls(){
       // select correctly shows "auto" (which is what the engine does).
       // Byproduct routes (make this via another recipe's byproduct) are
       // pinnable alternatives too.
-      const pinOpts='<option value="">auto</option>'+r.recipes.filter(recipeAvailable).map(rec=>
+      const pinOpts='<option value="">auto</option>'+visOf.get(r.id).filter(recipeAvailable).map(rec=>
         `<option value="${rec.id}"${pinned===rec.id?' selected':''}>📌 ${esc(rec.name)}</option>`).join('')
         +virtualRoutesFor(r.id,vidx).map(v=>
         `<option value="${v.id}"${pinned===v.id?' selected':''}>↩ via ${esc(rname(v.baseResId))} (byproduct)</option>`).join('');
@@ -2587,7 +2607,7 @@ function renderPlannerControls(){
     if(uncat.length)groups.push({id:'__uncat',name:'Other',items:uncat});
     recRows.innerHTML=groups.map(g=>{
       const open=!!recGroupOpen[g.id];
-      const offCt=g.items.reduce((s,r)=>s+r.recipes.filter(rec=>recToggles[rec.id]===false).length,0);
+      const offCt=g.items.reduce((s,r)=>s+visOf.get(r.id).filter(rec=>recToggles[rec.id]===false).length,0);
       const pinCt=g.items.filter(r=>plannerPins[r.id]).length;
       return`<div class="rec-group" data-gid="${g.id}">
         <div class="cat-hdr" onclick="toggleRecGroup('${g.id}')">
@@ -2598,8 +2618,8 @@ function renderPlannerControls(){
         <div class="cat-body" id="rgbody-${g.id}" style="${open?'':'display:none'}">${g.items.map(rowFor).join('')}</div>
       </div>`;
     }).join('');
-    const totalRecipes=multiRecRes.reduce((s,r)=>s+r.recipes.length,0);
-    const totalOff=multiRecRes.reduce((s,r)=>s+r.recipes.filter(rec=>recToggles[rec.id]===false).length,0);
+    const totalRecipes=multiRecRes.reduce((s,r)=>s+visOf.get(r.id).length,0);
+    const totalOff=multiRecRes.reduce((s,r)=>s+visOf.get(r.id).filter(rec=>recToggles[rec.id]===false).length,0);
     const totalPins=Object.keys(plannerPins).filter(id=>multiRecRes.some(r=>r.id===id)).length;
     const sum=document.getElementById('pl-rec-summary');
     if(sum)sum.textContent=`— ${totalRecipes} recipes · ${totalOff} off${totalPins?` · ${totalPins} pinned`:''} · cheapest enabled chain wins, ★ = default on ties`;
@@ -2946,7 +2966,9 @@ function planRecipes(inputSet,freeSet=new Set()){
     // different recipes without flipping global toggles back and forth. A pin
     // on a recipe that's disabled or locked falls back to auto silently.
     // (Byproduct routes are pinnable too — their ids are baseRecId@resId.)
-    const pin=plannerPins[id];
+    // The route-mix optimizer's transient overrides act exactly like pins but
+    // sit BELOW a user pin — the optimizer never contests a user-pinned resource.
+    const pin=plannerPins[id]??plannerAutoPins[id];
     if(pin){const pr=recs.find(x=>x.id===pin);if(pr)recs=[pr];}
     if(!recs.length)return memo[id]=rawCostOf(res); // no production route at all — external raw input
     if(stack.has(id)){cycleHits++;return Infinity;} // cycle guard (never memoised)
@@ -3177,7 +3199,12 @@ function computeFromInputsOnce(targetResId, inputMap){
   let searchPin=null;
   if(plannerObjective!=='cheap'&&!(isFinite(probe.achievable)&&probe.achievable>0)&&!probe.infeasible&&!probe.noRecipe){
     const tres=resources.find(r=>r.id===targetResId);
-    if(tres&&!plannerPins[targetResId]){
+    // An optimizer override counts like a user pin here: the forced recipe
+    // must stand or fall on its own (error honestly if it can't consume the
+    // supply) instead of being silently swapped by this search — otherwise
+    // every non-consuming override becomes a back door to the same searched
+    // result and the optimizer's report lies about the recipe in use.
+    if(tres&&!plannerPins[targetResId]&&!plannerAutoPins[targetResId]){
       let best=null;
       for(const rec of tres.recipes.filter(recipeAvailable)){
         plannerPins[targetResId]=rec.id;
@@ -3452,7 +3479,7 @@ function runMultiTargetPlan(targets, resEl){
 // derived from `inputMap` (user-supplied inputs) instead of a fixed rate —
 // the one place the two modes differ. Everything after it (secondaryTargets)
 // is planned exactly like Target mode's targets[1+], via the shared pool.
-function computeFromInputsResults(primaryResId, inputMap, secondaryTargets){
+function computeFromInputsResultsGreedy(primaryResId, inputMap, secondaryTargets){
   // FIXED-amount secondary targets carve their consumption out of the supplied
   // budget FIRST, and the primary is planned from what remains — the amount
   // field is the priority dial ("600/min Plastic, Power gets the rest of the
@@ -3557,6 +3584,145 @@ function computeFromInputsResults(primaryResId, inputMap, secondaryTargets){
   }
   return results;
 }
+
+// ── Global route-mix optimization ──────────────────────────────────────────
+// planRecipes picks ONE recipe per resource by local cost ranking, and the
+// surplus fixpoint above settles wherever that greedy choice leads. With a
+// large recipe set, competing routes can contest the same feedstock and the
+// greedy pick lands at a worse EQUILIBRIUM — e.g. crude split between Power
+// (primary) and a fixed Plastic target: greedy lets the Plastic chain buy
+// crude even when feeding it from the Power chain's Polymer Resin surplus
+// (Residual Plastic) would leave far more crude — and far more MW — for the
+// primary. No per-resource cost ranking can see that; it's a property of the
+// whole mix.
+//
+// After the greedy plan lands, run a bounded search over recipe choices for
+// the CONTESTED resources (produced in the plan, more than one available
+// route, no user pin): a deterministic hill-climb that forces one resource's
+// recipe at a time via plannerAutoPins — which flow through the exact same
+// planRecipes machinery as user pins, so pins, clocks, freeSet pricing and
+// budget carving behave identically — re-runs the full greedy computation as
+// the evaluation oracle, and accepts a change only when it STRICTLY raises
+// the primary target's achievable rate without breaking anything greedy had
+// working (no new target errors, no new budget shortfalls). Each accepted
+// override re-opens the search so improvements can stack, bounded by round
+// and evaluation caps. If nothing improves, the greedy plan is returned
+// untouched — greedy stays the fallback, and ties never churn the result.
+function optimizeFromInputsMix(primaryResId, inputMap, secondaryTargets, greedy){
+  const primaryOf=rs=>{
+    const p=rs&&rs[0];
+    return(p&&!p.error&&isFinite(p.achievable)&&p.achievable>0)?p.achievable:-Infinity;
+  };
+  const base=primaryOf(greedy);
+  if(!isFinite(base))return null; // greedy failed — nothing to climb from
+  // The plan's ECONOMY: every resource the greedy plan already touches
+  // (stages, their inputs/byproducts, raw draws, reported extras) plus
+  // everything producible purely from the supplied inputs. A candidate mix
+  // must stay inside it: extras exist to fill in auxiliary ingredients the
+  // chain needs alongside the supply, not to become the backbone — without
+  // this guard the climb happily "improves" 2400 crude/min of oil power into
+  // hundreds of Ficsonium plants fed by phantom dark-matter externals,
+  // because a chain that consumes one sliver of crude and imports everything
+  // else scores near-infinite achievable. Anchored to the GREEDY economy
+  // deliberately, so stacked overrides can't drift it outward round by round.
+  const economy=new Set(Object.keys(inputMap));
+  greedy.forEach(r=>{
+    (r.nodes||[]).forEach(n=>{
+      economy.add(n.resId);
+      n.rec.inputs.forEach(i=>economy.add(i.resourceId));
+      (n.rec.byproducts||[]).forEach(b=>economy.add(b.resourceId));
+    });
+    Object.keys(r.rawNeeds||{}).forEach(k=>economy.add(k));
+    Object.keys(r.extras||{}).forEach(k=>economy.add(k));
+  });
+  const reach=reachableFromInputs(new Set(Object.keys(inputMap)));
+  const inEconomy=id=>economy.has(id)||reach(id);
+  const valid=rs=>{
+    if(!rs||rs.length!==greedy.length)return false;
+    for(let i=0;i<rs.length;i++){
+      if(i>0&&rs[i].error&&!greedy[i].error)return false;
+      if(i>0&&rs[i].budgetNote&&!greedy[i].budgetNote)return false;
+      for(const id of Object.keys(rs[i].extras||{}))if(!inEconomy(id))return false;
+      for(const id of Object.keys(rs[i].rawNeeds||{}))if(!inEconomy(id))return false;
+    }
+    return true;
+  };
+  // Fixed secondary targets first — their recipe choice steers the budget
+  // carve, the canonical source of bad equilibria — then the primary, then
+  // the rest in stable order.
+  const inPlan=new Set();
+  greedy.forEach(r=>(r.nodes||[]).forEach(n=>inPlan.add(n.resId)));
+  secondaryTargets.forEach(t=>inPlan.add(t.resId));
+  inPlan.add(primaryResId);
+  Object.keys(inputMap).forEach(id=>inPlan.delete(id)); // supplied, never produced
+  const vidx=byproducerIndex();
+  const rank=id=>secondaryTargets.some(t=>t.resId===id&&t.rate!=null)?0:(id===primaryResId?1:2);
+  const contested=[...inPlan].map(id=>{
+    if(plannerPins[id])return null; // a user pin is never contested
+    const res=resources.find(r=>r.id===id);
+    if(!res||!resUnlocked(res))return null;
+    const recs=(res.recipes||[]).filter(recipeAvailable).concat(virtualRoutesFor(id,vidx))
+      // Cheap prefilter: a candidate whose own ingredients already sit outside
+      // the economy can only be rejected by the guard above — skip the eval.
+      .filter(rec=>rec.inputs.every(i=>inEconomy(i.resourceId)));
+    return recs.length>1?{id,recs:recs.map(r=>({id:r.id,name:r.name}))}:null;
+  }).filter(Boolean).sort((a,b)=>(rank(a.id)-rank(b.id))||(a.id<b.id?-1:1));
+  if(!contested.length)return null;
+
+  const EVAL_CAP=120, ROUND_CAP=4;
+  let evals=0, bestScore=base, incumbent=greedy, accepted=false;
+  const current={}; // accepted overrides so far
+  try{
+    for(let round=0;round<ROUND_CAP&&evals<EVAL_CAP;round++){
+      // Recipes the incumbent plan actually uses — forcing a resource to the
+      // one recipe it already uses everywhere can only reproduce the plan
+      // (a pin never lowers that recipe's cost in any context), so skip it.
+      const used={};
+      incumbent.forEach(r=>(r.nodes||[]).forEach(n=>{(used[n.resId]=used[n.resId]||new Set()).add(n.rec.id);}));
+      let roundBest=null;
+      for(const c of contested){
+        for(const rec of c.recs){
+          if(current[c.id]===rec.id)continue;
+          const u=used[c.id];
+          if(!current[c.id]&&u&&u.size===1&&u.has(rec.id))continue;
+          if(evals>=EVAL_CAP)break;
+          evals++;
+          plannerAutoPins={...current,[c.id]:rec.id};
+          let rs;
+          try{rs=computeFromInputsResultsGreedy(primaryResId,inputMap,secondaryTargets);}
+          catch(e){continue;}
+          const s=valid(rs)?primaryOf(rs):-Infinity;
+          // Strictly better only (relative tolerance) — a tie keeps greedy.
+          if(s>bestScore*(1+1e-9)+1e-12&&(!roundBest||s>roundBest.s)){
+            roundBest={resId:c.id,rec,s,rs};
+          }
+        }
+      }
+      if(!roundBest)break;
+      current[roundBest.resId]=roundBest.rec.id;
+      bestScore=roundBest.s; incumbent=roundBest.rs; accepted=true;
+    }
+  } finally { plannerAutoPins={}; }
+  if(!accepted)return null;
+  incumbent[0].autoMix={gain:bestScore-base,
+    mix:Object.entries(current).map(([id,recId])=>{
+      const c=contested.find(x=>x.id===id);
+      return{resId:id,recName:(c&&c.recs.find(r=>r.id===recId)||{}).name};
+    })};
+  return incumbent;
+}
+
+// From-Inputs entry point: greedy first, then the route-mix optimizer on top.
+// Skipped under the 'cheap' objective (which asks for the cheapest chain, not
+// the most target); any optimizer failure falls back to the greedy plan.
+function computeFromInputsResults(primaryResId, inputMap, secondaryTargets){
+  plannerAutoPins={}; // never inherit stale overrides
+  const greedy=computeFromInputsResultsGreedy(primaryResId,inputMap,secondaryTargets);
+  if(plannerObjective==='cheap')return greedy;
+  try{
+    return optimizeFromInputsMix(primaryResId,inputMap,secondaryTargets,greedy)||greedy;
+  }catch(e){ plannerAutoPins={}; return greedy; }
+}
 function runFromInputsPlan(primaryResId, inputMap, secondaryTargets, resEl){
   const results=computeFromInputsResults(primaryResId,inputMap,secondaryTargets);
   const allTargets=[{resId:primaryResId},...secondaryTargets];
@@ -3639,6 +3805,9 @@ function renderMultiTargetResults(targets, results, el){
       const bName=bList.length?bList.map(id=>esc(rname(id))).join(', '):'?';
       const bLabel=bList.length>1?'Bottlenecks (each fully consumed)':'Bottleneck';
       top+=`<div class="ach-banner">${bLabel}: <strong>${bName}</strong> · achievable: <strong>${rateStr(t.resId,r.achievable,3)}</strong></div>`;
+      if(r.autoMix&&r.autoMix.mix.length){
+        top+=`<div class="ach-banner">⚡ Route optimizer: <strong>+${rateStr(t.resId,r.autoMix.gain,2)}</strong> over the per-resource greedy pick — mix adjusted: ${r.autoMix.mix.map(m=>`<strong>${esc(rname(m.resId))}</strong> via ${esc(m.recName||'?')}`).join(', ')}</div>`;
+      }
       const extraEntries=Object.entries(r.extras||{});
       if(extraEntries.length){
         const rows=extraEntries.map(([id,ex])=>{
