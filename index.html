@@ -136,6 +136,12 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
 .cat-body{padding-left:8px;padding-bottom:4px}
 .cat-add{display:flex;gap:6px;align-items:center;margin-top:3px}
 .cat-add input{flex:1;min-width:0}
+/* Flow-diagram build tracker: click a machine to tick it "built" */
+.fnode{cursor:pointer}
+.fnode .fncheck{display:none}
+.fnode.built .fnbody{opacity:.28}
+.fnode.built .fncheck{display:inline}
+.fnode:not(.built):hover .fnbody{opacity:.82}
 /* Profiles */
 .prof-wrap{display:flex;align-items:center;gap:6px;margin-left:auto;padding:4px 0;flex-shrink:0}
 .prof-sel{width:auto;min-width:100px;max-width:180px;background:var(--bg);font-size:12px;padding:4px 7px;border-radius:5px;border:1px solid var(--b2);color:var(--tx)}
@@ -659,6 +665,8 @@ let plannerObjective='optimal'; // from-inputs recipe choice: 'optimal' (max tar
 let plannerAutoPins={};   // resId → recipeId: TRANSIENT overrides set by the route-mix optimizer
                           // while it evaluates candidate recipe mixes. A user pin always wins over
                           // these; never persisted, always {} outside an optimizer evaluation.
+let plannerBuilt=new Set();// recipeIds the user has ticked "built" in the flow diagram — purely a
+                          // visual progress tracker (greys the node), no effect on any computation.
 // ── Profile-level usage settings ──
 let rawCaps       = {};   // resId → available supply (per second) — planner warns when a plan exceeds it
 let powerExponent = 1;    // machine power scales with clock^exponent (Satisfactory ≈ 1.321928)
@@ -670,7 +678,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.25';
+const APP_VERSION = '1.0.26';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -2759,13 +2767,15 @@ function savePlannerQuery(){
     pins:{...plannerPins},
     clocks:{...plannerClocks},
     groupClocks:{...plannerGroupClocks},
-    objective:plannerObjective
+    objective:plannerObjective,
+    built:[...plannerBuilt]
   };
 }
 // Returns true when the restored query is complete enough to auto-run
 function restorePlannerQuery(){
   const q=activePlan()?.q;
   plannerPins={}; plannerClocks={}; plannerGroupClocks={};
+  plannerBuilt=new Set(Array.isArray(q?.built)?q.built.filter(x=>typeof x==='string'):[]);
   plannerObjective=q?.objective==='cheap'?'cheap':'optimal';
   const objSel=document.getElementById('pl-inp-obj');
   if(objSel)objSel.value=plannerObjective;
@@ -2836,7 +2846,7 @@ function clearPlanner(){
   ensureTrailingBlankTargetRow('pl-inp-tgt-rows');
   document.getElementById('pl-results').innerHTML='';
   lastPlan=null;
-  plannerPins={}; plannerClocks={}; plannerGroupClocks={}; // all per-plan state clears with the plan
+  plannerPins={}; plannerClocks={}; plannerGroupClocks={}; plannerBuilt=new Set(); // all per-plan state clears with the plan
   renderPlannerControls();
   savePlannerQuery(); saveState();
 }
@@ -4072,7 +4082,9 @@ function copyShareLink(){
   // isn't reproducible without them. Only the OFF ids travel (everything else
   // is enabled), so the payload stays small.
   const off=Object.keys(recToggles).filter(k=>recToggles[k]===false);
-  const url=location.origin+location.pathname+'#plan='+b64u.enc(JSON.stringify({s:prof.sample||null,n:prof.name,q:pl.q,t:off}));
+  // Build-progress ticks are personal — don't ship them in a shared plan.
+  const {built,...shareQ}=pl.q;
+  const url=location.origin+location.pathname+'#plan='+b64u.enc(JSON.stringify({s:prof.sample||null,n:prof.name,q:shareQ,t:off}));
   const done=()=>alert('Share link copied to clipboard.\n\nAnyone with the same profile (e.g. the bundled sample) can open it to see this exact plan.');
   if(navigator.clipboard?.writeText)navigator.clipboard.writeText(url).then(done,()=>prompt('Copy this link:',url));
   else prompt('Copy this link:',url);
@@ -4150,6 +4162,22 @@ function tryLoadSharedPlan(){
   return false;
 }
 
+// Purely-visual build tracker: clicking a machine in the flow diagram ticks it
+// "built" (greys the node + shows a ✓), so you can track what you've placed in
+// game. It touches nothing the planner computes — just a set of recipe ids
+// saved with the plan. Toggled live on the clicked node (no re-render, so the
+// scroll/zoom position is kept).
+function toggleBuilt(recId,ev){
+  if(ev)ev.stopPropagation();
+  if(plannerBuilt.has(recId))plannerBuilt.delete(recId); else plannerBuilt.add(recId);
+  const on=plannerBuilt.has(recId);
+  document.querySelectorAll('#pl-results .fnode').forEach(g=>{
+    if(g.getAttribute('data-rec')===recId)g.classList.toggle('built',on);
+  });
+  const pl=activePlan(); if(pl&&pl.q)pl.q.built=[...plannerBuilt];
+  saveState();
+}
+
 // ── Per-stage overclock / per-resource pin / raw caps (results controls) ──
 function setStageClock(recId,pct,machId){
   const n=parseFloat(pct);
@@ -4188,7 +4216,9 @@ function _planSvgClone(){
   const clone=svg.cloneNode(true);
   clone.querySelector('.belt-marker')?.remove(); // hover artifact, not part of the plan
   clone.setAttribute('xmlns','http://www.w3.org/2000/svg');
-  clone.insertAdjacentHTML('afterbegin',`<rect x="0" y="0" width="${svg.getAttribute('width')}" height="${svg.getAttribute('height')}" fill="#1f2225"/>`);
+  // The build-tracker styling lives in the page stylesheet; a standalone SVG
+  // needs it inline, else every node's ✓ badge (default display:none) shows.
+  clone.insertAdjacentHTML('afterbegin',`<style>.fnode .fncheck{display:none}.fnode.built .fnbody{opacity:.28}.fnode.built .fncheck{display:inline}</style><rect x="0" y="0" width="${svg.getAttribute('width')}" height="${svg.getAttribute('height')}" fill="#1f2225"/>`);
   return {clone,w:+svg.getAttribute('width'),h:+svg.getAttribute('height')};
 }
 function exportPlanSVG(){
@@ -5599,14 +5629,20 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
       ?`<rect x="${p.x+1}" y="${p.y+NH-12}" width="${Math.round((NW-2)*eff)}" height="10" rx="0 0 6 6" fill="#c0702040"/>
         <text x="${p.x+NW/2}" y="${p.y+NH-3}" text-anchor="middle" font-size="8" fill="#c07030">${(eff*100).toFixed(0)}%</text>`
       :'';
-    boxes+=`<rect x="${p.x}" y="${p.y}" width="${NW}" height="${NH}" rx="7" fill="${bg}" stroke="${bord}" stroke-width="${isTgt?2:1.5}"/>
+    const built=plannerBuilt.has(n.rec.id);
+    // Whole node is one clickable group; .fnbody carries the visuals (dimmed
+    // when built via CSS), .fncheck is the ✓ badge (shown only when built).
+    boxes+=`<g class="fnode${built?' built':''}" data-rec="${n.rec.id}" onclick="toggleBuilt('${n.rec.id}',event)"><g class="fnbody">
+      <rect x="${p.x}" y="${p.y}" width="${NW}" height="${NH}" rx="7" fill="${bg}" stroke="${bord}" stroke-width="${isTgt?2:1.5}"/>
       <text x="${p.x+NW/2}" y="${p.y+19}" text-anchor="middle" font-size="${mlFs.toFixed(1)}" font-weight="700" fill="${mCol}">${esc(machLine)}</text>
       <text x="${p.x+NW/2}" y="${p.y+33}" text-anchor="middle" font-size="10" fill="#5a7888">${esc(n.rec.name)}</text>
       <line x1="${p.x+10}" y1="${p.y+40}" x2="${p.x+NW-10}" y2="${p.y+40}" stroke="#1e3040" stroke-width="1"/>
       <text x="${p.x+NW/2}" y="${p.y+66}" text-anchor="middle" font-size="26" font-weight="900" fill="${cCol}">${count}</text>
       ${nodeMW>0?`<text x="${p.x+7}" y="${p.y+NH-(n.fromInputs&&!atCap?15:5)}" text-anchor="start" font-size="9" fill="#b8963a">⚡${fmt(nodeMW,0)} MW</text>`:''}
       <text x="${p.x+NW-7}" y="${p.y+NH-(n.fromInputs&&!atCap?15:5)}" text-anchor="end" font-size="9" fill="${resColor(n.resId,45,52)}">${rateStr(n.resId,actualRate,2)} ${esc(rname(n.resId))}</text>
-      ${effBand}`;
+      ${effBand}</g><g class="fncheck">
+      <circle cx="${p.x+NW-12}" cy="${p.y+12}" r="9" fill="#2f8a3e" stroke="#0e1a26" stroke-width="1.5"/>
+      <path d="M${p.x+NW-16},${p.y+12} l2.6,2.8 l5,-6.4" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></g></g>`;
   });
 
   // ── Secondary-band backdrop + label (rendered first, behind everything) so
