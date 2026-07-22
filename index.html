@@ -670,7 +670,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.23';
+const APP_VERSION = '1.0.24';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -5294,8 +5294,13 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
       });
       (byBoxesByRes[R]||[]).forEach(key=>{
         const box=posBy[key];
-        if(box.producer===consumer)return;
-        srcs.push({kind:'b',key,box,supply:box.rate});
+        // A node's OWN byproduct box feeding its OWN input is a self-recycle
+        // (Encased Uranium Cell returns 2 of its 8 Sulfuric Acid; Distilled
+        // Silica / Instant Scrap return Water) — a real edge, so the box
+        // isn't an orphan and the external feed nets down to what's actually
+        // imported (360, not the gross 480). Tagged so it draws as a compact
+        // loop instead of a full backward lane under the machine.
+        srcs.push({kind:'b',key,box,supply:box.rate,selfLoop:box.producer===consumer});
       });
       // The raw/supplied box is a source like any other: a resource can be
       // BOTH supplied externally AND byproduced in-chain (supply Water in
@@ -5323,7 +5328,7 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
             edgeList.push({fromKey:'b'+s.key,toKey:'n'+consumer.rec.id,
               fx:s.box.x+BW,fyBase:s.box.y,fH:BH,tx:cp.x,tyBase:cp.y,
               rate:r,resId:R,isByproduct:true,byKey:s.key,dstD,dstGroup,
-              srcGroup:s.box.producer.group||'main',
+              srcGroup:s.box.producer.group||'main',selfLoop:s.selfLoop,
               srcD:dc[s.box.producer.rec.id],srcIsBox:true,
               fromLabel:`${s.box.producer.rec.machineId?mname(s.box.producer.rec.machineId):'(no machine)'} (byproduct)`,
               toLabel,
@@ -5518,6 +5523,10 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
     const pp=posR[bp.producer.rec.id];
     if(!pp)return;
     const claimed=claimedByproducts.has(key);
+    // Self-recycle: this machine feeds part of its own byproduct back into its
+    // own input (Encased Uranium Cell returns 2 of 8 Sulfuric Acid) — the box
+    // reads as recycled, not consumed elsewhere or dumped as surplus.
+    const selfRecycle=(bp.producer.rec.inputs||[]).some(i=>i.resourceId===resId);
     const col=resColor(resId);
     const midY=bp.y+BH/2;
     // Connector: a short horizontal stub when the box hangs beside its
@@ -5530,10 +5539,11 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
     const connector=bp.dropToBand
       ? `M${pp.x+NW},${y0} C${xDrop},${y0} ${xDrop},${y0} ${xDrop},${y0+14} L${xDrop},${bp.y+BH/2} L${bp.x},${bp.y+BH/2}`
       : `M${pp.x+NW},${midY} L${bp.x},${midY}`;
-    const d=`data-res="${esc(rname(resId))}" data-rate="${esc(rateStr(resId,bp.rate,3))}" data-belt="" data-from="byproduct of ${esc(bp.producer.rec.name)}" data-to="${claimed?'used in this plan':'unused surplus'}" data-col="${col}"`;
+    const d=`data-res="${esc(rname(resId))}" data-rate="${esc(rateStr(resId,bp.rate,3))}" data-belt="" data-from="byproduct of ${esc(bp.producer.rec.name)}" data-to="${selfRecycle?'↻ recycled back into '+esc(bp.producer.rec.name):claimed?'used in this plan':'unused surplus'}" data-col="${col}"`;
     boxes+=`<g ${d}>
       <path d="${connector}" fill="none" stroke="${col}" stroke-width="1.3" stroke-dasharray="2 3" opacity="0.6"/>
       <rect x="${bp.x}" y="${bp.y}" width="${BW}" height="${BH}" rx="5" fill="#1a140e" stroke="${col}" stroke-width="1.3"${claimed?'':' stroke-dasharray="4 2"'}/>
+      ${selfRecycle?`<text x="${bp.x+BW-3}" y="${bp.y+10}" text-anchor="end" font-size="9" fill="${col}">↻</text>`:''}
       <text x="${bp.x+BW/2}" y="${bp.y+11}" text-anchor="middle" font-size="7.5" font-weight="700" fill="${col}" opacity="0.85">BYPRODUCT</text>
       <text x="${bp.x+BW/2}" y="${bp.y+23}" text-anchor="middle" font-size="8.5" fill="${col}">${esc(rname(resId))}</text>
       <text x="${bp.x+BW/2}" y="${bp.y+34}" text-anchor="middle" font-size="8" fill="${col}" opacity="0.75">${rateStr(resId,bp.rate,2)}</text>
