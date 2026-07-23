@@ -717,7 +717,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.34';
+const APP_VERSION = '1.0.35';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -5712,6 +5712,7 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
   // The gutter (secondary band) mirrors the same rules on absolute y.
   {
     const fwd=edgeList.filter(e=>e.isLong&&e.fx<=e.tx&&!e.selfLoop);
+    const back=edgeList.filter(e=>e.fx>e.tx&&!e.selfLoop); // return belts (source right of dest)
     const topP=fwd.filter(e=>e.dstGroup!=='secondary');
     const gutP=fwd.filter(e=>e.dstGroup==='secondary');
     topP.sort((a,b)=>((b.tx-b.fx)-(a.tx-a.fx))||(a.tyBase-b.tyBase)||String(a.resId).localeCompare(String(b.resId)));
@@ -5720,36 +5721,51 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
     gutP.sort((a,b)=>((a.tx-a.fx)-(b.tx-b.fx))||(b.tyBase-a.tyBase)||String(a.resId).localeCompare(String(b.resId)));
     gutP.forEach((e,i)=>{e.lane={y:secBandTop-14-i*LANE_STEP,i};});
     secLaneI=gutP.length;
-    const inG={}, outG={};
+    // ── Unified per-PHYSICAL-GAP vertical allocation ──
+    // A ramp out of column C shares one physical gap with a descent into column
+    // C-1, so allocating ramps by source column and descents by dest column
+    // independently lets them collide in the middle (a descent already sits
+    // lead-left of its column, out where ramps want to be). Pool ALL of a gap's
+    // verticals — highway ramps/descents, return-line hooks/rises, direct
+    // risers — and give each its own x: ramps/hooks pack TIGHTLY from the left
+    // edge, descents/rises pack tightly from the right, direct risers in the
+    // middle. Tight packing keeps each vertical near its own column, so the
+    // horizontal runs stay short (few crossings) while nothing stacks.
+    const gapV={};
+    const reg=(g,e,side,y)=>{ if(g>=0&&g<maxD)(gapV[g]=gapV[g]||[]).push({e,side,y}); };
+    const srcMid=e=>e.fyBase+e.fH/2;
     fwd.forEach(e=>{
-      (inG[e.dstGroup+'|'+e.dstD]=inG[e.dstGroup+'|'+e.dstD]||[]).push(e);
-      const sk=e.srcRaw?'raw':(e.srcGroup+'|'+e.srcD+(e.srcIsBox?'b':'n'));
-      (outG[sk]=outG[sk]||[]).push(e);
+      if(!e.srcRaw&&e.srcD!=null)reg(e.srcD-1,e,'L',e.lane?e.lane.y:e.fyBase);
+      reg(e.dstD,e,'R',e.lane?e.lane.y:e.tyBase);
     });
-    Object.values(inG).forEach(list=>{
-      list.sort((a,b)=>a.lane.y-b.lane.y); // topmost lane first → drops last
-      list.forEach((e,r)=>{
-        const inClear=(gapOf[e.dstD]??196)-(boxesRightOf[e.dstD+1]?BY_GAP+BW+10:0)-(LEADL[e.dstD]??46)-8;
-        const mx=Math.max(14,inClear/2);
-        const step=list.length>1?Math.max(4,Math.min(7,(mx-14)/(list.length-1))):0;
-        e.sInPlan=Math.min(14+r*step,mx);
-      });
+    back.forEach(e=>{
+      if(e.srcD!=null)reg(e.srcD-1,e,'L',e.fyBase);
+      reg(e.dstD,e,'R',e.tyBase);
     });
-    Object.values(outG).forEach(list=>{
-      // Ramp order is SIDE-AWARE. Climbing UP to a lane above the source: the
-      // higher lane must leave first (leftmost) or its horizontal cuts every
-      // later climb. Descending DOWN to a lane below (a main-band machine
-      // feeding the secondary gutter): it inverts — the LOWER (farther) lane
-      // leaves first. Ups sort before downs; a mixed pair can't cross.
-      const srcMid=e=>e.fyBase+e.fH/2;
-      const side=e=>e.lane.y<srcMid(e)?0:1; // 0 = lane above source (climb)
-      list.sort((a,b)=>(side(a)-side(b))||(side(a)===0?(a.lane.y-b.lane.y):(b.lane.y-a.lane.y)));
-      list.forEach((e,r)=>{
-        const oc=(e.srcIsBox?gapRight(e.srcD)-(BY_GAP+BW)-10:e.srcBeside?BY_GAP-10:e.srcRaw?118:gapRight(e.srcD)-10);
-        const mx=Math.max(14,oc/2);
-        const step=list.length>1?Math.max(5,Math.min(9,(mx-16)/(list.length-1))):0;
-        e.sOutPlan=Math.min(16+r*step,mx);
-      });
+    edgeList.filter(e=>!e.isLong&&e.fx<=e.tx&&!e.selfLoop&&Math.abs(e.fyBase-e.tyBase)>4)
+      .forEach(e=>reg(e.dstD,e,'M',(e.fyBase+e.tyBase)/2));
+    Object.keys(gapV).forEach(gk=>{
+      const g=+gk, list=gapV[g];
+      const leftEdge=colX(g+1)+NW, rightEdge=colX(g), lead=LEADL[g]??46;
+      const lo=leftEdge+16, hi=Math.max(lo+2,rightEdge-lead-8);
+      const Ls=list.filter(it=>it.side==='L').sort((a,b)=>a.y-b.y);
+      const Rs=list.filter(it=>it.side==='R').sort((a,b)=>a.y-b.y);
+      const Ms=list.filter(it=>it.side==='M').sort((a,b)=>a.y-b.y);
+      // Compact 12px spacing, compressed to fit everything in the gap (dividing
+      // by the total guarantees the left cluster ends before the right begins).
+      const n=Ls.length+Rs.length+Ms.length;
+      const sp=Math.min(12,(hi-lo)/Math.max(1,n));
+      const setX=(it,X)=>{
+        X=Math.max(lo,Math.min(hi,X));
+        if(it.side==='M')it.e.riserX=X;
+        else if(it.side==='L')it.e.sOutPlan=Math.max(12,X-it.e.fx);
+        else it.e.sInPlan=Math.max(8,rightEdge-lead-X);
+      };
+      Ls.forEach((it,i)=>setX(it,lo+i*sp));    // ramps/hooks pack from the left
+      Rs.forEach((it,i)=>setX(it,hi-i*sp));    // descents/rises pack from the right
+      // Direct risers sit in the clear span between the two clusters.
+      const midLo=lo+Ls.length*sp, midHi=hi-Rs.length*sp;
+      Ms.forEach((it,i)=>setX(it, Ms.length>1?midLo+(midHi-midLo)*(i+1)/(Ms.length+1):(midLo+midHi)/2));
     });
   }
 
@@ -5781,25 +5797,8 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
     list.sort((a,b)=>(cls(a)-cls(b))||(ky(a)-ky(b))||(a.fyBase-b.fyBase));
     list.forEach((e,i)=>{e.x2=e.tx;e.y2=e.tyBase+NH*(i+1)/(list.length+1);e.slots=list.length;});
   });
-  // Straight-belt riser allocation: DIRECT (adjacent-column) belts crossing the
-  // SAME gap would otherwise all rise at the gap's midpoint and stack on top of
-  // each other (curves splay apart on their own; vertical straight risers do
-  // not — the reported Iron/Sulfur→Refinery overlap). Give each its own x
-  // within the gap, ordered by destination height so belts nest and any
-  // crossing collapses to a single point. Only the risers move; the exit/entry
-  // rows and the label-avoiding lead-in are unchanged.
-  const gapGroups={};
-  edgeList.forEach(e=>{
-    if(e.isLong||e.selfLoop||e.x1>e.x2||Math.abs(e.y1-e.y2)<4)return; // needs a real riser
-    (gapGroups[Math.round(e.x1)+'|'+Math.round(e.x2)]=gapGroups[Math.round(e.x1)+'|'+Math.round(e.x2)]||[]).push(e);
-  });
-  Object.values(gapGroups).forEach(list=>{
-    if(list.length<2)return; // a lone belt keeps the default midpoint riser
-    list.sort((a,b)=>(a.y2-b.y2)||(a.y1-b.y1));
-    const x1=list[0].x1, x2=list[0].x2, lead=LEADL[list[0].dstD]??46;
-    const lo=x1+16, hi=x2-lead-6;
-    list.forEach((e,i)=>{ e.riserX=hi>lo?lo+(hi-lo)*(i+1)/(list.length+1):(x1+x2)/2; });
-  });
+  // (Direct-riser x-tracks are assigned by the unified per-gap allocation
+  // above, alongside every highway ramp/descent and return-line vertical.)
 
   // ── Edge renderer ──
   // Edges are colour-coded per RESOURCE (same material = same colour across the
@@ -5835,13 +5834,14 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
         :e.srcRaw?118
         :gapRight(e.srcD)-10);
       if(backward){
-        const s=Math.min(30+((backIntervals.length)%4)*8,Math.max(14,outClear));
-        // The rise into the machine gets the same dynamic lead-in as forward
-        // descents: finish the climb LEFT of the column's widest rate pill,
-        // then run straight in — return belts were climbing straight through
-        // the labels of the entries above their slot.
+        // Source hook and dest rise use the PLANNED per-gap staggers (ranked
+        // with forward ramps/descents above), so a return line never stacks on
+        // a forward belt sharing its gap. Fall back to the old local stagger.
+        const s=e.sOutPlan??Math.min(30+((backIntervals.length)%4)*8,Math.max(14,outClear));
+        // The rise into the machine finishes LEFT of the column's widest rate
+        // pill, then runs straight in.
         const leadB=LEADL[e.dstD]??46;
-        const sIn=Math.min(s,Math.max(14,((gapOf[e.dstD]??196)-(boxesRightOf[e.dstD+1]?BY_GAP+BW+10:0)-leadB-8)));
+        const sIn=e.sInPlan??Math.min(s,Math.max(14,((gapOf[e.dstD]??196)-(boxesRightOf[e.dstD+1]?BY_GAP+BW+10:0)-leadB-8)));
         const L=backLane(x2-leadB-sIn,x1+s);
         laneY=L.y;
         path=beltStyle==='ortho'
