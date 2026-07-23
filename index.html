@@ -136,6 +136,22 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
 .cat-body{padding-left:8px;padding-bottom:4px}
 .cat-add{display:flex;gap:6px;align-items:center;margin-top:3px}
 .cat-add input{flex:1;min-width:0}
+/* Sleek pill toggle + slider (flow-layout controls) — theme-matched */
+.switch{-webkit-appearance:none;appearance:none;position:relative;width:36px;height:20px;border-radius:20px;
+  background:#2a2e33;border:1px solid var(--b2);cursor:pointer;outline:none;flex-shrink:0;
+  transition:background .18s ease,border-color .18s ease;vertical-align:middle}
+.switch::after{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;
+  background:#79828b;transition:transform .18s ease,background .18s ease;box-shadow:0 1px 2px rgba(0,0,0,.45)}
+.switch:checked{background:color-mix(in srgb,var(--acc) 28%,#2a2e33);border-color:var(--acc2)}
+.switch:checked::after{transform:translateX(16px);background:var(--acc)}
+.switch:hover{border-color:var(--acc2)}
+.slider{-webkit-appearance:none;appearance:none;height:4px;border-radius:4px;background:#2a2e33;
+  border:1px solid var(--b);outline:none;cursor:pointer;vertical-align:middle}
+.slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:14px;height:14px;border-radius:50%;
+  background:var(--acc);border:2px solid #1a1d20;box-shadow:0 1px 3px rgba(0,0,0,.5);transition:transform .12s ease}
+.slider::-webkit-slider-thumb:hover{transform:scale(1.15)}
+.slider::-moz-range-thumb{width:12px;height:12px;border-radius:50%;background:var(--acc);border:2px solid #1a1d20}
+.slider::-moz-range-track{height:4px;border-radius:4px;background:#2a2e33}
 /* Flow-diagram build tracker: click a machine to tick it "built" */
 .fnode{cursor:pointer}
 .fnode .fncheck{display:none}
@@ -548,12 +564,12 @@ body.sample-locked .lock-hide{display:none!important}
 
   <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
     <button class="ba" onclick="runPlanner()">Calculate</button>
-    <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--dim);cursor:pointer" title="Group the flow diagram into one column per machine type (all Constructors together, then Assemblers, …) instead of by production step. Purely visual.">
-      <input type="checkbox" id="fl-machine" style="width:auto" onchange="setFlowLayout(this.checked)"> Machine columns
+    <label style="display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--dim);cursor:pointer" title="Group the flow diagram into one column per machine type (all Constructors together, then Assemblers, …) instead of by production step. Purely visual.">
+      <input type="checkbox" class="switch" id="fl-machine" style="width:36px" onchange="setFlowLayout(this.checked)"> Machine columns
     </label>
-    <span id="fl-split-wrap" style="display:none;align-items:center;gap:6px;font-size:11px;color:var(--dim)">
+    <span id="fl-split-wrap" style="display:none;align-items:center;gap:8px;font-size:11px;color:var(--dim)">
       <span>1 col</span>
-      <input type="range" id="fl-split" min="1" max="5" step="1" style="width:88px" oninput="setFlowSplit(this.value)"
+      <input type="range" class="slider" id="fl-split" min="1" max="5" step="1" style="width:96px" oninput="setFlowSplit(this.value)"
         title="How many columns a single machine type may split into to reduce overlap — left keeps each type to one column, right allows more splitting.">
       <span>split</span>
     </span>
@@ -694,7 +710,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.28';
+const APP_VERSION = '1.0.29';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -4240,15 +4256,62 @@ function machineDepths(nodes, natDc, cap){
   const HEIGHT=11;
   const byMach={};
   nodes.forEach(n=>{ const k=n.rec.machineId||'__none'; (byMach[k]=byMach[k]||[]).push(n); });
-  // Order left→right by FIRST appearance from the inputs: a type's most-
-  // upstream instance (max natural depth) decides — so Miners (which sit at the
-  // raws, deepest) are hard-left, then Smelters, Constructors, … out to the
-  // machine that makes the target. Mean depth then name break ties.
+  // Order the type-columns to MINIMISE RETURN BELTS: count the belts between
+  // each pair of machine types (primary feeds + byproduct feeds) and pick the
+  // left→right order with the least total flow going right→left. Foundries
+  // feed Constructors but Constructors never feed Foundries, so Foundry lands
+  // left of Constructor — no per-machine settings, purely from this plan's
+  // graph. Appearance order (a type's most-upstream instance, mean, name)
+  // seeds the candidate list and breaks every tie, so unconstrained types
+  // still read inputs→target and the layout is deterministic.
   const depthKey=arr=>{let mx=-Infinity,sum=0;arr.forEach(n=>{const d=natDc[n.rec.id];if(d>mx)mx=d;sum+=d;});return{mx,mean:sum/arr.length};};
-  const types=Object.keys(byMach).sort((a,b)=>{
+  const appear=Object.keys(byMach).sort((a,b)=>{
     const ka=depthKey(byMach[a]), kb=depthKey(byMach[b]);
     return (kb.mx-ka.mx) || (kb.mean-ka.mean) || String(a).localeCompare(String(b));
   });
+  const T=appear.length;
+  const tIdx={}; appear.forEach((k,i)=>tIdx[k]=i);
+  const machOf={}; nodes.forEach(n=>machOf[n.rec.id]=n.rec.machineId||'__none');
+  // belt count between types: consumer draws from every producer of the
+  // resource (primary stages and byproduct-producing stages alike)
+  const W=Array.from({length:T},()=>new Array(T).fill(0));
+  nodes.forEach(c=>{
+    const ci=tIdx[machOf[c.rec.id]];
+    c.rec.inputs.forEach(inp=>{
+      nodes.forEach(p=>{
+        if(p===c)return;
+        const feeds=p.resId===inp.resourceId||(p.rec.byproducts||[]).some(b=>b.resourceId===inp.resourceId);
+        if(feeds){const pi=tIdx[machOf[p.rec.id]];if(pi!==ci)W[pi][ci]++;}
+      });
+    });
+  });
+  let types;
+  if(T<=16&&T>1){
+    // Exact min-feedback ordering: dp[S] = least backward flow arranging the
+    // types of S as the left prefix. Appending v after prefix S makes every
+    // v→(already-placed) belt a return belt: cost += Σ W[v][u∈S]. Candidates
+    // scan in appearance order and only STRICT improvement switches, so ties
+    // always resolve to the natural inputs→target reading.
+    const FULL=1<<T;
+    const dp=new Float64Array(FULL).fill(Infinity), choice=new Int8Array(FULL).fill(-1);
+    dp[0]=0;
+    for(let S=0;S<FULL;S++){
+      if(!isFinite(dp[S]))continue;
+      for(let v=0;v<T;v++){
+        if(S&(1<<v))continue;
+        let c=dp[S];
+        for(let u=0;u<T;u++)if(S&(1<<u))c+=W[v][u];
+        const S2=S|(1<<v);
+        if(c<dp[S2]-1e-9){dp[S2]=c;choice[S2]=v;}
+      }
+    }
+    const orderIdx=[]; let S=FULL-1;
+    while(S){const v=choice[S];orderIdx.push(v);S&=~(1<<v);}
+    orderIdx.reverse();
+    types=orderIdx.map(i=>appear[i]);
+  } else {
+    types=appear;
+  }
   const sub={}; // recId → global column index (0 = leftmost)
   let col=0;
   types.forEach(k=>{
@@ -5520,30 +5583,93 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
     });
   });
   const claimedByproducts=new Set(edgeList.filter(e=>e.byKey).map(e=>e.byKey));
-  // Exit points: spread along the producer's right edge, ordered by target
-  // height. A producer with byproduct boxes beside it keeps its primary output
-  // belts in the TOP half of the edge (the byproduct connectors sit in the
-  // bottom half), so the two never overlap. With no byproducts the outputs use
-  // the full edge as before; this generalises to any output/byproduct count.
+
+  // ── Highway lane planning ──
+  // Lanes are assigned BEFORE slots and ramps, so all three stay mutually
+  // monotone — that's the whole no-crossing story. For belts sharing a lane
+  // band, a crossing exists exactly when lane order disagrees with descent
+  // order or entry order, so we enforce one ordering everywhere:
+  //   · LANE: longer spans ride higher; ties put higher destinations higher —
+  //     so a belt ending low in a column, or close to its source, sits toward
+  //     the bottom of the highway (nearest the machines), and nested spans
+  //     never cross ("hop over" reads correctly).
+  //   · DESCENT (per destination column): bottom lane drops first (leftmost),
+  //     top lane drops last, right beside the machine — a top-lane belt no
+  //     longer dives early through every lane below it.
+  //   · RAMP (per source column): top lane climbs first (leftmost), so exit
+  //     fans never scissor.
+  //   · SLOTS: entries and exits order by lane height (below), so the machine
+  //     face matches the highway order — no swap-over at the doorstep.
+  // The gutter (secondary band) mirrors the same rules on absolute y.
+  {
+    const fwd=edgeList.filter(e=>e.isLong&&e.fx<=e.tx&&!e.selfLoop);
+    const topP=fwd.filter(e=>e.dstGroup!=='secondary');
+    const gutP=fwd.filter(e=>e.dstGroup==='secondary');
+    topP.sort((a,b)=>((b.tx-b.fx)-(a.tx-a.fx))||(a.tyBase-b.tyBase)||String(a.resId).localeCompare(String(b.resId)));
+    topP.forEach((e,i)=>{e.lane={y:aboveLaneBase+i*LANE_STEP,i};});
+    aboveLaneI=topP.length; // retry sizing reads these totals
+    gutP.sort((a,b)=>((a.tx-a.fx)-(b.tx-b.fx))||(b.tyBase-a.tyBase)||String(a.resId).localeCompare(String(b.resId)));
+    gutP.forEach((e,i)=>{e.lane={y:secBandTop-14-i*LANE_STEP,i};});
+    secLaneI=gutP.length;
+    const inG={}, outG={};
+    fwd.forEach(e=>{
+      (inG[e.dstGroup+'|'+e.dstD]=inG[e.dstGroup+'|'+e.dstD]||[]).push(e);
+      const sk=e.srcRaw?'raw':(e.srcGroup+'|'+e.srcD+(e.srcIsBox?'b':'n'));
+      (outG[sk]=outG[sk]||[]).push(e);
+    });
+    Object.values(inG).forEach(list=>{
+      list.sort((a,b)=>a.lane.y-b.lane.y); // topmost lane first → drops last
+      list.forEach((e,r)=>{
+        const inClear=(gapOf[e.dstD]??196)-(boxesRightOf[e.dstD+1]?BY_GAP+BW+10:0)-(LEADL[e.dstD]??46)-8;
+        const mx=Math.max(14,inClear/2);
+        const step=list.length>1?Math.max(4,Math.min(7,(mx-14)/(list.length-1))):0;
+        e.sInPlan=Math.min(14+r*step,mx);
+      });
+    });
+    Object.values(outG).forEach(list=>{
+      // Ramp order is SIDE-AWARE. Climbing UP to a lane above the source: the
+      // higher lane must leave first (leftmost) or its horizontal cuts every
+      // later climb. Descending DOWN to a lane below (a main-band machine
+      // feeding the secondary gutter): it inverts — the LOWER (farther) lane
+      // leaves first. Ups sort before downs; a mixed pair can't cross.
+      const srcMid=e=>e.fyBase+e.fH/2;
+      const side=e=>e.lane.y<srcMid(e)?0:1; // 0 = lane above source (climb)
+      list.sort((a,b)=>(side(a)-side(b))||(side(a)===0?(a.lane.y-b.lane.y):(b.lane.y-a.lane.y)));
+      list.forEach((e,r)=>{
+        const oc=(e.srcIsBox?gapRight(e.srcD)-(BY_GAP+BW)-10:e.srcBeside?BY_GAP-10:e.srcRaw?118:gapRight(e.srcD)-10);
+        const mx=Math.max(14,oc/2);
+        const step=list.length>1?Math.max(5,Math.min(9,(mx-16)/(list.length-1))):0;
+        e.sOutPlan=Math.min(16+r*step,mx);
+      });
+    });
+  }
+
+  // Exit points: spread along the producer's right edge. Highway-bound belts
+  // order by their LANE height (top lane → top slot) so the exit fan never
+  // scissors; direct edges order by target height as before. A producer with
+  // byproduct boxes beside it keeps its primary output belts in the TOP half
+  // of the edge (the byproduct connectors sit in the bottom half), so the two
+  // never overlap.
   const byFrom={};
   edgeList.forEach(e=>{(byFrom[e.fromKey]=byFrom[e.fromKey]||[]).push(e);});
   Object.entries(byFrom).forEach(([fromKey,list])=>{
-    list.sort((a,b)=>a.tyBase-b.tyBase);
+    const ky=e=>e.lane?e.lane.y:e.tyBase;
+    list.sort((a,b)=>(ky(a)-ky(b))||(a.tyBase-b.tyBase));
     const frac=(fromKey[0]==='n'&&besideBp[fromKey.slice(1)])?0.5:1;
     list.forEach((e,i)=>{e.x1=e.fx;e.y1=e.fyBase+e.fH*frac*(i+1)/(list.length+1);});
   });
   // Entry points: spread along the consumer's left edge. Arrivals take the
   // slot nearest where they physically come from: top-highway (long forward)
-  // edges get the TOPMOST entries, adjacent-column edges the middle (ordered
-  // by source height), under-highway (backward) edges the bottom — a water
-  // belt dropping from the top lane used to cross the whole machine face to a
-  // bottom slot while the neighbouring column's belt sat above it, for no
-  // reason.
+  // edges get the TOPMOST entries — ordered by LANE height so the machine's
+  // input order matches the highway order (screws on the bottom lane used to
+  // land in the top slot and cross every other drop) — adjacent-column edges
+  // the middle (by source height), under-highway (backward) edges the bottom.
   const byTo={};
   edgeList.forEach(e=>{(byTo[e.toKey]=byTo[e.toKey]||[]).push(e);});
   Object.values(byTo).forEach(list=>{
     const cls=e=>(e.fx>e.tx)?2:(e.isLong?0:1);
-    list.sort((a,b)=>(cls(a)-cls(b))||(a.fyBase-b.fyBase));
+    const ky=e=>e.lane?e.lane.y:e.fyBase;
+    list.sort((a,b)=>(cls(a)-cls(b))||(ky(a)-ky(b))||(a.fyBase-b.fyBase));
     list.forEach((e,i)=>{e.x2=e.tx;e.y2=e.tyBase+NH*(i+1)/(list.length+1);e.slots=list.length;});
   });
 
@@ -5599,18 +5725,17 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
         // Residual Plastic), or the raw-inputs box. Descending into the
         // gutter never crosses the main chain; the top band is for main-band
         // consumers only.
-        const L=(e.dstGroup==='secondary')?allocSecLane():allocLane();
+        const L=e.lane??((e.dstGroup==='secondary')?allocSecLane():allocLane());
         laneY=L.y;
-        // EXIT ramps stagger by lane index within the source's clearance, so
-        // parallel edges rise at different x instead of piling up. The ENTRY
-        // descent lands at this column's dynamic lead-in — LEFT of the widest
-        // rate pill in the column (the gap was sized for it), then runs
-        // straight into the machine, so a descending lane belt can no longer
-        // sit on any label.
-        const sOut=Math.min(26+(L.i%6)*9,Math.max(14,outClear/2));
+        // EXIT ramps and ENTRY descents use the PLANNED per-column staggers
+        // (see lane planning above): ramp order and descent order both follow
+        // lane height, so belts sharing a column never scissor. The descent
+        // still lands at this column's dynamic lead-in — LEFT of the widest
+        // rate pill — then runs straight into the machine.
+        const sOut=e.sOutPlan??Math.min(26+(L.i%6)*9,Math.max(14,outClear/2));
         const lead=LEADL[e.dstD]??46;
         const inClear=(gapOf[e.dstD]??196)-(boxesRightOf[e.dstD+1]?BY_GAP+BW+10:0)-lead-8;
-        const sIn=Math.min(26+(L.i%3)*7,Math.max(14,inClear/2));
+        const sIn=e.sInPlan??Math.min(26+(L.i%3)*7,Math.max(14,inClear/2));
         path=`M${x1},${y1} C${x1+sOut},${y1} ${x1+sOut},${laneY} ${x1+sOut*2},${laneY} L${x2-lead-sIn*2},${laneY} C${x2-lead-sIn},${laneY} ${x2-lead-sIn},${y2} ${x2-lead},${y2} L${x2-7},${y2}`;
       }
     } else {
@@ -5744,6 +5869,23 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
       ?`<rect x="${p.x+1}" y="${p.y+NH-12}" width="${Math.round((NW-2)*eff)}" height="10" rx="0 0 6 6" fill="#c0702040"/>
         <text x="${p.x+NW/2}" y="${p.y+NH-3}" text-anchor="middle" font-size="8" fill="#c07030">${(eff*100).toFixed(0)}%</text>`
       :'';
+    // Bottom row: power (left) + rate (right) share one line. With big values
+    // ("⚡135 MW" vs "50.00/min Encased Industrial Beam") they can collide, so
+    // size to fit: estimate both widths at 9px, shrink the font toward 7px
+    // until they clear, and past that ellipsise the RESOURCE NAME (the number
+    // is the part that matters). Generic — no per-value special cases.
+    const mwTxt=nodeMW>0?`⚡${fmt(nodeMW,0)} MW`:'';
+    let rateRes=rname(n.resId);
+    const rateNum=`${rateStr(n.resId,actualRate,2)} `;
+    const bottomAvail=NW-14-(mwTxt?8:0); // side paddings + a min gap between the two
+    const wAt=(s,fs)=>s.length*fs*0.58;
+    let botFs=9;
+    if(mwTxt){
+      const need=()=>wAt(mwTxt,botFs)+wAt(rateNum+rateRes,botFs);
+      while(botFs>7&&need()>bottomAvail)botFs-=0.5;
+      while(rateRes.length>6&&need()>bottomAvail)rateRes=rateRes.slice(0,rateRes.length-2);
+      if(rateRes!==rname(n.resId))rateRes+='…';
+    }
     const built=plannerBuilt.has(n.rec.id);
     // Whole node is one clickable group; .fnbody carries the visuals (dimmed
     // when built via CSS), .fncheck is the ✓ badge (shown only when built).
@@ -5753,8 +5895,8 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
       <text x="${p.x+NW/2}" y="${p.y+33}" text-anchor="middle" font-size="10" fill="#5a7888">${esc(n.rec.name)}</text>
       <line x1="${p.x+10}" y1="${p.y+40}" x2="${p.x+NW-10}" y2="${p.y+40}" stroke="#1e3040" stroke-width="1"/>
       <text x="${p.x+NW/2}" y="${p.y+66}" text-anchor="middle" font-size="26" font-weight="900" fill="${cCol}">${count}</text>
-      ${nodeMW>0?`<text x="${p.x+7}" y="${p.y+NH-(n.fromInputs&&!atCap?15:5)}" text-anchor="start" font-size="9" fill="#b8963a">⚡${fmt(nodeMW,0)} MW</text>`:''}
-      <text x="${p.x+NW-7}" y="${p.y+NH-(n.fromInputs&&!atCap?15:5)}" text-anchor="end" font-size="9" fill="${resColor(n.resId,45,52)}">${rateStr(n.resId,actualRate,2)} ${esc(rname(n.resId))}</text>
+      ${mwTxt?`<text x="${p.x+7}" y="${p.y+NH-(n.fromInputs&&!atCap?15:5)}" text-anchor="start" font-size="${botFs}" fill="#b8963a">${mwTxt}</text>`:''}
+      <text x="${p.x+NW-7}" y="${p.y+NH-(n.fromInputs&&!atCap?15:5)}" text-anchor="end" font-size="${botFs}" fill="${resColor(n.resId,45,52)}">${rateNum}${esc(rateRes)}</text>
       ${effBand}</g><g class="fncheck">
       <circle cx="${p.x+NW-12}" cy="${p.y+12}" r="9" fill="#2f8a3e" stroke="#0e1a26" stroke-width="1.5"/>
       <path d="M${p.x+NW-16},${p.y+12} l2.6,2.8 l5,-6.4" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></g></g>`;
