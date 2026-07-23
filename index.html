@@ -717,7 +717,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.32';
+const APP_VERSION = '1.0.33';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -5738,6 +5738,25 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
     list.sort((a,b)=>(cls(a)-cls(b))||(ky(a)-ky(b))||(a.fyBase-b.fyBase));
     list.forEach((e,i)=>{e.x2=e.tx;e.y2=e.tyBase+NH*(i+1)/(list.length+1);e.slots=list.length;});
   });
+  // Straight-belt riser allocation: DIRECT (adjacent-column) belts crossing the
+  // SAME gap would otherwise all rise at the gap's midpoint and stack on top of
+  // each other (curves splay apart on their own; vertical straight risers do
+  // not — the reported Iron/Sulfur→Refinery overlap). Give each its own x
+  // within the gap, ordered by destination height so belts nest and any
+  // crossing collapses to a single point. Only the risers move; the exit/entry
+  // rows and the label-avoiding lead-in are unchanged.
+  const gapGroups={};
+  edgeList.forEach(e=>{
+    if(e.isLong||e.selfLoop||e.x1>e.x2||Math.abs(e.y1-e.y2)<4)return; // needs a real riser
+    (gapGroups[Math.round(e.x1)+'|'+Math.round(e.x2)]=gapGroups[Math.round(e.x1)+'|'+Math.round(e.x2)]||[]).push(e);
+  });
+  Object.values(gapGroups).forEach(list=>{
+    if(list.length<2)return; // a lone belt keeps the default midpoint riser
+    list.sort((a,b)=>(a.y2-b.y2)||(a.y1-b.y1));
+    const x1=list[0].x1, x2=list[0].x2, lead=LEADL[list[0].dstD]??46;
+    const lo=x1+16, hi=x2-lead-6;
+    list.forEach((e,i)=>{ e.riserX=hi>lo?lo+(hi-lo)*(i+1)/(list.length+1):(x1+x2)/2; });
+  });
 
   // ── Edge renderer ──
   // Edges are colour-coded per RESOURCE (same material = same colour across the
@@ -5843,7 +5862,9 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
           ?orthoPath([[x1,y1],[x1+14,y1],[x1+14,yD],[bx-14,yD],[bx-14,y2],[x2-7,y2]])
           :`M${x1},${y1} C${x1+s},${y1} ${x1+s},${yD} ${x1+s*2},${yD} L${bx-s*2},${yD} C${bx-s},${yD} ${bx-s},${y2} ${bx},${y2} L${x2-7},${y2}`;
       } else if(beltStyle==='ortho'){
-        const xT=Math.max(x1+6,Math.min(bx-6,mode==='early'?x1+18:mode==='late'?bx-18:x1+span*0.5));
+        // riserX (allocated per gap above) keeps parallel risers apart; the box
+        // dodge still forces early/late when a byproduct box is in the way.
+        const xT=Math.max(x1+6,Math.min(bx-6,mode==='early'?x1+18:mode==='late'?bx-18:(e.riserX??x1+span*0.5)));
         path=orthoPath(y1===y2?[[x1,y1],[x2-7,y2]]:[[x1,y1],[xT,y1],[xT,y2],[x2-7,y2]]);
       } else {
         path=`M${x1},${y1} C${x1+dx1},${y1} ${bx-dx2},${y2} ${bx},${y2} L${x2-7},${y2}`;
