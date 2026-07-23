@@ -507,7 +507,8 @@ body.sample-locked .lock-hide{display:none!important}
       <button class="bb bsm" onclick="deletePlan()" title="Delete this saved plan">Delete</button>
       <span style="color:#444">|</span>
       <button class="bb bsm" onclick="comparePlans()" title="Compare this plan's totals with another saved plan">⇄ Compare</button>
-      <button class="bb bsm" onclick="copyShareLink()" title="Copy a link that opens this plan (recipient needs the same profile)">🔗 Share link</button>
+      <button class="bb bsm" onclick="copyShareLink()" title="Copy a link/code that reproduces this exact plan — recipes, research tier and view settings included">🔗 Share</button>
+      <button class="bb bsm" onclick="importSharedCode()" title="Paste a shared-plan link or code to load it here">📥 Import</button>
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
       <div class="mode-wrap">
@@ -716,7 +717,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.30';
+const APP_VERSION = '1.0.31';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -4111,22 +4112,36 @@ const b64u={
   enc:s=>btoa(unescape(encodeURIComponent(s))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''),
   dec:s=>decodeURIComponent(escape(atob(s.replace(/-/g,'+').replace(/_/g,'/'))))
 };
-function copyShareLink(){
+// Everything needed to reproduce EXACTLY what's on screen: the plan, the
+// profile's disabled-recipe set (the auto-chosen chain and pins depend on it),
+// the unlocked research TIER (changes what's available, so the plan computes
+// differently), and the VIEW settings (belt style / machine columns / split) so
+// a debug code shows the sender's diagram, not the opener's defaults.
+function buildSharePayload(){
   savePlannerQuery();
   const pl=activePlan(), prof=activeProfile();
-  if(!pl?.q)return alert('Nothing to share yet — set up a plan first.');
-  // Carry the profile's disabled-recipe set with the plan. The plan's auto-
-  // chosen chain — and its pins, which silently fall back to auto when their
-  // recipe is disabled — depend on WHICH alternates are enabled, so a plan
-  // isn't reproducible without them. Only the OFF ids travel (everything else
-  // is enabled), so the payload stays small.
+  if(!pl?.q)return null;
   const off=Object.keys(recToggles).filter(k=>recToggles[k]===false);
-  // Build-progress ticks are personal — don't ship them in a shared plan.
-  const {built,...shareQ}=pl.q;
-  const url=location.origin+location.pathname+'#plan='+b64u.enc(JSON.stringify({s:prof.sample||null,n:prof.name,q:shareQ,t:off}));
-  const done=()=>alert('Share link copied to clipboard.\n\nAnyone with the same profile (e.g. the bundled sample) can open it to see this exact plan.');
-  if(navigator.clipboard?.writeText)navigator.clipboard.writeText(url).then(done,()=>prompt('Copy this link:',url));
-  else prompt('Copy this link:',url);
+  const {built,...shareQ}=pl.q; // build-progress ticks are personal
+  return {s:prof.sample||null,n:prof.name,q:shareQ,t:off,
+    tier:unlockedTierId||null,
+    view:{belt:beltStyle,layout:flowLayoutMode,split:flowSplit}};
+}
+function copyShareLink(){
+  const payload=buildSharePayload();
+  if(!payload)return alert('Nothing to share yet — set up a plan first.');
+  const url=location.origin+location.pathname+'#plan='+b64u.enc(JSON.stringify(payload));
+  const done=()=>alert('Share code copied.\n\nOpen the link, or paste it into another Factory Planner with Import. It carries the plan, its recipe toggles, the research tier and the view settings — so it shows exactly this.');
+  if(navigator.clipboard?.writeText)navigator.clipboard.writeText(url).then(done,()=>prompt('Copy this link or code:',url));
+  else prompt('Copy this link or code:',url);
+}
+// Paste a share LINK or a bare code into the running planner.
+function importSharedCode(){
+  const raw=prompt('Paste a shared-plan link or code:');
+  if(raw==null)return;
+  const m=raw.match(/#plan=([A-Za-z0-9_-]+)/)||raw.trim().match(/^([A-Za-z0-9_-]+)$/);
+  if(!m)return alert('That doesn\'t look like a share link or code.');
+  loadSharedPayload(m[1]); // shows its own alerts on failure
 }
 // A shared query is UNTRUSTED input — rebuild it field by field with types
 // forced, so nothing from a crafted link reaches an HTML template as markup.
@@ -4155,29 +4170,41 @@ function sanitizeSharedQuery(q){
   if(!clean.targets.length&&!clean.inpTargetId)return null;
   return clean;
 }
-function tryLoadSharedPlan(){
-  const m=location.hash.match(/#plan=([A-Za-z0-9_-]+)/);
-  if(!m)return false;
-  history.replaceState(null,'',location.pathname+location.search);
+// Decode + apply a share code (from the URL hash or a pasted string). All
+// fields are UNTRUSTED — every id is regex-checked and every value clamped.
+function loadSharedPayload(code){
   let payload;
-  try{ payload=JSON.parse(b64u.dec(m[1])); }catch{ alert('Could not read that shared-plan link.'); return false; }
+  try{ payload=JSON.parse(b64u.dec(code)); }catch{ alert('Could not read that shared plan.'); return false; }
   const q=sanitizeSharedQuery(payload?.q);
   if(!q)return false;
-  // Untrusted: the disabled-recipe ids the plan was built with. Applied to the
-  // profile so the plan reproduces with the same alternates enabled/disabled;
-  // absent on older links (then toggles are left as-is).
   const sharedOff=Array.isArray(payload?.t)
     ? payload.t.filter(id=>typeof id==='string'&&/^[A-Za-z0-9_-]+$/.test(id)).slice(0,800)
     : null;
+  const sharedTier=(typeof payload.tier==='string'&&/^[A-Za-z0-9_-]+$/.test(payload.tier))?payload.tier:null;
+  const view=(payload.view&&typeof payload.view==='object')?payload.view:{};
+  const vBelt=view.belt==='ortho'?'ortho':view.belt==='curve'?'curve':null;
+  const vLayout=view.layout==='machine'?'machine':view.layout==='depth'?'depth':null;
+  const vSplit=isFinite(parseInt(view.split,10))?Math.min(5,Math.max(1,parseInt(view.split,10))):null;
   const apply=()=>{
+    const notes=[];
     if(sharedOff){
       const next={}; sharedOff.forEach(id=>{next[id]=false;});
       const keys=new Set([...Object.keys(recToggles),...Object.keys(next)]);
       let changed=0; keys.forEach(k=>{ if((recToggles[k]===false)!==(next[k]===false))changed++; });
       recToggles=next; // saveState() below persists it onto the active profile
-      if(changed){renderPlannerControls();
-        setTimeout(()=>alert(`This plan enabled/disabled ${changed} alternate recipe${changed>1?'s':''} so it matches the setup it was built on — see Recipe Toggles to review.`),60);}
+      if(changed){renderPlannerControls();notes.push(`${changed} alternate recipe${changed>1?'s':''}`);}
     }
+    // Research tier changes what's available, so the plan reproduces only with
+    // it applied — it becomes the profile's unlocked tier (like the toggles).
+    if(sharedTier&&researchTiers.some(t=>t.id===sharedTier)&&sharedTier!==unlockedTierId){
+      unlockedTierId=sharedTier; renderUnlockSelector();
+      notes.push(`the research tier (${tierName(sharedTier)})`);
+    }
+    // View settings are display-only — apply silently and persist as prefs.
+    if(vBelt){beltStyle=vBelt;localStorage.setItem('fp_beltstyle',vBelt);}
+    if(vLayout){flowLayoutMode=vLayout;localStorage.setItem('fp_flowlayout',vLayout);}
+    if(vSplit!=null){flowSplit=vSplit;localStorage.setItem('fp_flowsplit',String(vSplit));}
+    syncFlowLayoutUI();
     let nm='Shared plan',k=2;
     while(plans.some(x=>x.name===nm))nm=`Shared plan (${k++})`;
     const pl={id:uid(),name:nm,q};
@@ -4185,6 +4212,7 @@ function tryLoadSharedPlan(){
     saveState();
     goTab('planner');
     if(restorePlannerQuery())runPlanner();
+    if(notes.length)setTimeout(()=>alert(`This plan set ${notes.join(' and ')} to match the setup it was built on — see Recipe Toggles / the tier selector to review.`),60);
   };
   const wantSample=typeof payload.s==='string'?payload.s:null;
   const wantName=typeof payload.n==='string'?payload.n:null;
@@ -4193,12 +4221,18 @@ function tryLoadSharedPlan(){
     if(prof.id!==activeProfileId)switchProfile(prof.id);
     apply(); return true;
   }
-  if(wantSample&&confirm(`This link is a plan for the "${wantSample}" sample profile, which isn't loaded yet. Load it now?`)){
+  if(wantSample&&confirm(`This is a plan for the "${wantSample}" sample profile, which isn't loaded yet. Load it now?`)){
     loadSampleProfile(wantSample).then(()=>apply());
     return true;
   }
-  alert(`This link needs the profile "${wantName||wantSample||'?'}" — load or import it first, then open the link again.`);
+  alert(`This needs the profile "${wantName||wantSample||'?'}" — load or import it first, then try again.`);
   return false;
+}
+function tryLoadSharedPlan(){
+  const m=location.hash.match(/#plan=([A-Za-z0-9_-]+)/);
+  if(!m)return false;
+  history.replaceState(null,'',location.pathname+location.search);
+  return loadSharedPayload(m[1]);
 }
 
 // Purely-visual build tracker: clicking a machine in the flow diagram ticks it
