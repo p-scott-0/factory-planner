@@ -564,14 +564,17 @@ body.sample-locked .lock-hide{display:none!important}
 
   <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
     <button class="ba" onclick="runPlanner()">Calculate</button>
-    <label style="display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--dim);cursor:pointer" title="Group the flow diagram into one column per machine type (all Constructors together, then Assemblers, …) instead of by production step. Purely visual.">
-      <input type="checkbox" class="switch" id="fl-machine" style="width:36px" onchange="setFlowLayout(this.checked)"> Machine columns
+    <label style="display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--dim);cursor:pointer" title="Draw belts as straight 90° runs with rounded corners instead of curves. Purely visual.">
+      <input type="checkbox" class="switch" id="fl-ortho" style="width:36px" onchange="setBeltStyle(this.checked)"> Straight Belts
     </label>
-    <span id="fl-split-wrap" style="display:none;align-items:center;gap:8px;font-size:11px;color:var(--dim)">
-      <span>1 col</span>
-      <input type="range" class="slider" id="fl-split" min="1" max="5" step="1" style="width:96px" oninput="setFlowSplit(this.value)"
-        title="How many columns a single machine type may split into to reduce overlap — left keeps each type to one column, right allows more splitting.">
-      <span>split</span>
+    <span style="display:inline-flex;flex-direction:column;align-items:center;gap:5px">
+      <label style="display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--dim);cursor:pointer" title="Group the flow diagram into one column per machine type (all Constructors together, then Assemblers, …) instead of by production step. Purely visual.">
+        <input type="checkbox" class="switch" id="fl-machine" style="width:36px" onchange="setFlowLayout(this.checked)"> Machine Columns
+      </label>
+      <span id="fl-split-wrap" style="display:none">
+        <input type="range" class="slider" id="fl-split" min="1" max="5" step="1" style="width:120px" oninput="setFlowSplit(this.value)"
+          title="How many columns a single machine type may split into to reduce overlap — left keeps each type to one column, right allows more splitting.">
+      </span>
     </span>
   </div>
   <div id="pl-results"></div>
@@ -684,6 +687,9 @@ let rateUnit      = localStorage.getItem('fp_rateunit')==='s'?'s':'m'; // global
 // never part of a plan/share). flowSplit = max columns a machine type may span.
 let flowLayoutMode= localStorage.getItem('fp_flowlayout')==='machine'?'machine':'depth';
 let flowSplit     = Math.min(5,Math.max(1,parseInt(localStorage.getItem('fp_flowsplit'),10)||2));
+// Belt drawing style: 'curve' (default beziers) or 'ortho' (straight 90° runs
+// with rounded corners). Global view preference like the layout mode.
+let beltStyle     = localStorage.getItem('fp_beltstyle')==='ortho'?'ortho':'curve';
 const catState    = {};  // catId → true=expanded (ephemeral)
 let planMode      = 'target';
 let lastPlan      = null;   // most recent planner result, for "Build in Layout"
@@ -710,7 +716,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.29';
+const APP_VERSION = '1.0.30';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -4234,6 +4240,13 @@ function syncFlowLayoutUI(){
   const cb=document.getElementById('fl-machine'); if(cb)cb.checked=flowLayoutMode==='machine';
   const sl=document.getElementById('fl-split'); if(sl)sl.value=String(flowSplit);
   const w=document.getElementById('fl-split-wrap'); if(w)w.style.display=flowLayoutMode==='machine'?'inline-flex':'none';
+  const ob=document.getElementById('fl-ortho'); if(ob)ob.checked=beltStyle==='ortho';
+}
+function setBeltStyle(on){
+  beltStyle=on?'ortho':'curve';
+  localStorage.setItem('fp_beltstyle',beltStyle);
+  syncFlowLayoutUI();
+  redrawFlow();
 }
 function setFlowLayout(on){
   flowLayoutMode=on?'machine':'depth';
@@ -4775,6 +4788,25 @@ function byproductSupplyLinks(nodes, rawNeeds){
     });
   });
   return links;
+}
+
+// Axis-aligned polyline with rounded corners — the "Straight Belts" style.
+// Takes waypoints of an orthogonal route; each interior corner becomes a small
+// quadratic arc (radius clamped to half the shorter adjacent segment, so tight
+// jogs never overshoot). The look matches the byproduct connectors' crisp
+// right-angle runs.
+function orthoPath(pts,r=10){
+  let d=`M${pts[0][0]},${pts[0][1]}`;
+  for(let i=1;i<pts.length-1;i++){
+    const[x0,y0]=pts[i-1],[x1,y1]=pts[i],[x2,y2]=pts[i+1];
+    const l1=Math.hypot(x1-x0,y1-y0),l2=Math.hypot(x2-x1,y2-y1);
+    const rr=Math.min(r,l1/2,l2/2);
+    if(rr<0.5||l1<0.5||l2<0.5){d+=` L${x1},${y1}`;continue;}
+    const ux=(x1-x0)/l1,uy=(y1-y0)/l1,vx=(x2-x1)/l2,vy=(y2-y1)/l2;
+    d+=` L${(x1-ux*rr).toFixed(1)},${(y1-uy*rr).toFixed(1)} Q${x1},${y1} ${(x1+vx*rr).toFixed(1)},${(y1+vy*rr).toFixed(1)}`;
+  }
+  d+=` L${pts[pts.length-1][0]},${pts[pts.length-1][1]}`;
+  return d;
 }
 
 // Depth assignment for plan stages (0 = target, N = N hops upstream).
@@ -5716,7 +5748,9 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
         const sIn=Math.min(s,Math.max(14,((gapOf[e.dstD]??196)-(boxesRightOf[e.dstD+1]?BY_GAP+BW+10:0)-leadB-8)));
         const L=backLane(x2-leadB-sIn,x1+s);
         laneY=L.y;
-        path=`M${x1},${y1} C${x1+s},${y1} ${x1+s},${laneY} ${x1},${laneY} L${x2-leadB},${laneY} C${x2-leadB-sIn},${laneY} ${x2-leadB-sIn},${y2} ${x2-leadB},${y2} L${x2-7},${y2}`;
+        path=beltStyle==='ortho'
+          ?orthoPath([[x1,y1],[x1+s,y1],[x1+s,laneY],[x2-leadB-sIn,laneY],[x2-leadB-sIn,y2],[x2-7,y2]])
+          :`M${x1},${y1} C${x1+s},${y1} ${x1+s},${laneY} ${x1},${laneY} L${x2-leadB},${laneY} C${x2-leadB-sIn},${laneY} ${x2-leadB-sIn},${y2} ${x2-leadB},${y2} L${x2-7},${y2}`;
       } else {
         // ANY long edge landing in the secondary band uses the gutter lanes
         // just above it — whether its source is secondary too, a main-band
@@ -5736,7 +5770,9 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
         const lead=LEADL[e.dstD]??46;
         const inClear=(gapOf[e.dstD]??196)-(boxesRightOf[e.dstD+1]?BY_GAP+BW+10:0)-lead-8;
         const sIn=e.sInPlan??Math.min(26+(L.i%3)*7,Math.max(14,inClear/2));
-        path=`M${x1},${y1} C${x1+sOut},${y1} ${x1+sOut},${laneY} ${x1+sOut*2},${laneY} L${x2-lead-sIn*2},${laneY} C${x2-lead-sIn},${laneY} ${x2-lead-sIn},${y2} ${x2-lead},${y2} L${x2-7},${y2}`;
+        path=beltStyle==='ortho'
+          ?orthoPath([[x1,y1],[x1+sOut,y1],[x1+sOut,laneY],[x2-lead-sIn,laneY],[x2-lead-sIn,y2],[x2-7,y2]])
+          :`M${x1},${y1} C${x1+sOut},${y1} ${x1+sOut},${laneY} ${x1+sOut*2},${laneY} L${x2-lead-sIn*2},${laneY} C${x2-lead-sIn},${laneY} ${x2-lead-sIn},${y2} ${x2-lead},${y2} L${x2-7},${y2}`;
       }
     } else {
       const bx=x2-LEAD;
@@ -5744,14 +5780,40 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
       // gap gets a gentle curve instead of an overshooting S.
       const span=bx-x1;
       let dx1=span>0?Math.min(Math.max(span*0.5,6),44):6, dx2=dx1;
-      // A byproduct box can hang in this gap. If the mid-curve would sweep
-      // through it and the destination row itself clears the box, finish the
-      // vertical transition in the clear strip BEFORE the box instead.
-      const blocking=span>60&&Object.values(posBy).some(b=>
-        b.x<bx&&b.x+BW>x1&&Math.min(y1,y2)<b.y+BH&&Math.max(y1,y2)>b.y
-        &&!(y2>b.y-3&&y2<b.y+BH+3));
-      if(blocking){dx1=12;dx2=Math.max(span-34,span*0.6);}
-      path=`M${x1},${y1} C${x1+dx1},${y1} ${bx-dx2},${y2} ${bx},${y2} L${x2-7},${y2}`;
+      // A byproduct box can hang in this gap. Pick which LEVEL crosses it:
+      // if the DESTINATION row clears every box in the way, dive early and
+      // run at y2 past them; if only the SOURCE row is clear, run at y1 and
+      // dive late, after the last box (a Rubber belt used to plough through
+      // the Polymer Resin box because the old dodge only knew "early" and
+      // gave up when the destination row aligned with the box). If neither
+      // level is clear, keep the default mid-curve.
+      const obs=span>60?Object.values(posBy).filter(b=>b.x<bx&&b.x+BW>x1):[];
+      const hitsRow=y=>obs.some(b=>y>b.y-3&&y<b.y+BH+3);
+      const between=obs.some(b=>Math.min(y1,y2)<b.y+BH&&Math.max(y1,y2)>b.y);
+      let mode='mid';
+      if(between){
+        if(!hitsRow(y2))mode='early';
+        else if(!hitsRow(y1))mode='late';
+        else mode='over'; // box swallows BOTH rows — hop over its top
+      }
+      if(mode==='early'){dx1=12;dx2=Math.max(span-34,span*0.6);}
+      else if(mode==='late'){dx1=Math.max(span-34,span*0.6);dx2=12;}
+      if(mode==='over'){
+        // Neither the source nor the destination row clears the box (the
+        // Rubber→Plastic belt vs the Polymer Resin box dropped in the band:
+        // box 591–633, slots 612 and 596). Detour OVER the box: rise just
+        // above the highest box top in the way, run across, drop after it.
+        const yD=Math.min(...obs.map(b=>b.y))-8;
+        const s=12;
+        path=beltStyle==='ortho'
+          ?orthoPath([[x1,y1],[x1+14,y1],[x1+14,yD],[bx-14,yD],[bx-14,y2],[x2-7,y2]])
+          :`M${x1},${y1} C${x1+s},${y1} ${x1+s},${yD} ${x1+s*2},${yD} L${bx-s*2},${yD} C${bx-s},${yD} ${bx-s},${y2} ${bx},${y2} L${x2-7},${y2}`;
+      } else if(beltStyle==='ortho'){
+        const xT=Math.max(x1+6,Math.min(bx-6,mode==='early'?x1+18:mode==='late'?bx-18:x1+span*0.5));
+        path=orthoPath(y1===y2?[[x1,y1],[x2-7,y2]]:[[x1,y1],[xT,y1],[xT,y2],[x2-7,y2]]);
+      } else {
+        path=`M${x1},${y1} C${x1+dx1},${y1} ${bx-dx2},${y2} ${bx},${y2} L${x2-7},${y2}`;
+      }
     }
     const beltStr=beltLabel(e.rate,e.resId);
     // Hover details ride on data-* attributes; initFlowTooltip reads them and
