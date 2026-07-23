@@ -717,7 +717,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.33';
+const APP_VERSION = '1.0.34';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -4112,28 +4112,47 @@ const b64u={
   enc:s=>btoa(unescape(encodeURIComponent(s))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''),
   dec:s=>decodeURIComponent(escape(atob(s.replace(/-/g,'+').replace(/_/g,'/'))))
 };
-// Everything needed to reproduce EXACTLY what's on screen: the plan, the
-// profile's disabled-recipe set (the auto-chosen chain and pins depend on it),
-// the unlocked research TIER (changes what's available, so the plan computes
-// differently), and the VIEW settings (belt style / machine columns / split) so
-// a debug code shows the sender's diagram, not the opener's defaults.
+// What a REGULAR share carries: the plan, the profile's disabled-recipe set
+// (the auto-chosen chain and pins depend on it) and the unlocked research TIER
+// (changes what's available). NOT the view settings — belt style / columns /
+// split are personal display prefs. The debug code (below) adds those.
 function buildSharePayload(){
   savePlannerQuery();
   const pl=activePlan(), prof=activeProfile();
   if(!pl?.q)return null;
   const off=Object.keys(recToggles).filter(k=>recToggles[k]===false);
   const {built,...shareQ}=pl.q; // build-progress ticks are personal
-  return {s:prof.sample||null,n:prof.name,q:shareQ,t:off,
-    tier:unlockedTierId||null,
-    view:{belt:beltStyle,layout:flowLayoutMode,split:flowSplit}};
+  return {s:prof.sample||null,n:prof.name,q:shareQ,t:off,tier:unlockedTierId||null};
 }
 function copyShareLink(){
   const payload=buildSharePayload();
   if(!payload)return alert('Nothing to share yet — set up a plan first.');
   const url=location.origin+location.pathname+'#plan='+b64u.enc(JSON.stringify(payload));
-  const done=()=>alert('Share code copied.\n\nOpen the link, or paste it into another Factory Planner with Import. It carries the plan, its recipe toggles, the research tier and the view settings — so it shows exactly this.');
+  const done=()=>alert('Share link copied.\n\nOpen it, or paste it into another Factory Planner with Import. It carries the plan, its recipe toggles and the research tier.');
   if(navigator.clipboard?.writeText)navigator.clipboard.writeText(url).then(done,()=>prompt('Copy this link or code:',url));
   else prompt('Copy this link or code:',url);
+}
+// Debug code — small, for pasting to support. Adds the VIEW settings (so the
+// diagram reproduces), and shrinks the payload by shipping the recipe toggles
+// as a DIFF from the sample's bundle defaults (only what you changed), so the
+// code is tiny for a near-default setup instead of listing ~120 recipes.
+async function copyDebugCode(){
+  const payload=buildSharePayload();
+  if(!payload)return alert('Set up a plan first.');
+  payload.view={belt:beltStyle,layout:flowLayoutMode,split:flowSplit};
+  if(payload.s){
+    try{
+      const bundle=await (await fetch(`profiles/${encodeURIComponent(payload.s)}.json?cb=${Date.now?'':''}`)).json();
+      const bOff=new Set(Object.keys(bundle.recToggles||{}).filter(k=>bundle.recToggles[k]===false));
+      const uOff=new Set(payload.t);
+      payload.d={on:[...bOff].filter(k=>!uOff.has(k)), off:[...uOff].filter(k=>!bOff.has(k))};
+      delete payload.t; // the diff replaces the full list
+    }catch{ /* offline / non-sample — keep the full list */ }
+  }
+  const code=b64u.enc(JSON.stringify(payload));
+  const done=()=>alert(`Debug code copied (${code.length} chars). Paste it to support — it reproduces this exact screen, including the view settings.`);
+  if(navigator.clipboard?.writeText)navigator.clipboard.writeText(code).then(done,()=>prompt('Copy this debug code:',code));
+  else prompt('Copy this debug code:',code);
 }
 // Paste a share LINK or a bare code into the running planner.
 function importSharedCode(){
@@ -4177,22 +4196,43 @@ function loadSharedPayload(code){
   try{ payload=JSON.parse(b64u.dec(code)); }catch{ alert('Could not read that shared plan.'); return false; }
   const q=sanitizeSharedQuery(payload?.q);
   if(!q)return false;
-  const sharedOff=Array.isArray(payload?.t)
-    ? payload.t.filter(id=>typeof id==='string'&&/^[A-Za-z0-9_-]+$/.test(id)).slice(0,800)
-    : null;
+  const idOk=id=>typeof id==='string'&&/^[A-Za-z0-9_-]+$/.test(id);
+  const sharedOff=Array.isArray(payload?.t)?payload.t.filter(idOk).slice(0,800):null;
+  // Diff format (debug codes): on/off relative to the sample's bundle defaults.
+  const sharedDiff=(payload.d&&typeof payload.d==='object')?{
+    on:(Array.isArray(payload.d.on)?payload.d.on:[]).filter(idOk).slice(0,800),
+    off:(Array.isArray(payload.d.off)?payload.d.off:[]).filter(idOk).slice(0,800)
+  }:null;
   const sharedTier=(typeof payload.tier==='string'&&/^[A-Za-z0-9_-]+$/.test(payload.tier))?payload.tier:null;
   const view=(payload.view&&typeof payload.view==='object')?payload.view:{};
   const vBelt=view.belt==='ortho'?'ortho':view.belt==='curve'?'curve':null;
   const vLayout=view.layout==='machine'?'machine':view.layout==='depth'?'depth':null;
   const vSplit=isFinite(parseInt(view.split,10))?Math.min(5,Math.max(1,parseInt(view.split,10))):null;
-  const apply=()=>{
+  const wantSample=typeof payload.s==='string'?payload.s:null;
+  const apply=async()=>{
     const notes=[];
-    if(sharedOff){
-      const next={}; sharedOff.forEach(id=>{next[id]=false;});
+    const commit=(next)=>{
       const keys=new Set([...Object.keys(recToggles),...Object.keys(next)]);
       let changed=0; keys.forEach(k=>{ if((recToggles[k]===false)!==(next[k]===false))changed++; });
       recToggles=next; // saveState() below persists it onto the active profile
-      if(changed){renderPlannerControls();notes.push(`${changed} alternate recipe${changed>1?'s':''}`);}
+      if(changed){renderPlannerControls();notes.push(`${changed} recipe toggle${changed>1?'s':''}`);}
+    };
+    if(sharedOff){
+      const next={}; sharedOff.forEach(id=>{next[id]=false;});
+      commit(next);
+    } else if(sharedDiff){
+      // Rebuild the sample's bundle default off-set, then apply the diff — so
+      // the code reproduces the sender's toggles regardless of what the opener
+      // had. Falls back to the current toggles if the bundle can't be fetched.
+      let base={};
+      if(wantSample){
+        try{ const b=await (await fetch(`profiles/${encodeURIComponent(wantSample)}.json`)).json();
+          Object.entries(b.recToggles||{}).forEach(([k,v])=>{if(v===false)base[k]=false;}); }
+        catch{ base=Object.fromEntries(Object.keys(recToggles).filter(k=>recToggles[k]===false).map(k=>[k,false])); }
+      }
+      sharedDiff.off.forEach(id=>{base[id]=false;});
+      sharedDiff.on.forEach(id=>{delete base[id];});
+      commit(base);
     }
     // Research tier changes what's available, so the plan reproduces only with
     // it applied — it becomes the profile's unlocked tier (like the toggles).
@@ -4214,7 +4254,6 @@ function loadSharedPayload(code){
     if(restorePlannerQuery())runPlanner();
     if(notes.length)setTimeout(()=>alert(`This plan set ${notes.join(' and ')} to match the setup it was built on — see Recipe Toggles / the tier selector to review.`),60);
   };
-  const wantSample=typeof payload.s==='string'?payload.s:null;
   const wantName=typeof payload.n==='string'?payload.n:null;
   let prof=(wantSample&&profiles.find(x=>x.sample===wantSample))||(wantName&&profiles.find(x=>x.name===wantName))||null;
   if(prof){
@@ -4759,7 +4798,11 @@ function renderPlanBody(targetIds, nodes, rawNeeds, topHtml, el){
         <button class="bb bsm" style="padding:2px 7px;min-width:46px" id="fz-pct" onclick="flowZoomReset()" title="Reset to 100%">100%</button>
         <button class="bb bsm" style="padding:2px 9px" onclick="flowZoomBy(1.25)" title="Zoom in">+</button>
         <button class="bb bsm" style="padding:2px 9px" onclick="flowZoomFit()" title="Scale the whole diagram to the card width">Fit</button>
-      </span></div>${buildFlowSVG(targetIds,nodes,rawNeeds)}</div>
+      </span></div>${buildFlowSVG(targetIds,nodes,rawNeeds)}
+      <div style="margin-top:8px;text-align:right">
+        <button class="bb bsm" style="padding:2px 9px;color:var(--dim);font-size:11px" onclick="copyDebugCode()"
+          title="Copy a compact code that reproduces this exact screen (plan, recipes, tier and view) — paste it to support so they see what you see">🐞 Copy debug code</button>
+      </div></div>
   </div>`;
   applyFlowZoom();
 }
