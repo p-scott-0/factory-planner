@@ -1,6 +1,6 @@
 {
  "name": "Satisfactory",
- "version": 9,
+ "version": 10,
  "powerExponent": 1.321928,
  "researchTiers": [
   {
@@ -6008,7 +6008,7 @@
    "id": "res-alien-power-matrix",
    "name": "Alien Power Matrix",
    "categoryId": "cat-nuclear",
-   "researchTierId": "rt0",
+   "researchTierId": "rt9",
    "recipes": [
     {
      "id": "rec-alien-power-matrix",
@@ -6234,7 +6234,7 @@
    "id": "res-black-powder",
    "name": "Black Powder",
    "categoryId": "cat-ammo",
-   "researchTierId": "rt3",
+   "researchTierId": "rt5",
    "recipes": [
     {
      "id": "rec-alt-fine-black-powder",
@@ -6277,7 +6277,7 @@
    "id": "res-cluster-nobelisk",
    "name": "Cluster Nobelisk",
    "categoryId": "cat-ammo",
-   "researchTierId": "rt3",
+   "researchTierId": "rt5",
    "recipes": [
     {
      "id": "rec-cluster-nobelisk",
@@ -6303,7 +6303,7 @@
    "id": "res-dark-matter-crystal",
    "name": "Dark Matter Crystal",
    "categoryId": "cat-quantum",
-   "researchTierId": "rt0",
+   "researchTierId": "rt9",
    "recipes": [
     {
      "id": "rec-alt-dark-matter-crystallization",
@@ -6382,7 +6382,7 @@
    "id": "res-diamonds",
    "name": "Diamonds",
    "categoryId": "cat-quantum",
-   "researchTierId": "rt0",
+   "researchTierId": "rt8",
    "recipes": [
     {
      "id": "rec-alt-cloudy-diamonds",
@@ -6490,7 +6490,7 @@
    "id": "res-empty-canister",
    "name": "Empty Canister",
    "categoryId": "cat-packaged",
-   "researchTierId": "rt0",
+   "researchTierId": "rt5",
    "recipes": [
     {
      "id": "rec-alt-coated-iron-canister",
@@ -6582,7 +6582,7 @@
    "id": "res-explosive-rebar",
    "name": "Explosive Rebar",
    "categoryId": "cat-ammo",
-   "researchTierId": "rt3",
+   "researchTierId": "rt5",
    "recipes": [
     {
      "id": "rec-explosive-rebar",
@@ -6807,7 +6807,7 @@
    "id": "res-gas-filter",
    "name": "Gas Filter",
    "categoryId": "cat-ammo",
-   "researchTierId": "rt3",
+   "researchTierId": "rt5",
    "recipes": [
     {
      "id": "rec-gas-filter",
@@ -6837,7 +6837,7 @@
    "id": "res-gas-nobelisk",
    "name": "Gas Nobelisk",
    "categoryId": "cat-ammo",
-   "researchTierId": "rt3",
+   "researchTierId": "rt5",
    "recipes": [
     {
      "id": "rec-gas-nobelisk",
@@ -6881,7 +6881,7 @@
    "id": "res-homing-rifle-ammo",
    "name": "Homing Rifle Ammo",
    "categoryId": "cat-ammo",
-   "researchTierId": "rt3",
+   "researchTierId": "rt7",
    "recipes": [
     {
      "id": "rec-homing-rifle-ammo",
@@ -7063,7 +7063,7 @@
    "id": "res-nobelisk",
    "name": "Nobelisk",
    "categoryId": "cat-ammo",
-   "researchTierId": "rt3",
+   "researchTierId": "rt5",
    "recipes": [
     {
      "id": "rec-nobelisk",
@@ -7089,7 +7089,7 @@
    "id": "res-nuke-nobelisk",
    "name": "Nuke Nobelisk",
    "categoryId": "cat-ammo",
-   "researchTierId": "rt3",
+   "researchTierId": "rt8",
    "recipes": [
     {
      "id": "rec-nuke-nobelisk",
@@ -7149,7 +7149,7 @@
    "id": "res-packaged-fuel",
    "name": "Packaged Fuel",
    "categoryId": "cat-packaged",
-   "researchTierId": "rt0",
+   "researchTierId": "rt5",
    "recipes": [
     {
      "id": "rec-alt-diluted-packaged-fuel",
@@ -7218,7 +7218,7 @@
    "id": "res-packaged-ionized-fuel",
    "name": "Packaged Ionized Fuel",
    "categoryId": "cat-packaged",
-   "researchTierId": "rt3",
+   "researchTierId": "rt8",
    "recipes": [
     {
      "id": "rec-packaged-ionized-fuel",
@@ -7348,7 +7348,7 @@
    "id": "res-packaged-rocket-fuel",
    "name": "Packaged Rocket Fuel",
    "categoryId": "cat-packaged",
-   "researchTierId": "rt3",
+   "researchTierId": "rt8",
    "recipes": [
     {
      "id": "rec-packaged-rocket-fuel",
@@ -7400,7 +7400,7 @@
    "id": "res-packaged-turbofuel",
    "name": "Packaged Turbofuel",
    "categoryId": "cat-packaged",
-   "researchTierId": "rt0",
+   "researchTierId": "rt6",
    "recipes": [
     {
      "id": "rec-packaged-turbofuel",
@@ -7452,7 +7452,7 @@
    "id": "res-portable-miner",
    "name": "Portable Miner",
    "categoryId": "cat-ammo",
-   "researchTierId": "rt0",
+   "researchTierId": "rt3",
    "recipes": [
     {
      "id": "rec-alt-automated-miner",
@@ -7478,7 +7478,7 @@
    "id": "res-pulse-nobelisk",
    "name": "Pulse Nobelisk",
    "categoryId": "cat-ammo",
-   "researchTierId": "rt3",
+   "researchTierId": "rt5",
    "recipes": [
     {
      "id": "rec-pulse-nobelisk",
@@ -7504,7 +7504,7 @@
    "id": "res-reanimated-sam",
    "name": "Reanimated SAM",
    "categoryId": "cat-quantum",
-   "researchTierId": "rt0",
+   "researchTierId": "rt9",
    "recipes": [
     {
      "id": "rec-reanimated-sam",
@@ -7526,7 +7526,7 @@
    "id": "res-rifle-ammo",
    "name": "Rifle Ammo",
    "categoryId": "cat-ammo",
-   "researchTierId": "rt3",
+   "researchTierId": "rt5",
    "recipes": [
     {
      "id": "rec-rifle-ammo",
@@ -7569,7 +7569,7 @@
    "id": "res-sam-fluctuator",
    "name": "SAM Fluctuator",
    "categoryId": "cat-quantum",
-   "researchTierId": "rt0",
+   "researchTierId": "rt9",
    "recipes": [
     {
      "id": "rec-sam-fluctuator",
@@ -7599,7 +7599,7 @@
    "id": "res-shatter-rebar",
    "name": "Shatter Rebar",
    "categoryId": "cat-ammo",
-   "researchTierId": "rt3",
+   "researchTierId": "rt4",
    "recipes": [
     {
      "id": "rec-shatter-rebar",
@@ -7659,7 +7659,7 @@
    "id": "res-smokeless-powder",
    "name": "Smokeless Powder",
    "categoryId": "cat-ammo",
-   "researchTierId": "rt3",
+   "researchTierId": "rt5",
    "recipes": [
     {
      "id": "rec-smokeless-powder",
@@ -7725,7 +7725,7 @@
    "id": "res-stun-rebar",
    "name": "Stun Rebar",
    "categoryId": "cat-ammo",
-   "researchTierId": "rt3",
+   "researchTierId": "rt5",
    "recipes": [
     {
      "id": "rec-stun-rebar",
@@ -7813,7 +7813,7 @@
    "id": "res-turbo-rifle-ammo",
    "name": "Turbo Rifle Ammo",
    "categoryId": "cat-ammo",
-   "researchTierId": "rt3",
+   "researchTierId": "rt7",
    "recipes": [
     {
      "id": "rec-turbo-rifle-ammo",
