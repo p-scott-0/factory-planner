@@ -546,7 +546,18 @@ body.sample-locked .lock-hide{display:none!important}
     <div id="pl-rec-rows" style="display:none;margin-top:12px"></div>
   </div>
 
-  <button class="ba" onclick="runPlanner()">Calculate</button>
+  <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+    <button class="ba" onclick="runPlanner()">Calculate</button>
+    <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--dim);cursor:pointer" title="Group the flow diagram into one column per machine type (all Constructors together, then Assemblers, …) instead of by production step. Purely visual.">
+      <input type="checkbox" id="fl-machine" style="width:auto" onchange="setFlowLayout(this.checked)"> Machine columns
+    </label>
+    <span id="fl-split-wrap" style="display:none;align-items:center;gap:6px;font-size:11px;color:var(--dim)">
+      <span>1 col</span>
+      <input type="range" id="fl-split" min="1" max="5" step="1" style="width:88px" oninput="setFlowSplit(this.value)"
+        title="How many columns a single machine type may split into to reduce overlap — left keeps each type to one column, right allows more splitting.">
+      <span>split</span>
+    </span>
+  </div>
   <div id="pl-results"></div>
 </div>
 </div>
@@ -652,6 +663,11 @@ let maxPipeTierId = null; // planner cap on pipe tier (null = fastest unlocked)
 let blueprints    = [];  // saved layouts: [{id,name,category,instances,belts}]
 let selTiers      = {};  // machineId → tierId
 let rateUnit      = localStorage.getItem('fp_rateunit')==='s'?'s':'m'; // global display unit
+// Flow-diagram layout: 'depth' (default — columns by production step) or
+// 'machine' (one machine type per column). Global VIEW preference (persists,
+// never part of a plan/share). flowSplit = max columns a machine type may span.
+let flowLayoutMode= localStorage.getItem('fp_flowlayout')==='machine'?'machine':'depth';
+let flowSplit     = Math.min(5,Math.max(1,parseInt(localStorage.getItem('fp_flowsplit'),10)||2));
 const catState    = {};  // catId → true=expanded (ephemeral)
 let planMode      = 'target';
 let lastPlan      = null;   // most recent planner result, for "Build in Layout"
@@ -678,7 +694,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.27';
+const APP_VERSION = '1.0.28';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -3805,6 +3821,7 @@ function mergeTargetNodes(results){
 }
 
 function renderMultiTargetResults(targets, results, el){
+  lastRenderArgs={targets,results}; // so the layout toggle/slider can re-draw without recomputing
   let top='';
   // The byproduct-crediting fixpoint normally settles in a pass or two; if it
   // hit the iteration cap without stabilising (a pathological feedback loop in
@@ -4185,6 +4202,84 @@ function resetBuilt(){
   document.querySelectorAll('#pl-results .fnode.built').forEach(g=>g.classList.remove('built'));
   const pl=activePlan(); if(pl&&pl.q)pl.q.built=[];
   saveState();
+}
+
+// ── Flow-diagram layout toggle (global view preference) ──
+// Switching modes / the split slider only RE-DRAWS the diagram from the last
+// computed results (renderMultiTargetResults re-formats + re-lays-out; it never
+// re-runs computeChain), so it's instant and changes nothing the plan computes.
+let lastRenderArgs=null;
+function redrawFlow(){
+  const el=document.getElementById('pl-results');
+  if(lastRenderArgs&&el&&el.querySelector('.flow-card'))
+    renderMultiTargetResults(lastRenderArgs.targets,lastRenderArgs.results,el);
+}
+function syncFlowLayoutUI(){
+  const cb=document.getElementById('fl-machine'); if(cb)cb.checked=flowLayoutMode==='machine';
+  const sl=document.getElementById('fl-split'); if(sl)sl.value=String(flowSplit);
+  const w=document.getElementById('fl-split-wrap'); if(w)w.style.display=flowLayoutMode==='machine'?'inline-flex':'none';
+}
+function setFlowLayout(on){
+  flowLayoutMode=on?'machine':'depth';
+  localStorage.setItem('fp_flowlayout',flowLayoutMode);
+  syncFlowLayoutUI();
+  redrawFlow();
+}
+function setFlowSplit(v){
+  flowSplit=Math.min(5,Math.max(1,parseInt(v,10)||2));
+  localStorage.setItem('fp_flowsplit',String(flowSplit));
+  if(flowLayoutMode==='machine')redrawFlow();
+}
+// Machine-column layout: assign each stage a column so a column holds only ONE
+// machine type. Column ORDER follows first appearance from the inputs (a type's
+// mean natural depth — deeper = more upstream = further left), and a type may
+// span up to `cap` adjacent columns, split by its own internal producer→consumer
+// chain (Constructor→Constructor reads left→right) or, with none, by height.
+// Returns a dc map in stageDepths' convention (higher = further left).
+function machineDepths(nodes, natDc, cap){
+  const HEIGHT=11;
+  const byMach={};
+  nodes.forEach(n=>{ const k=n.rec.machineId||'__none'; (byMach[k]=byMach[k]||[]).push(n); });
+  // Order left→right by FIRST appearance from the inputs: a type's most-
+  // upstream instance (max natural depth) decides — so Miners (which sit at the
+  // raws, deepest) are hard-left, then Smelters, Constructors, … out to the
+  // machine that makes the target. Mean depth then name break ties.
+  const depthKey=arr=>{let mx=-Infinity,sum=0;arr.forEach(n=>{const d=natDc[n.rec.id];if(d>mx)mx=d;sum+=d;});return{mx,mean:sum/arr.length};};
+  const types=Object.keys(byMach).sort((a,b)=>{
+    const ka=depthKey(byMach[a]), kb=depthKey(byMach[b]);
+    return (kb.mx-ka.mx) || (kb.mean-ka.mean) || String(a).localeCompare(String(b));
+  });
+  const sub={}; // recId → global column index (0 = leftmost)
+  let col=0;
+  types.forEach(k=>{
+    const grp=byMach[k];
+    // internal producer→consumer levels among SAME-type stages only
+    const level={};
+    const lvl=recId=>{
+      if(level[recId]!=null)return level[recId];
+      level[recId]=0; // guard cycles
+      const n=grp.find(x=>x.rec.id===recId);
+      let mx=-1;
+      n.rec.inputs.forEach(inp=>grp.forEach(p=>{
+        if(p.rec.id!==recId&&p.resId===inp.resourceId){const d=lvl(p.rec.id);if(d>mx)mx=d;}
+      }));
+      return level[recId]=mx+1;
+    };
+    grp.forEach(n=>lvl(n.rec.id));
+    const L=Math.max(1,...grp.map(n=>level[n.rec.id]+1));
+    const want=L>1?L:Math.ceil(grp.length/HEIGHT); // deps split by level, else split tall columns
+    const K=Math.max(1,Math.min(cap,want));
+    grp.forEach((n,i)=>{
+      const s=(L>1)?Math.min(K-1,Math.floor(level[n.rec.id]*K/L))
+                   :Math.min(K-1,Math.floor(i*K/grp.length));
+      sub[n.rec.id]=col+s; // subcol 0 = leftmost of this type's block
+    });
+    col+=K;
+  });
+  const totalCols=Math.max(1,col);
+  const dc={};
+  nodes.forEach(n=>{ dc[n.rec.id]=(totalCols-1)-sub[n.rec.id]; }); // leftmost block → maxD
+  return dc;
 }
 
 // ── Per-stage overclock / per-resource pin / raw caps (results controls) ──
@@ -5021,15 +5116,25 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
   const primaryBy={};
   nodes.forEach(n=>{ (primaryBy[n.resId]=primaryBy[n.resId]||[]).push(n); });
 
-  const dc=stageDepths(nodes,byproductSupplyLinks(nodes,rawNeeds));
-  const maxD=Math.max(...nodes.map(n=>dc[n.rec.id]));
-  // Pull every input stage (a recipe with no inputs of its own — miners,
-  // extractors) into the single leftmost column. By depth alone they'd scatter
-  // across columns according to how deep each one's consumer happens to sit;
-  // grouping them makes "everything this output needs" read as one column at
-  // the start. maxD is already the depth of the deepest such stage, so this
-  // never widens the diagram.
-  nodes.forEach(n=>{ if(!n.rec.inputs.length)dc[n.rec.id]=maxD; });
+  const natDc=stageDepths(nodes,byproductSupplyLinks(nodes,rawNeeds));
+  let dc, maxD;
+  if(flowLayoutMode==='machine'){
+    // Machine-column mode: one machine type per column (see machineDepths).
+    // The main/secondary Y-banding below is unaffected, so a secondary-target
+    // Constructor still sits under all the other Constructors, just in the band.
+    dc=machineDepths(nodes,natDc,flowSplit);
+    maxD=Math.max(...nodes.map(n=>dc[n.rec.id]));
+  } else {
+    dc=natDc;
+    maxD=Math.max(...nodes.map(n=>dc[n.rec.id]));
+    // Pull every input stage (a recipe with no inputs of its own — miners,
+    // extractors) into the single leftmost column. By depth alone they'd scatter
+    // across columns according to how deep each one's consumer happens to sit;
+    // grouping them makes "everything this output needs" read as one column at
+    // the start. maxD is already the depth of the deepest such stage, so this
+    // never widens the diagram.
+    nodes.forEach(n=>{ if(!n.rec.inputs.length)dc[n.rec.id]=maxD; });
+  }
 
   // ── Group by depth, then order each column to minimise belt crossings ──
   // Start from a deterministic category/name order (so equal-crossing layouts
@@ -6983,6 +7088,7 @@ reloadPowerExpInput();
 if(!tryLoadSharedPlan()){
   if(restorePlannerQuery())runPlanner();
 }
+syncFlowLayoutUI(); // reflect the saved machine-columns preference in its controls
 
 // Best-effort refresh of any locked sample profiles from their bundled copy
 // (self-update). Runs after the UI is up so it never blocks first paint.
