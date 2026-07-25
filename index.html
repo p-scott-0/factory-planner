@@ -717,7 +717,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.36';
+const APP_VERSION = '1.0.37';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -5446,7 +5446,7 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
   // and runs straight from there into the machine. Plain belt-only gaps stay
   // narrow instead of paying the byproduct width everywhere.
   const pillWOf=t=>t.length*5.4+8;
-  const maxPill={}, laneInto={}, boxesRightOf={};
+  const maxPill={}, laneInto={}, boxesRightOf={}, vGap={};
   nodes.forEach(n=>{ if((n.rec.byproducts||[]).length)boxesRightOf[dc[n.rec.id]]=true; });
   nodes.forEach(consumer=>{
     const dcc=dc[consumer.rec.id];
@@ -5462,6 +5462,20 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
       // column left) AND backward returns (source at or right of the consumer)
       if(srcDepths.some(d0=>d0-dcc>1||d0<=dcc))laneInto[dcc]=true;
       else if(!srcDepths.length&&rawNeeds[R]!=null&&dcc<maxD)laneInto[dcc]=true;
+      // Count the VERTICAL belt segments each gap will have to hold, so the gap
+      // can be widened to fit them all on their own track. Without this a dense
+      // gap compressed its tracks until belts merged: every long edge puts a
+      // ramp in its source's right gap and a descent in its destination's left
+      // gap, a backward edge the same, and a direct edge one riser.
+      const bump=g=>{ if(g>=0&&g<maxD)vGap[g]=(vGap[g]||0)+1; };
+      const seen=new Set();
+      srcDepths.forEach(d0=>{
+        if(seen.has(d0))return; seen.add(d0);
+        if(d0-dcc>1){bump(d0-1);bump(dcc);}      // long: ramp + descent
+        else if(d0<=dcc){bump(d0-1);bump(dcc);}  // backward: hook + rise
+        else bump(dcc);                          // adjacent: one riser
+      });
+      if(!srcDepths.length&&rawNeeds[R]!=null&&dcc<maxD)bump(dcc);
     });
   });
   const LEADL={}; // straight lead-in for lane belts entering column d
@@ -5471,6 +5485,11 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
     const boxes=boxesRightOf[d+1];
     let g=boxes?196:128;
     if(laneInto[d])g=Math.max(g,(boxes?BY_GAP+BW+10:0)+LEADL[d]+82);
+    // Widen for however many verticals live here: each needs its own ~12px
+    // track plus the lead-in and edge margins. Capped so one very busy gap
+    // can't blow the diagram out; past the cap the tracks compress as before.
+    const nV=vGap[d]||0;
+    if(nV>1)g=Math.max(g,Math.min(560,(boxes?BY_GAP+BW+10:0)+LEADL[d]+34+nV*12));
     gapOf[d]=g;
   }
   const rawZone=rawEntries.length?RW+128:0;
@@ -5716,12 +5735,46 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
     const fwd=fwdLong;
     const topP=fwd.filter(e=>e.dstGroup!=='secondary');
     const gutP=fwd.filter(e=>e.dstGroup==='secondary');
-    topP.sort((a,b)=>((b.tx-b.fx)-(a.tx-a.fx))||(a.tyBase-b.tyBase)||String(a.resId).localeCompare(String(b.resId)));
+    // Span is measured in COLUMNS, not pixels: pixel spans differ by a few px
+    // purely because of where each belt's descent was allocated, which made the
+    // order between two belts to the SAME machine effectively arbitrary. With
+    // column-spans those tie, and the tie-break that matters takes over —
+    // SOURCE height. Two belts climbing out of the same column must reach lanes
+    // in the same order as their sources sit, or the lower source's tall climb
+    // cuts the higher source's lane run (reported: Concrete from the lower
+    // Constructor took a lane above Iron Plate's and crossed it). Everything
+    // downstream (entry slots, descents) follows lane order, so this stays
+    // consistent.
+    const colSpan=e=>(e.srcD??maxD)-e.dstD;
+    topP.sort((a,b)=>(colSpan(b)-colSpan(a))||(a.fyBase-b.fyBase)||(a.tyBase-b.tyBase)||String(a.resId).localeCompare(String(b.resId)));
     topP.forEach((e,i)=>{e.lane={y:aboveLaneBase+i*LANE_STEP,i};});
     aboveLaneI=topP.length; // retry sizing reads these totals
     gutP.sort((a,b)=>((a.tx-a.fx)-(b.tx-b.fx))||(b.tyBase-a.tyBase)||String(a.resId).localeCompare(String(b.resId)));
     gutP.forEach((e,i)=>{e.lane={y:secBandTop-14-i*LANE_STEP,i};});
     secLaneI=gutP.length;
+    // Raw boxes are stacked in whatever order rawNeeds happened to list them,
+    // which is independent of the lane each one's belt climbs to — so a box
+    // sitting LOW could feed a HIGH lane and its climb would cut every belt
+    // leaving the boxes above it (reported: Electromagnetic Control Rod's box
+    // below Heat Sink's, but its lane above). Re-stack the boxes in lane order
+    // (lane assignment doesn't depend on raw-box y, so this can't feed back)
+    // and move the already-built edges with them.
+    const rawLane={};
+    edgeList.forEach(e=>{ if(e.srcRaw&&e.lane){
+      const k=e.fromKey; if(rawLane[k]==null||e.lane.y<rawLane[k])rawLane[k]=e.lane.y; }});
+    const rawIds=rawEntries.map(([rid])=>rid);
+    if(rawIds.length>1){
+      const ordered=rawIds.slice().sort((a,b)=>
+        ((rawLane['r'+a]??1e6)-(rawLane['r'+b]??1e6))||rawIds.indexOf(a)-rawIds.indexOf(b));
+      const newY={};
+      ordered.forEach((rid,i)=>{newY[rid]=nodeTop+i*(RH+VGAP);});
+      rawIds.forEach(rid=>{
+        const dy=newY[rid]-posRaw[rid].y;
+        if(!dy)return;
+        posRaw[rid].y=newY[rid];
+        edgeList.forEach(e=>{ if(e.srcRaw&&e.fromKey==='r'+rid)e.fyBase+=dy; });
+      });
+    }
   }
 
   // Exit points: spread along the producer's right edge. Highway-bound belts
@@ -5792,10 +5845,16 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
       const g=+gk, list=gapV[g];
       const leftEdge=colX(g+1)+NW, rightEdge=colX(g), lead=LEADL[g]??46;
       const lo=leftEdge+16, hi=Math.max(lo+2,rightEdge-lead-8);
+      // Ramp order keys on the LANE the belt is heading for, not its exit
+      // height: the climb runs all the way up to its lane, so it's the lane
+      // that decides which climbs the horizontal run has to clear. A belt
+      // aiming at a higher lane must leave first (leftmost), or the taller
+      // climb beside it cuts its lane run. Gutter descents invert; backward
+      // hooks (no lane) rank by exit height, bottom-most leftmost.
       const up=it=>it.e.lane&&it.e.lane.y<it.e.y1;      // ramp climbs to a lane above
+      const key=it=>it.e.lane?(up(it)?it.e.lane.y:-it.e.lane.y):-it.e.y1;
       const Ls=list.filter(it=>it.side==='L'||it.side==='Lb')
-        .sort((a,b)=>(a.side==='L'&&up(a)?0:1)-(b.side==='L'&&up(b)?0:1)
-          ||((a.side==='L'&&up(a))?a.y-b.y:b.y-a.y));
+        .sort((a,b)=>((a.side==='L'&&up(a)?0:1)-(b.side==='L'&&up(b)?0:1))||(key(a)-key(b)));
       const Rd=list.filter(it=>it.side==='R').sort((a,b)=>a.y-b.y);  // descents: top slot rightmost
       const Ru=list.filter(it=>it.side==='Rb').sort((a,b)=>b.y-a.y); // rises: bottom slot rightmost
       const Rs=Rd.concat(Ru);
@@ -5820,6 +5879,19 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
       const midLo=Math.max(lo+Ls.length*sp,cur), midHi=hi-Rs.length*sp;
       Ms.forEach((it,i)=>setX(it, Ms.length>1?midLo+(midHi-midLo)*(i+1)/(Ms.length+1):(midLo+midHi)/2));
     });
+    // Return lanes, pre-assigned in a deliberate order instead of first-come.
+    // Belts drop to a return lane and run LEFT, so the one hooking furthest
+    // LEFT must take the CLOSEST (shallowest) lane — otherwise a belt that
+    // dropped further right runs back underneath it and they cross. Hooks are
+    // ordered bottom-exit-leftmost above, so this is "bottom output → nearest
+    // lane" (reported: three Water byproduct returns where the TOP output took
+    // the closest lane and crossed the other two).
+    backLong.slice()
+      .sort((a,b)=>((a.x1+(a.sOutPlan??0))-(b.x1+(b.sOutPlan??0)))||(b.y1-a.y1))
+      .forEach(e=>{
+        const leadB=LEADL[e.dstD]??46;
+        e.backLane=backLane(e.x2-leadB-(e.sInPlan??20), e.x1+(e.sOutPlan??20));
+      });
   }
 
   // ── Edge renderer ──
@@ -5864,7 +5936,7 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
         // pill, then runs straight in.
         const leadB=LEADL[e.dstD]??46;
         const sIn=e.sInPlan??Math.min(s,Math.max(14,((gapOf[e.dstD]??196)-(boxesRightOf[e.dstD+1]?BY_GAP+BW+10:0)-leadB-8)));
-        const L=backLane(x2-leadB-sIn,x1+s);
+        const L=e.backLane??backLane(x2-leadB-sIn,x1+s); // pre-assigned in lane planning
         laneY=L.y;
         path=beltStyle==='ortho'
           ?orthoPath([[x1,y1],[x1+s,y1],[x1+s,laneY],[x2-leadB-sIn,laneY],[x2-leadB-sIn,y2],[x2-7,y2]])
@@ -5927,9 +5999,17 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
           ?orthoPath([[x1,y1],[x1+14,y1],[x1+14,yD],[bx-14,yD],[bx-14,y2],[x2-7,y2]])
           :`M${x1},${y1} C${x1+s},${y1} ${x1+s},${yD} ${x1+s*2},${yD} L${bx-s*2},${yD} C${bx-s},${yD} ${bx-s},${y2} ${bx},${y2} L${x2-7},${y2}`;
       } else if(beltStyle==='ortho'){
-        // riserX (allocated per gap above) keeps parallel risers apart; the box
-        // dodge still forces early/late when a byproduct box is in the way.
-        const xT=Math.max(x1+6,Math.min(bx-6,mode==='early'?x1+18:mode==='late'?bx-18:(e.riserX??x1+span*0.5)));
+        // Keep the ALLOCATED riser track (which is what keeps this belt clear
+        // of the column's descents) and only CLAMP it into the clear strip the
+        // box dodge needs — before the boxes for an early dive, after them for
+        // a late one. Snapping to a fixed x1+18 / bx-18 instead threw the belt
+        // back into the descent zone (reported: Non-Fissile Uranium into the
+        // plutonium accelerator, which dodges a byproduct box on the way).
+        let lo=x1+6, hi=bx-6;
+        if(mode==='early')hi=Math.min(hi,Math.min(...obs.map(b=>b.x))-6);
+        else if(mode==='late')lo=Math.max(lo,Math.max(...obs.map(b=>b.x+BW))+6);
+        if(hi<lo)hi=lo;
+        const xT=Math.max(lo,Math.min(hi,e.riserX??(mode==='early'?x1+18:mode==='late'?bx-18:x1+span*0.5)));
         path=orthoPath(y1===y2?[[x1,y1],[x2-7,y2]]:[[x1,y1],[xT,y1],[xT,y2],[x2-7,y2]]);
       } else {
         path=`M${x1},${y1} C${x1+dx1},${y1} ${bx-dx2},${y2} ${bx},${y2} L${x2-7},${y2}`;
@@ -5979,8 +6059,15 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
     const p=posRaw[rid];
     const rawBelt=beltLabel(rate,rid);
     const note=rawSourceNote(rid);
+    // Long names ("Electromagnetic Control Rod") overflow the box — shrink the
+    // font toward 8px and ellipsise past what even that fits, same as machine
+    // titles. Generic: sized from the name length, no per-name special cases.
+    let rawNm=rname(rid);
+    let rawFs=Math.max(8,Math.min(12,(RW-12)/(rawNm.length*0.56)));
+    const rawMax=Math.floor((RW-12)/(8*0.56));
+    if(rawNm.length>rawMax)rawNm=rawNm.slice(0,rawMax-1)+'…';
     raws+=`<rect x="${p.x}" y="${p.y}" width="${RW}" height="${RH}" rx="6" fill="#111a11" stroke="${note?'#8a6a20':resColor(rid,45,40)}" stroke-width="1.5" stroke-dasharray="5 3"/>
-      <text x="${p.x+RW/2}" y="${p.y+18}" text-anchor="middle" font-size="12" font-weight="600" fill="${resColor(rid,55,68)}">${esc(rname(rid))}</text>
+      <text x="${p.x+RW/2}" y="${p.y+18}" text-anchor="middle" font-size="${rawFs.toFixed(1)}" font-weight="600" fill="${resColor(rid,55,68)}">${esc(rawNm)}</text>
       <line x1="${p.x+8}" y1="${p.y+24}" x2="${p.x+RW-8}" y2="${p.y+24}" stroke="#2a4a2a" stroke-width="1"/>
       <text x="${p.x+RW/2}" y="${p.y+38}" text-anchor="middle" font-size="10" fill="#3a7a4a">${rateStr(rid,rate,3)}</text>
       ${note?`<text x="${p.x+RW/2}" y="${p.y+51}" text-anchor="middle" font-size="8.5" fill="#c0a040">${esc(note)}</text>`
