@@ -717,7 +717,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.38';
+const APP_VERSION = '1.0.39';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -3363,7 +3363,27 @@ function computeFromInputsOnce(targetResId, inputMap){
 // The passes merge into one plan — a resource produced two different ways (Fuel
 // from HOR and Fuel from crude) becomes two stages, and an input consumed both
 // as raw supply and re-made from another input shows both sources honestly.
+// From-Inputs entry point: greedy plan first, then the global route-mix LP on
+// top. The LP can run several routes for one resource at once, which the
+// greedy engine structurally cannot, so it wins whenever it genuinely makes
+// more of the target; anything else (LP unavailable, infeasible, not better)
+// keeps the greedy plan exactly as before. Skipped under the 'cheap'
+// objective, which asks for the cheapest chain rather than the most output.
+let _lpBusy=false; // set while the hill-climb searches, so it isn't paying for an LP per probe
 function computeFromInputs(targetResId, inputMap){
+  const greedy=computeFromInputsGreedy(targetResId,inputMap);
+  if(_lpBusy||plannerObjective==='cheap')return greedy;
+  try{
+    const inputSet=new Set(Object.keys(inputMap));
+    const base=(greedy&&!greedy.error&&isFinite(greedy.achievable)&&greedy.achievable>0)?greedy:null;
+    if(!base)return greedy;
+    const effCap=externalDraw(base.nodes,base.rawNeeds,inputSet)/base.achievable;
+    const lp=planRouteMixLP(targetResId,inputMap,effCap);
+    if(lp&&lp.achievable>base.achievable*(1+1e-6))return lp;
+  }catch(e){ /* solver trouble — the greedy plan still stands */ }
+  return greedy;
+}
+function computeFromInputsGreedy(targetResId, inputMap){
   const ids=Object.keys(inputMap);
   if(ids.length<=1)return computeFromInputsOnce(targetResId,inputMap); // common case, unchanged
   const budget={...inputMap};
@@ -3411,6 +3431,239 @@ function computeFromInputs(targetResId, inputMap){
   });
   return{nodes:order.map(k=>merged[k]),rawNeeds,achievable,grossAchievable,internalUse,
     bottleneckRes:bottlenecks[0]||null,bottlenecks,extras,byproductSurplus,converged};
+}
+
+// ══════════════════════════════════════════════════════
+// GLOBAL ROUTE MIX (linear program)
+// ══════════════════════════════════════════════════════
+// Everything above picks ONE recipe per resource, so it can never run two
+// routes for the same thing side by side. That costs real output: making
+// Plastic from crude, the best plan runs Recycled Plastic on the fuel AND
+// Residual Plastic on the Polymer Resin the oil residue gives off — the
+// single-route engine has to drop one, and the resin piles up unused.
+//
+// A linear program has no such restriction. Every available recipe gets an
+// activation level (machines, continuous); each resource gets a balance row
+// saying production + supply >= consumption; the objective maximises the
+// target. Loops (Recycled Plastic <-> Recycled Rubber) and joint products
+// fall out for free because a recipe's row contributions already include its
+// byproducts, and the solver optimises the whole mix at once.
+//
+// Solved with a plain primal simplex: every right-hand side is a supply
+// amount >= 0, so "build nothing" is a basic feasible starting point and no
+// phase-1 is needed.
+
+// Maximise c·x subject to Ax <= b, x >= 0 (b >= 0). Dense tableau; Bland's
+// rule takes over late so a degenerate problem can't cycle forever.
+function simplexMax(A,b,c,maxIter){
+  const m=A.length, n=c.length, W=n+m+1;
+  if(!m||!n)return{status:'empty',x:new Float64Array(n)};
+  const T=[];
+  for(let i=0;i<m;i++){
+    const row=new Float64Array(W), Ai=A[i];
+    for(let j=0;j<n;j++)row[j]=Ai[j];
+    row[n+i]=1; row[n+m]=b[i];
+    T.push(row);
+  }
+  const obj=new Float64Array(W);
+  for(let j=0;j<n;j++)obj[j]=-c[j];          // minimise -c·x
+  const basis=new Int32Array(m);
+  for(let i=0;i<m;i++)basis[i]=n+i;
+  const cap=maxIter||6000;
+  let it=0;
+  for(;it<cap;it++){
+    const bland=it>cap*0.6;                  // anti-cycling once it drags on
+    let e=-1,best=-1e-9;
+    for(let j=0;j<n+m;j++){
+      if(obj[j]<-1e-9&&bland){e=j;break;}
+      if(obj[j]<best){best=obj[j];e=j;}
+    }
+    if(e<0)break;                            // optimal
+    let l=-1,bestR=Infinity;
+    for(let i=0;i<m;i++){
+      const a=T[i][e];
+      if(a>1e-9){
+        const r=T[i][n+m]/a;
+        if(r<bestR-1e-12||(Math.abs(r-bestR)<=1e-12&&l>=0&&basis[i]<basis[l])){bestR=r;l=i;}
+      }
+    }
+    if(l<0)return{status:'unbounded',x:new Float64Array(n)};
+    const rowl=T[l], piv=rowl[e];
+    for(let j=0;j<W;j++)rowl[j]/=piv;
+    for(let i=0;i<m;i++){
+      if(i===l)continue;
+      const f=T[i][e];
+      if(!f)continue;
+      const row=T[i];
+      for(let j=0;j<W;j++)row[j]-=f*rowl[j];
+    }
+    const f=obj[e];
+    if(f){for(let j=0;j<W;j++)obj[j]-=f*rowl[j];}
+    basis[l]=e;
+  }
+  const x=new Float64Array(n);
+  for(let i=0;i<m;i++)if(basis[i]<n)x[basis[i]]=T[i][n+m];
+  return{status:it>=cap?'maxiter':'optimal',x,iters:it};
+}
+
+// Per-machine flow rates for one recipe, matching computeChain exactly (belt
+// cap, overclock, byproducts) so an LP plan and a chain plan agree.
+function recipeFlows(rec,resId){
+  const ct=effectiveCycleTime(rec);
+  const outAmt=rec.outputAmount??1;
+  const clock=(plannerClocks[rec.id]>0)?Math.min(plannerClocks[rec.id],2.5)
+    :(rec.machineId&&plannerGroupClocks[rec.machineId]>0)?Math.min(plannerGroupClocks[rec.machineId],2.5):1;
+  const fullPerMach=(outAmt/ct)*clock;
+  let perMach=fullPerMach, beltCapped=false;
+  const bm=rec.machineId?machines.find(m=>m.id===rec.machineId):null;
+  const fluidOut=isFluidRes(resId);
+  const outPorts=(bm&&!isPowerRes(resId))?(bm.ports||[]).filter(p=>p.type==='output'&&((p.flow||'item')===(fluidOut?'fluid':'item'))).length:0;
+  const pb=fluidOut?plannerPipes():plannerBelts();
+  if(outPorts>0&&pb.length){
+    const capR=outPorts*pb[pb.length-1].speed;
+    if(capR<fullPerMach-1e-9){perMach=capR;beltCapped=true;}
+  }
+  const capF=perMach/fullPerMach;
+  const net={};                              // resourceId -> net units/sec per machine
+  net[resId]=(net[resId]||0)+perMach;
+  rec.inputs.forEach(i=>{net[i.resourceId]=(net[i.resourceId]||0)-(i.amount/ct)*capF*clock;});
+  (rec.byproducts||[]).forEach(b=>{net[b.resourceId]=(net[b.resourceId]||0)+(b.amount/ct)*capF*clock;});
+  return{net,perMach,fullPerMach,capF,beltCapped,clock};
+}
+
+// Raw-cost-weighted total of everything a plan draws from OUTSIDE the supplied
+// inputs — zero-input stages (mining/extraction) plus anything with no recipe
+// at all. The same measure is applied to the greedy plan and to the LP, so the
+// efficiency bound below compares like with like.
+function externalDraw(nodes,rawNeeds,inputSet){
+  let c=0;
+  (nodes||[]).forEach(n=>{
+    if(n.rec.inputs.length||inputSet.has(n.resId))return;
+    c+=n.exact*(n.perMach??0)*Math.max(rawCostOf(resources.find(r=>r.id===n.resId)||{}),0.001);
+  });
+  Object.entries(rawNeeds||{}).forEach(([id,r])=>{
+    if(inputSet.has(id))return;
+    c+=r*Math.max(rawCostOf(resources.find(x=>x.id===id)||{}),0.001);
+  });
+  return c;
+}
+
+// Build and solve the route-mix LP. `effCap` bounds the external draw per unit
+// of target (taken from the greedy plan), so the solver can't manufacture a
+// bigger number by importing bulk feedstock — the same discipline the
+// hill-climb optimizer uses. Returns a result in computeFromInputs' shape.
+function planRouteMixLP(targetResId,inputMap,effCap){
+  const inputSet=new Set(Object.keys(inputMap));
+  const tRes=resources.find(r=>r.id===targetResId);
+  if(!tRes||!resUnlocked(tRes))return null;
+  // Candidate recipes: available, unlocked, and honouring plain pins. A pinned
+  // BYPRODUCT route (baseRecId@resId) has no LP meaning of its own — the base
+  // recipe already carries the byproduct — so those plans stay with the greedy.
+  const cands=[];
+  for(const res of resources){
+    if(!resUnlocked(res))continue;
+    const pin=plannerPins[res.id];
+    if(pin&&pin.includes('@'))return null;
+    for(const rec of (res.recipes||[])){
+      if(!recipeAvailable(rec))continue;
+      if(pin&&rec.id!==pin)continue;
+      // A supplied resource comes from the supply, never from its own miner —
+      // otherwise the solver mines around the budget the mode is built on.
+      if(!rec.inputs.length&&inputSet.has(res.id))continue;
+      cands.push({rec,resId:res.id,...recipeFlows(rec,res.id)});
+    }
+  }
+  if(!cands.length)return null;
+  // Resources needing an external-supply variable: nothing available produces
+  // them, but a chain may still legitimately need them (reported as extras).
+  const produced=new Set(cands.map(c=>c.resId));
+  cands.forEach(c=>Object.keys(c.net).forEach(id=>{ if(c.net[id]>0)produced.add(id); }));
+  const touched=new Set();
+  cands.forEach(c=>Object.keys(c.net).forEach(id=>touched.add(id)));
+  touched.add(targetResId); inputSet.forEach(id=>touched.add(id));
+  const extIds=[...touched].filter(id=>!produced.has(id)&&!inputSet.has(id));
+  const rows=[...touched];
+  const rowIx={}; rows.forEach((id,i)=>rowIx[id]=i);
+  const nX=cands.length, nE=extIds.length, nVar=nX+nE+1, iT=nVar-1;
+  const A=[],b=[];
+  // Balance: consumption - production - external <= supply   (target adds +T)
+  rows.forEach(id=>{
+    const row=new Float64Array(nVar);
+    cands.forEach((c,j)=>{ const v=c.net[id]; if(v)row[j]=-v; });
+    const ei=extIds.indexOf(id);
+    if(ei>=0)row[nX+ei]=-1;
+    if(id===targetResId)row[iT]=1;
+    A.push(row); b.push(inputMap[id]||0);
+  });
+  // Efficiency: external draw stays proportional to what comes out.
+  const effRow=new Float64Array(nVar);
+  cands.forEach((c,j)=>{
+    if(c.rec.inputs.length||inputSet.has(c.resId))return;
+    effRow[j]=c.perMach*Math.max(rawCostOf(resources.find(r=>r.id===c.resId)||{}),0.001);
+  });
+  extIds.forEach((id,k)=>{ effRow[nX+k]=Math.max(rawCostOf(resources.find(r=>r.id===id)||{}),0.001); });
+  // NO slack here. The hill-climb can afford 5% headroom because it only makes
+  // discrete recipe swaps, but a continuous solver will saturate whatever bound
+  // it is given — with 5% it simply bought 5% more output by importing 5% more
+  // feedstock (nuclear read 79,344 MW instead of 75,000). At exactly the greedy
+  // ratio the LP can always reproduce the greedy plan, so any win it reports is
+  // a genuinely better mix at the same external cost per unit of output.
+  effRow[iT]=-Math.max(effCap,0);
+  A.push(effRow); b.push(0);
+  const c=new Float64Array(nVar); c[iT]=1;
+  const sol=simplexMax(A,b,c,6000);
+  if(sol.status!=='optimal'&&sol.status!=='maxiter')return null;
+  const T=sol.x[iT];
+  if(!isFinite(T)||T<=1e-9)return null;
+  // Materialise the active stages. Tiny activations are solver dust, not machines.
+  const nodes=[];
+  cands.forEach((cd,j)=>{
+    const x=sol.x[j];
+    if(!(x>1e-7)||x*cd.perMach<1e-7)return;
+    nodes.push({rec:cd.rec,exact:x,resId:cd.resId,perMach:cd.perMach,
+      fullPerMach:cd.fullPerMach,capF:cd.capF,beltCapped:cd.beltCapped,clock:cd.clock});
+  });
+  if(!nodes.length)return null;
+  // Net position of every resource, from the activations actually kept.
+  const net={};
+  nodes.forEach(n=>{
+    const fl=recipeFlows(n.rec,n.resId);
+    Object.entries(fl.net).forEach(([id,v])=>{net[id]=(net[id]||0)+v*n.exact;});
+  });
+  const rawNeeds={}, byproductSurplus={};
+  rows.forEach(id=>{
+    const v=net[id]||0;
+    if(id===targetResId)return;
+    if(v<-1e-9)rawNeeds[id]=-v;              // drawn from supply or outside
+    else if(v>1e-9)byproductSurplus[id]=v;   // genuine leftover
+  });
+  const netTarget=(net[targetResId]||0);
+  if(netTarget<=1e-9)return null;
+  // Bottleneck: whichever supplied input the plan uses up completely.
+  let bottleneckRes=null,tight=0;
+  Object.keys(inputMap).forEach(id=>{
+    const used=(rawNeeds[id]||0)/(inputMap[id]||1);
+    if(used>tight){tight=used;bottleneckRes=id;}
+  });
+  // Extras = what it needs beyond the supplied inputs, reported like the
+  // greedy path so the results panel reads the same.
+  const extras={};
+  Object.entries(rawNeeds).forEach(([id,r])=>{
+    if(inputSet.has(id))return;
+    const made=nodes.find(n=>n.resId===id&&!n.rec.inputs.length);
+    const res=resources.find(x=>x.id===id);
+    extras[id]={rate:r,recipeName:made?made.rec.name:null,
+      machineName:made&&made.rec.machineId?mname(made.rec.machineId):null,
+      isAlt:!!res&&!!res.defaultRecipeId&&!!made&&res.defaultRecipeId!==made.rec.id};
+  });
+  let internalUse=0;
+  nodes.forEach(n=>{
+    const ct=effectiveCycleTime(n.rec);
+    n.rec.inputs.forEach(i=>{ if(i.resourceId===targetResId)
+      internalUse+=(i.amount/ct)*n.exact*(n.capF??1)*(n.clock??1); });
+  });
+  return{nodes,rawNeeds,achievable:netTarget,grossAchievable:netTarget+internalUse,internalUse,
+    bottleneckRes,extras,byproductSurplus,converged:true,viaLP:true};
 }
 
 // ══════════════════════════════════════════════════════
@@ -3629,7 +3882,7 @@ function computeFromInputsResultsGreedy(primaryResId, inputMap, secondaryTargets
       Object.entries(res.byproductSurplus||{}).forEach(([id,r])=>{gross[id]=(gross[id]||0)+r;});
       addSurplusToPool(pool,res.byproductSurplus);
       results=[{resId:primaryResId,achievableStyle:true,sourceLabel:'your supplied inputs',nodes:res.nodes,rawNeeds:res.rawNeeds,
-        achievable:res.achievable,grossAchievable:res.grossAchievable,internalUse:res.internalUse,
+        achievable:res.achievable,grossAchievable:res.grossAchievable,internalUse:res.internalUse,viaLP:res.viaLP,
         bottleneckRes:res.bottleneckRes,bottlenecks:res.bottlenecks,extras:res.extras,converged:res.converged}];
     }
     // What the fixed secondaries drew came out of this pass's surplus — the
@@ -3755,6 +4008,7 @@ function optimizeFromInputsMix(primaryResId, inputMap, secondaryTargets, greedy)
   const EVAL_CAP=120, ROUND_CAP=4;
   let evals=0, bestScore=base, incumbent=greedy, accepted=false;
   const current={}; // accepted overrides so far
+  _lpBusy=true; // the hill-climb probes hundreds of plans; keep them greedy-cheap
   try{
     for(let round=0;round<ROUND_CAP&&evals<EVAL_CAP;round++){
       // Recipes the incumbent plan actually uses — forcing a resource to the
@@ -3789,7 +4043,7 @@ function optimizeFromInputsMix(primaryResId, inputMap, secondaryTargets, greedy)
       current[roundBest.resId]=roundBest.rec.id;
       bestScore=roundBest.s; incumbent=roundBest.rs; accepted=true;
     }
-  } finally { plannerAutoPins={}; }
+  } finally { plannerAutoPins={}; _lpBusy=false; }
   if(!accepted)return null;
   incumbent[0].autoMix={gain:bestScore-base,
     mix:Object.entries(current).map(([id,recId])=>{
@@ -3806,6 +4060,11 @@ function computeFromInputsResults(primaryResId, inputMap, secondaryTargets){
   plannerAutoPins={}; // never inherit stale overrides
   const greedy=computeFromInputsResultsGreedy(primaryResId,inputMap,secondaryTargets);
   if(plannerObjective==='cheap')return greedy;
+  // When the primary already came from the route-mix LP there is nothing left
+  // for the hill-climb to find — the LP optimises over every recipe mix at
+  // once, which strictly contains the single-recipe swaps the climb explores —
+  // so skip its ~120 probe plans.
+  if(greedy[0]&&greedy[0].viaLP)return greedy;
   try{
     return optimizeFromInputsMix(primaryResId,inputMap,secondaryTargets,greedy)||greedy;
   }catch(e){ plannerAutoPins={}; return greedy; }
