@@ -717,7 +717,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.37';
+const APP_VERSION = '1.0.38';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -3334,7 +3334,21 @@ function computeFromInputsOnce(targetResId, inputMap){
   });
 
   unpin(); // the optimal-search pin was only for this computation
-  return{nodes,rawNeeds,achievable,bottleneckRes,extras,byproductSurplus,converged};
+  // A production LOOP can eat part of the target inside its own chain: with
+  // Recycled Plastic (needs Rubber) feeding Recycled Rubber (needs Plastic),
+  // the plan is built for a GROSS plastic rate but the rubber stage consumes
+  // a third of it, so only the remainder ever leaves the factory. Report the
+  // NET — that's what you can actually take — and keep the gross for display.
+  // Scoring on net also stops a loop route looking better than a clean one
+  // just because its gross number is inflated.
+  let internalUse=0;
+  nodes.forEach(n=>{
+    const ct=effectiveCycleTime(n.rec);
+    n.rec.inputs.forEach(i=>{ if(i.resourceId===targetResId)
+      internalUse+=(i.amount/ct)*n.exact*(n.capF??1)*(n.clock??1); });
+  });
+  return{nodes,rawNeeds,achievable:Math.max(0,achievable-internalUse),
+    grossAchievable:achievable,internalUse,bottleneckRes,extras,byproductSurplus,converged};
 }
 
 // From-Inputs with MULTIPLE supplied inputs. computeFromInputsOnce picks ONE
@@ -3377,9 +3391,11 @@ function computeFromInputs(targetResId, inputMap){
   if(passes.length<=1)return passes[0]||computeFromInputsOnce(targetResId,inputMap);
   // Merge the banked passes into one plan (same key/sum scheme as mergeTargetNodes).
   const merged={},order=[],rawNeeds={},extras={},byproductSurplus={},bottlenecks=[];
-  let achievable=0,converged=true;
+  let achievable=0,converged=true,grossAchievable=0,internalUse=0;
   passes.forEach(p=>{
     achievable+=p.achievable||0;
+    grossAchievable+=p.grossAchievable??p.achievable??0;
+    internalUse+=p.internalUse||0;
     if(p.converged===false)converged=false;
     if(p.bottleneckRes&&!bottlenecks.includes(p.bottleneckRes))bottlenecks.push(p.bottleneckRes);
     (p.nodes||[]).forEach(n=>{
@@ -3393,7 +3409,7 @@ function computeFromInputs(targetResId, inputMap){
       if(extras[id])extras[id].rate+=ex.rate; else extras[id]={...ex};
     });
   });
-  return{nodes:order.map(k=>merged[k]),rawNeeds,achievable,
+  return{nodes:order.map(k=>merged[k]),rawNeeds,achievable,grossAchievable,internalUse,
     bottleneckRes:bottlenecks[0]||null,bottlenecks,extras,byproductSurplus,converged};
 }
 
@@ -3499,7 +3515,8 @@ function planSecondaryTarget(t,pool){
   });
   addSurplusToPool(pool,res.byproductSurplus);
   return{resId:t.resId,achievableStyle:true,sourceLabel:'the byproduct',nodes:res.nodes,rawNeeds:res.rawNeeds,
-    achievable:res.achievable,bottleneckRes:res.bottleneckRes,bottlenecks:res.bottlenecks,extras:res.extras,poolDrawn,converged:res.converged};
+    achievable:res.achievable,grossAchievable:res.grossAchievable,internalUse:res.internalUse,
+    bottleneckRes:res.bottleneckRes,bottlenecks:res.bottlenecks,extras:res.extras,poolDrawn,converged:res.converged};
 }
 
 // Target mode: target[0] has a fixed, user-specified rate. Compute and render
@@ -3612,7 +3629,8 @@ function computeFromInputsResultsGreedy(primaryResId, inputMap, secondaryTargets
       Object.entries(res.byproductSurplus||{}).forEach(([id,r])=>{gross[id]=(gross[id]||0)+r;});
       addSurplusToPool(pool,res.byproductSurplus);
       results=[{resId:primaryResId,achievableStyle:true,sourceLabel:'your supplied inputs',nodes:res.nodes,rawNeeds:res.rawNeeds,
-        achievable:res.achievable,bottleneckRes:res.bottleneckRes,bottlenecks:res.bottlenecks,extras:res.extras,converged:res.converged}];
+        achievable:res.achievable,grossAchievable:res.grossAchievable,internalUse:res.internalUse,
+        bottleneckRes:res.bottleneckRes,bottlenecks:res.bottlenecks,extras:res.extras,converged:res.converged}];
     }
     // What the fixed secondaries drew came out of this pass's surplus — the
     // blank targets feed on what's genuinely left.
@@ -3874,7 +3892,13 @@ function renderMultiTargetResults(targets, results, el){
       const bList=(r.bottlenecks&&r.bottlenecks.length)?r.bottlenecks:(r.bottleneckRes?[r.bottleneckRes]:[]);
       const bName=bList.length?bList.map(id=>esc(rname(id))).join(', '):'?';
       const bLabel=bList.length>1?'Bottlenecks (each fully consumed)':'Bottleneck';
-      top+=`<div class="ach-banner">${bLabel}: <strong>${bName}</strong> · achievable: <strong>${rateStr(t.resId,r.achievable,3)}</strong></div>`;
+      // With a production loop the chain makes MORE than it delivers — show the
+      // net as the headline and spell out what the loop eats, so the machine
+      // counts (built for the gross rate) still add up for the reader.
+      const loopNote=(r.internalUse>1e-9)
+        ? ` <span style="color:var(--dim);text-transform:none;letter-spacing:0">— makes ${rateStr(t.resId,r.grossAchievable,3)}, ${rateStr(t.resId,r.internalUse,3)} recycled back into the chain</span>`
+        : '';
+      top+=`<div class="ach-banner">${bLabel}: <strong>${bName}</strong> · achievable: <strong>${rateStr(t.resId,r.achievable,3)}</strong>${loopNote}</div>`;
       if(r.autoMix&&r.autoMix.mix.length){
         top+=`<div class="ach-banner">⚡ Route optimizer: <strong>+${rateStr(t.resId,r.autoMix.gain,2)}</strong> over the per-resource greedy pick — mix adjusted: ${r.autoMix.mix.map(m=>`<strong>${esc(rname(m.resId))}</strong> via ${esc(m.recName||'?')}`).join(', ')}</div>`;
       }
