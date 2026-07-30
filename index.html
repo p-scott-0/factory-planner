@@ -717,7 +717,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.39';
+const APP_VERSION = '1.0.40';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -3666,6 +3666,122 @@ function planRouteMixLP(targetResId,inputMap,effCap){
     bottleneckRes,extras,byproductSurplus,converged:true,viaLP:true};
 }
 
+// FIXED-RATE route-mix LP: deliver `D`/sec of the target at MINIMUM raw cost —
+// the Target-mode twin of planRouteMixLP. `supplyMap` (budget inputs) and
+// `freeMap` (another target's byproduct pool) are free to draw from but capped
+// at what exists; everything else the plan mines or imports is priced at the
+// resource's raw cost. Formulated to keep every right-hand side >= 0 (so the
+// simplex needs no phase-1): delivery is its own variable d bounded by D, and
+// the objective is M*d - cost, with M large enough that meeting the demand
+// always dominates saving cost. If d comes back short of D the caller keeps
+// the greedy plan (which can overdraw a budget and warn), so behaviour on
+// tight budgets is unchanged.
+// Cost of one plan row under the WEIGHTED pricing below — applied identically
+// to a greedy chain and to the LP so the acceptance test compares like with
+// like. supply/free draws come from rawNeeds; mined amounts from zero-input
+// stages; true externals are rawNeeds outside both sets.
+function rowCostOf(nodes,rawNeeds,supplySet,freeSet,w){
+  const rawC=id=>Math.max(rawCostOf(resources.find(r=>r.id===id)||{}),0.001);
+  let c=0;
+  (nodes||[]).forEach(n=>{
+    if(!n.rec.inputs.length&&!supplySet.has(n.resId)&&!freeSet.has(n.resId))
+      c+=n.exact*(n.perMach??0)*rawC(n.resId)*w.mined;
+  });
+  Object.entries(rawNeeds||{}).forEach(([id,r])=>{
+    c+=r*rawC(id)*(supplySet.has(id)?w.supply:freeSet.has(id)?w.free:w.ext);
+  });
+  return c;
+}
+function planCostLP(targetResId,D,supplyMap={},freeMap={},w={supply:0,free:1e-4,mined:1,ext:1}){
+  if(_lpBusy)return null;
+  const supplyIds=Object.keys(supplyMap).filter(k=>supplyMap[k]>1e-12);
+  const freeIds=Object.keys(freeMap).filter(k=>freeMap[k]>1e-12);
+  const supplySet=new Set(supplyIds), freeSet=new Set(freeIds);
+  const tRes=resources.find(r=>r.id===targetResId);
+  if(!tRes||!resUnlocked(tRes))return null;
+  const cands=[];
+  for(const res of resources){
+    if(!resUnlocked(res))continue;
+    const pin=plannerPins[res.id];
+    if(pin&&pin.includes('@'))return null; // virtual byproduct pins stay with the greedy
+    for(const rec of (res.recipes||[])){
+      if(!recipeAvailable(rec))continue;
+      if(pin&&rec.id!==pin)continue;
+      // A supplied/pooled resource comes from that stock, never its own miner.
+      if(!rec.inputs.length&&(supplySet.has(res.id)||freeSet.has(res.id)))continue;
+      cands.push({rec,resId:res.id,...recipeFlows(rec,res.id)});
+    }
+  }
+  if(!cands.length)return null;
+  const produced=new Set();
+  cands.forEach(c=>Object.keys(c.net).forEach(id=>{ if(c.net[id]>0)produced.add(id); }));
+  const touched=new Set();
+  cands.forEach(c=>Object.keys(c.net).forEach(id=>touched.add(id)));
+  touched.add(targetResId); supplyIds.forEach(id=>touched.add(id)); freeIds.forEach(id=>touched.add(id));
+  const extIds=[...touched].filter(id=>!produced.has(id)&&!supplySet.has(id)&&!freeSet.has(id));
+  const rows=[...touched];
+  const rawC=id=>Math.max(rawCostOf(resources.find(r=>r.id===id)||{}),0.001);
+  // Vars: recipes | supply DRAWS | free DRAWS | externals | delivered.
+  // Draws are explicit variables (not just row slack) so each can carry its
+  // own price — a free budget made a cost-TIED solution drink the entire
+  // 2,400 crude for a 600/min row, starving the primary target. Priced draws
+  // break every such tie toward using less.
+  const nX=cands.length, nS=supplyIds.length, nF=freeIds.length, nE=extIds.length;
+  const nVar=nX+nS+nF+nE+1, iD=nVar-1;
+  const A=[],b=[];
+  rows.forEach(id=>{
+    const row=new Float64Array(nVar);
+    cands.forEach((c,j)=>{ const v=c.net[id]; if(v)row[j]=-v; });
+    const si=supplyIds.indexOf(id); if(si>=0)row[nX+si]=-1;
+    const fi=freeIds.indexOf(id);   if(fi>=0)row[nX+nS+fi]=-1;
+    const ei=extIds.indexOf(id);    if(ei>=0)row[nX+nS+nF+ei]=-1;
+    if(id===targetResId)row[iD]=1;  // delivery consumes the target
+    A.push(row); b.push(0);
+  });
+  supplyIds.forEach((id,k)=>{ const row=new Float64Array(nVar); row[nX+k]=1; A.push(row); b.push(supplyMap[id]); });
+  freeIds.forEach((id,k)=>{ const row=new Float64Array(nVar); row[nX+nS+k]=1; A.push(row); b.push(freeMap[id]); });
+  { const row=new Float64Array(nVar); row[iD]=1; A.push(row); b.push(D); } // d <= D
+  const c=new Float64Array(nVar);
+  cands.forEach((cd,j)=>{ if(!cd.rec.inputs.length)c[j]=-cd.perMach*rawC(cd.resId)*w.mined; });
+  supplyIds.forEach((id,k)=>{ c[nX+k]=-rawC(id)*w.supply; });
+  freeIds.forEach((id,k)=>{ c[nX+nS+k]=-rawC(id)*w.free; });
+  extIds.forEach((id,k)=>{ c[nX+nS+nF+k]=-rawC(id)*w.ext; });
+  c[iD]=1e7; // meeting the demand dominates any cost saving
+  const sol=simplexMax(A,b,c,8000);
+  if(sol.status!=='optimal'&&sol.status!=='maxiter')return null;
+  const d=sol.x[iD];
+  if(!(d>1e-9))return null;
+  const nodes=[];
+  cands.forEach((cd,j)=>{
+    const x=sol.x[j];
+    if(!(x>1e-7)||x*cd.perMach<1e-7)return;
+    nodes.push({rec:cd.rec,exact:x,resId:cd.resId,perMach:cd.perMach,
+      fullPerMach:cd.fullPerMach,capF:cd.capF,beltCapped:cd.beltCapped,clock:cd.clock});
+  });
+  if(!nodes.length)return null;
+  // rawNeeds = the DRAWS the solver actually made, plus externals — the same
+  // shape the greedy path produces, so pool/budget bookkeeping downstream
+  // (poolDrawn, remaining-subtraction, merge netting) works unchanged.
+  const rawNeeds={}, byproductSurplus={};
+  supplyIds.forEach((id,k)=>{ const v=sol.x[nX+k]; if(v>1e-9)rawNeeds[id]=v; });
+  freeIds.forEach((id,k)=>{ const v=sol.x[nX+nS+k]; if(v>1e-9)rawNeeds[id]=(rawNeeds[id]||0)+v; });
+  extIds.forEach((id,k)=>{ const v=sol.x[nX+nS+nF+k]; if(v>1e-9)rawNeeds[id]=(rawNeeds[id]||0)+v; });
+  const net={};
+  nodes.forEach(n=>{
+    const fl=recipeFlows(n.rec,n.resId);
+    Object.entries(fl.net).forEach(([id,v])=>{net[id]=(net[id]||0)+v*n.exact;});
+  });
+  rows.forEach(id=>{
+    if(id===targetResId)return;
+    const v=(net[id]||0)+(rawNeeds[id]||0);
+    if(v>1e-9&&!supplySet.has(id)&&!freeSet.has(id))byproductSurplus[id]=v;
+  });
+  const spare=(net[targetResId]||0)-d;
+  if(spare>1e-9)byproductSurplus[targetResId]=spare;
+  const cost=rowCostOf(nodes,rawNeeds,supplySet,freeSet,w);
+  return{nodes,rawNeeds,byproductSurplus,converged:true,delivered:d,cost,viaLP:true};
+}
+
 // ══════════════════════════════════════════════════════
 // MULTI-TARGET PLANNING (shared by Target Output and From-Inputs modes)
 // ══════════════════════════════════════════════════════
@@ -3709,10 +3825,27 @@ function planSecondaryTarget(t,pool){
     // buys fresh inputs. Whatever the chain draws is taken from the pool;
     // any excess beyond the pool is a genuine external need.
     const freeSet=new Set(Object.keys(pool).filter(k=>pool[k]>1e-9));
-    const{nodes,rawNeeds,byproductSurplus,converged}=computeChain(t.resId,t.rate,new Set(),true,freeSet);
+    let{nodes,rawNeeds,byproductSurplus,converged}=computeChain(t.resId,t.rate,new Set(),true,freeSet);
     // Error strings are PLAIN text — renderMultiTargetResults escapes at render
     if(!nodes.length)return{resId:t.resId,achievableStyle:false,
       error:`No recipe produces "${rname(t.resId)}". Add one in Resources.`};
+    let viaLP=false;
+    // Route-mix pass for this row too: the LP sees the pool as capped free
+    // supply, so it can SPLIT the row across routes — some machines on the
+    // surplus, the rest on the cheapest fresh chain — where the greedy had to
+    // commit to one recipe. Accepted only when fully delivered and cheaper
+    // than the greedy chain's external draw (pool draws are free for both).
+    if(!_lpBusy){
+      try{
+        const freeMap={}; freeSet.forEach(id=>{freeMap[id]=pool[id];});
+        const wT={supply:0,free:1e-4,mined:1,ext:1};
+        const gCost=rowCostOf(nodes,rawNeeds,new Set(),freeSet,wT);
+        const lp=planCostLP(t.resId,t.rate,{},freeMap,wT);
+        if(lp&&lp.delivered>=t.rate-1e-9&&lp.cost<gCost*(1-1e-9)){
+          nodes=lp.nodes;rawNeeds=lp.rawNeeds;byproductSurplus=lp.byproductSurplus;converged=true;viaLP=true;
+        }
+      }catch(e){ /* greedy stands */ }
+    }
     nodes.forEach(n=>{n.fromInputs=false;});
     const poolDrawn={};
     freeSet.forEach(id=>{
@@ -3736,7 +3869,7 @@ function planSecondaryTarget(t,pool){
       }
     });
     addSurplusToPool(pool,byproductSurplus);
-    return{resId:t.resId,achievableStyle:false,nodes,rawNeeds,rawRate:t.rawRate,unitLbl:t.unitLbl,rate:t.rate,converged,poolDrawn};
+    return{resId:t.resId,achievableStyle:false,nodes,rawNeeds,rawRate:t.rawRate,unitLbl:t.unitLbl,rate:t.rate,converged,poolDrawn,viaLP};
   }
   const supply=Object.entries(pool).filter(([,v])=>v>1e-9);
   if(!supply.length)return{resId:t.resId,achievableStyle:true,sourceLabel:'the byproduct',
@@ -3777,7 +3910,22 @@ function planSecondaryTarget(t,pool){
 function computeMultiTargetResults(targets){
   const pool={}; // resourceId -> available surplus, per second
   const first=targets[0];
-  const{nodes,rawNeeds,byproductSurplus,converged}=computeChain(first.resId,first.rate,new Set(),true);
+  let{nodes,rawNeeds,byproductSurplus,converged}=computeChain(first.resId,first.rate,new Set(),true);
+  let viaLP=false;
+  // Global route-mix pass: the LP can blend several recipes per resource, so
+  // it sometimes reaches the same rate for strictly less raw cost. Compared
+  // against the EXACT (non-ceil) greedy chain so the ceil overbuild doesn't
+  // masquerade as an LP win; accepted only when fully delivered and cheaper.
+  if(nodes.length&&!_lpBusy){
+    try{
+      const exact=computeChain(first.resId,first.rate,new Set(),false);
+      const gCost=rowCostOf(exact.nodes,exact.rawNeeds,new Set(),new Set(),{supply:0,free:1e-4,mined:1,ext:1});
+      const lp=planCostLP(first.resId,first.rate);
+      if(lp&&lp.delivered>=first.rate-1e-9&&lp.cost<gCost*(1-1e-9)){
+        nodes=lp.nodes;rawNeeds=lp.rawNeeds;byproductSurplus=lp.byproductSurplus;converged=true;viaLP=true;
+      }
+    }catch(e){ /* greedy stands */ }
+  }
   let results;
   if(!nodes.length){
     results=[{resId:first.resId,achievableStyle:false,
@@ -3785,7 +3933,7 @@ function computeMultiTargetResults(targets){
   } else {
     nodes.forEach(n=>{n.fromInputs=false;});
     addSurplusToPool(pool,byproductSurplus);
-    results=[{resId:first.resId,achievableStyle:false,nodes,rawNeeds,rawRate:first.rawRate,unitLbl:first.unitLbl,rate:first.rate,converged}];
+    results=[{resId:first.resId,achievableStyle:false,nodes,rawNeeds,rawRate:first.rawRate,unitLbl:first.unitLbl,rate:first.rate,converged,viaLP}];
   }
   targets.slice(1).forEach(t=>results.push(planSecondaryTarget(t,pool)));
   return results;
@@ -3825,11 +3973,33 @@ function computeFromInputsResultsGreedy(primaryResId, inputMap, secondaryTargets
     const preComputed=new Map();
     fixed.forEach(t=>{
       const freeSet=new Set(Object.keys(seedLeft).filter(k=>seedLeft[k]>1e-9&&!inputSet.has(k)));
-      const{nodes,rawNeeds,byproductSurplus,converged}=computeChain(t.resId,t.rate,inputSet,true,freeSet);
+      let{nodes,rawNeeds,byproductSurplus,converged}=computeChain(t.resId,t.rate,inputSet,true,freeSet);
       if(!nodes.length){
         preComputed.set(t,{resId:t.resId,achievableStyle:false,
           error:`No recipe produces "${rname(t.resId)}". Add one in Resources.`});
         return;
+      }
+      // Route-mix pass for the fixed row: budget inputs and the surplus seed
+      // become CAPPED free supplies, so the LP can split the row across
+      // routes. Skipped when the greedy row already overdraws the budget —
+      // the LP would silently mine the shortfall instead, and the overdraw
+      // warning is the honest behaviour there. Accepted only when fully
+      // delivered and strictly cheaper in external draw.
+      if(!_lpBusy&&!Object.keys(rawNeeds).some(id=>inputSet.has(id)&&rawNeeds[id]>(remaining[id]||0)+1e-9)){
+        try{
+          const supplyMap={}; inputSet.forEach(id=>{ if((remaining[id]||0)>1e-12)supplyMap[id]=remaining[id]; });
+          const freeMap={}; freeSet.forEach(id=>{freeMap[id]=seedLeft[id];});
+          // From-Inputs pricing (the 'optimal' objective's semantics): the
+          // BUDGET is the precious thing, surplus is nearly free, and
+          // auxiliary mining is auto-supplied at epsilon — so the LP spends
+          // as little budget as possible, leaving the most for the primary.
+          const wFI={supply:1,free:1e-4,mined:0.001,ext:0.001};
+          const gCost=rowCostOf(nodes,rawNeeds,inputSet,freeSet,wFI);
+          const lp=planCostLP(t.resId,t.rate,supplyMap,freeMap,wFI);
+          if(lp&&lp.delivered>=t.rate-1e-9&&lp.cost<gCost*(1-1e-9)){
+            nodes=lp.nodes;rawNeeds=lp.rawNeeds;byproductSurplus=lp.byproductSurplus;converged=true;
+          }
+        }catch(e){ /* greedy stands */ }
       }
       nodes.forEach(n=>{n.fromInputs=false;});
       const poolDrawn={};
@@ -5862,7 +6032,10 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
     if(besideI)besideBp[n.rec.id]=besideI;
   });
 
-  const svgW=Math.max(colX(0)+NW,maxByRight)+PAD;
+  // laneHints.right widens the canvas when the first pass found edge geometry
+  // (a return-belt hook off the target machine, say) reaching past the border.
+  const svgW=Math.max(colX(0)+NW,maxByRight)+PAD+(laneHints?.right??0);
+  let maxEdgeX=0; // rightmost x any drawn edge actually reaches
   const svgH=totalH+nodeTop+PAD+LANE_BOT;
 
   // Highway lane y-coordinates. Forward lanes stack in the TOP band; each
@@ -6221,6 +6394,7 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
         const sIn=e.sInPlan??Math.min(s,Math.max(14,((gapOf[e.dstD]??196)-(boxesRightOf[e.dstD+1]?BY_GAP+BW+10:0)-leadB-8)));
         const L=e.backLane??backLane(x2-leadB-sIn,x1+s); // pre-assigned in lane planning
         laneY=L.y;
+        if(x1+s>maxEdgeX)maxEdgeX=x1+s; // hooks off the rightmost column can pass the border
         path=beltStyle==='ortho'
           ?orthoPath([[x1,y1],[x1+s,y1],[x1+s,laneY],[x2-leadB-sIn,laneY],[x2-leadB-sIn,y2],[x2-7,y2]])
           :`M${x1},${y1} C${x1+s},${y1} ${x1+s},${laneY} ${x1},${laneY} L${x2-leadB},${laneY} C${x2-leadB-sIn},${laneY} ${x2-leadB-sIn},${y2} ${x2-leadB},${y2} L${x2-7},${y2}`;
@@ -6332,9 +6506,13 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
     const needTop=6+aboveLaneI*LANE_STEP+12;
     const needBot=Math.max(52,maxBackY?maxBackY+12-(nodeTop+totalH):0);
     const needGap=hasSecondary?Math.max(46,26+secLaneI*LANE_STEP+14):0;
-    if(needTop>LANE_TOP||needBot>LANE_BOT||needGap>BAND_GAP)
+    // A return belt hooking out of the RIGHTMOST column swings past colX(0)+NW,
+    // and the canvas used to crop it — widen by what the drawn edges actually
+    // reached (the hook x is band-independent, so the second pass always fits).
+    const needRight=Math.max(0,maxEdgeX+12-svgW);
+    if(needTop>LANE_TOP||needBot>LANE_BOT||needGap>BAND_GAP||needRight>0)
       return buildFlowSVG(targetIds,nodes,rawNeeds,
-        {top:Math.max(LANE_TOP,needTop),bot:Math.max(LANE_BOT,needBot),gap:Math.max(BAND_GAP,needGap)});
+        {top:Math.max(LANE_TOP,needTop),bot:Math.max(LANE_BOT,needBot),gap:Math.max(BAND_GAP,needGap),right:needRight});
   }
 
   // ── Raw material boxes (border tinted by the resource's flow colour) ──
