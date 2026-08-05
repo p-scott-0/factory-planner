@@ -717,7 +717,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.40';
+const APP_VERSION = '1.0.41';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -3322,6 +3322,11 @@ function computeFromInputsOnce(targetResId, inputMap){
 
   const extras={};
   extraIds.forEach(id=>{
+    // INVARIANT: a SUPPLIED input is a hard cap and must never be reported as
+    // "you'll also need more of this" — the given rate IS what exists. The
+    // multi-pass planner keeps exhausted inputs in the set so this shouldn't
+    // trigger, but the guard makes the promise unconditional.
+    if(inputSet.has(id))return;
     const n=nodeByResId[id];
     if(n){
       const res=resources.find(r=>r.id===id);
@@ -3389,8 +3394,14 @@ function computeFromInputsGreedy(targetResId, inputMap){
   const budget={...inputMap};
   const passes=[];
   for(let pass=0;pass<ids.length;pass++){
-    const active=Object.fromEntries(Object.entries(budget).filter(([,v])=>v>1e-9));
-    if(!Object.keys(active).length)break;
+    // An EXHAUSTED input stays in the set at zero remaining rather than being
+    // dropped. Supplied inputs are hard caps: dropping one from the set made a
+    // later pass treat it as auto-suppliable, and the plan came back saying
+    // "you'll also need 400/min Rubber" about a resource whose whole point was
+    // that only 100/min exists. At zero remaining, any chain needing it probes
+    // to zero achievable, so the pass picks routes that avoid it — or ends.
+    const active={...budget};
+    if(!Object.values(active).some(v=>v>1e-9))break;
     const r=computeFromInputsOnce(targetResId,active);
     // A genuine failure (infeasible / no recipe / nothing consumes the inputs)
     // is the real result only if NO pass has succeeded yet; once at least one
@@ -4242,7 +4253,7 @@ function computeFromInputsResults(primaryResId, inputMap, secondaryTargets){
 function runFromInputsPlan(primaryResId, inputMap, secondaryTargets, resEl){
   const results=computeFromInputsResults(primaryResId,inputMap,secondaryTargets);
   const allTargets=[{resId:primaryResId},...secondaryTargets];
-  renderMultiTargetResults(allTargets,results,resEl);
+  renderMultiTargetResults(allTargets,results,resEl,inputMap);
 }
 
 // Merge each target's independently-computed node set into one combined
@@ -4290,14 +4301,34 @@ function mergeTargetNodes(results){
   return{nodes:order.map(k=>merged[k]),rawNeeds};
 }
 
-function renderMultiTargetResults(targets, results, el){
-  lastRenderArgs={targets,results}; // so the layout toggle/slider can re-draw without recomputing
+function renderMultiTargetResults(targets, results, el, inputMap){
+  lastRenderArgs={targets,results,inputMap}; // so the layout toggle/slider can re-draw without recomputing
   let top='';
   // The byproduct-crediting fixpoint normally settles in a pass or two; if it
   // hit the iteration cap without stabilising (a pathological feedback loop in
   // a hand-authored profile), say so instead of presenting shaky numbers as fact.
   if(results.some(r=>r&&!r.error&&r.converged===false)){
     top+=`<div class="alert aw" style="margin-bottom:10px">⚠ Byproduct crediting didn't stabilise for this plan — the numbers below may be slightly off. This usually means a recipe's byproduct feeds its own chain in a loop that never settles; check the recipes involved.</div>`;
+  }
+  // From-Inputs: what the plan actually DRAWS of each supplied input vs what
+  // was given — the given rate is a hard cap, so an under-used input just
+  // means something else ran out first. The ~100% one is the bottleneck; an
+  // over-100% only happens when a fixed-amount secondary was allowed to
+  // overdraw (it carries its own warning).
+  if(inputMap&&Object.keys(inputMap).length){
+    const used={};
+    results.forEach(r=>{ if(r&&!r.error&&r.rawNeeds)
+      Object.keys(inputMap).forEach(id=>{used[id]=(used[id]||0)+(r.rawNeeds[id]||0);}); });
+    let btl=null,bf=0;
+    Object.keys(inputMap).forEach(id=>{const fr=(used[id]||0)/(inputMap[id]||1);if(fr>bf){bf=fr;btl=id;}});
+    const chips=Object.keys(inputMap).map(id=>{
+      const u=used[id]||0,g=inputMap[id],pct=g>0?u/g*100:0;
+      const over=u>g*(1+1e-6);
+      const tag=over?' <span style="color:var(--red)">over budget</span>'
+        :(id===btl&&pct>99.9?' <span style="color:var(--acc)">bottleneck</span>':'');
+      return `<span style="white-space:nowrap">${esc(rname(id))}: <strong>${rateStr(id,u,2)}</strong> / ${rateStr(id,g,2)} (${pct.toFixed(0)}%)${tag}</span>`;
+    }).join('<span style="color:#444;margin:0 7px">·</span>');
+    top+=`<div class="ach-banner" style="margin-bottom:10px">Supplied inputs used: ${chips}</div>`;
   }
   results.forEach((r,i)=>{
     const t=targets[i];
@@ -4760,7 +4791,7 @@ let lastRenderArgs=null;
 function redrawFlow(){
   const el=document.getElementById('pl-results');
   if(lastRenderArgs&&el&&el.querySelector('.flow-card'))
-    renderMultiTargetResults(lastRenderArgs.targets,lastRenderArgs.results,el);
+    renderMultiTargetResults(lastRenderArgs.targets,lastRenderArgs.results,el,lastRenderArgs.inputMap);
 }
 function syncFlowLayoutUI(){
   const cb=document.getElementById('fl-machine'); if(cb)cb.checked=flowLayoutMode==='machine';
@@ -6596,7 +6627,7 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
     // Per-node flag: this node came from a byproduct/from-inputs-constrained
     // computation, so show its efficiency band when it isn't at 100%.
     const effBand=n.fromInputs&&!atCap
-      ?`<rect x="${p.x+1}" y="${p.y+NH-12}" width="${Math.round((NW-2)*eff)}" height="10" rx="0 0 6 6" fill="#c0702040"/>
+      ?`<rect x="${p.x+1}" y="${p.y+NH-12}" width="${Math.round((NW-2)*eff)}" height="10" fill="#c0702040"/>
         <text x="${p.x+NW/2}" y="${p.y+NH-3}" text-anchor="middle" font-size="8" fill="#c07030">${(eff*100).toFixed(0)}%</text>`
       :'';
     // Bottom row: power (left) + rate (right) share one line. With big values
