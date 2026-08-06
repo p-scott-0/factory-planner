@@ -87,6 +87,9 @@ hr{border:none;border-top:1px solid var(--b);margin:11px 0}
 .tier-sel-row select{flex:0 0 min(160px,100%)}
 .inp-row{display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap;min-width:0}
 .inp-row select,.inp-row input{flex:1;min-width:80px}.inp-row .inp-unit{flex:0 0 80px}.inp-row button{flex-shrink:0}
+/* Input rows added (or topped up) by "Add these to inputs & switch to Strict" —
+   amber wash marks them as not part of the original hand-entered inputs. */
+.inp-row[data-adopted]{background:#252112;border:1px solid #5a4d20;border-radius:6px;padding:3px 6px}
 .tgt-row{display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap;min-width:0}
 .tgt-row .tgt-num{flex:0 0 18px;text-align:center;font-size:11px;color:var(--dim);font-weight:700}
 .tgt-row .tgt-res{flex:2;min-width:130px}
@@ -714,6 +717,9 @@ let plannerSugApplied=null;// {resId,recId,prev} — a better-mix suggestion the
 let plannerBans=new Set(); // recipeIds disabled for THIS PLAN only — the profile's recipe toggles
                           // (which record what's unlocked in the save) are untouched. Set from the
                           // extra-requirements notice; saved with the plan like pins.
+let plannerAdopted=null;  // {rows:[{resId,mergedPrev?}],prevObjective} — record of "Add these to
+                          // inputs & switch to Strict", so the banner can offer Undo and the added
+                          // (or topped-up) input rows stay highlighted as not-original. Plan state.
 // ── Profile-level usage settings ──
 let rawCaps       = {};   // resId → available supply (per second) — planner warns when a plan exceeds it
 let powerExponent = 1;    // machine power scales with clock^exponent (Satisfactory ≈ 1.321928)
@@ -725,7 +731,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.45';
+const APP_VERSION = '1.0.46';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -2720,7 +2726,7 @@ function planPowerGeneration(mw){
   document.getElementById('pl-tgt-rows').innerHTML='';
   addTargetRow('pl-tgt-rows',pr.id,String(Math.ceil(mw)),'1'); // MW = per-second rate
   ensureTrailingBlankTargetRow('pl-tgt-rows');
-  plannerPins={}; plannerClocks={}; plannerGroupClocks={}; plannerSugApplied=null; plannerBans=new Set(); renderPlannerControls();
+  plannerPins={}; plannerClocks={}; plannerGroupClocks={}; plannerSugApplied=null; plannerBans=new Set(); plannerAdopted=null; renderPlannerControls();
   runPlanner(); // savePlannerQuery inside persists into the new plan
 }
 
@@ -2809,7 +2815,7 @@ function savePlannerQuery(){
     inpTargetId:document.getElementById('pl-inp-target').value,
     inputs:[...document.querySelectorAll('#pl-inp-rows .inp-row')].map(row=>{
       const[s,i,u]=row.querySelectorAll('select,input');
-      return{resourceId:s.value,rate:i.value,unit:u.value};
+      return{resourceId:s.value,rate:i.value,unit:u.value,ad:row.dataset.adopted||undefined};
     }),
     inpSecondaryTargets:rowsToTargets('#pl-inp-tgt-rows .tgt-row'),
     pins:{...plannerPins},
@@ -2818,7 +2824,8 @@ function savePlannerQuery(){
     objective:plannerObjective,
     built:[...plannerBuilt],
     bans:[...plannerBans],
-    sugApplied:plannerSugApplied?{...plannerSugApplied}:null
+    sugApplied:plannerSugApplied?{...plannerSugApplied}:null,
+    adopted:plannerAdopted?{rows:plannerAdopted.rows.map(a=>({...a})),prevObjective:plannerAdopted.prevObjective}:null
   };
 }
 // Returns true when the restored query is complete enough to auto-run
@@ -2829,6 +2836,12 @@ function restorePlannerQuery(){
   plannerSugApplied=(q&&q.sugApplied&&typeof q.sugApplied.resId==='string'&&typeof q.sugApplied.recId==='string')
     ?{resId:q.sugApplied.resId,recId:q.sugApplied.recId,prev:typeof q.sugApplied.prev==='string'?q.sugApplied.prev:null}:null;
   plannerBans=new Set(Array.isArray(q?.bans)?q.bans.filter(x=>typeof x==='string').slice(0,400):[]);
+  plannerAdopted=(q&&q.adopted&&Array.isArray(q.adopted.rows))
+    ?{rows:q.adopted.rows.filter(a=>a&&typeof a.resId==='string').slice(0,80)
+        .map(a=>({resId:a.resId,...(typeof a.mergedPrev==='string'||typeof a.mergedPrev==='number'?{mergedPrev:String(a.mergedPrev)}:{})})),
+      prevObjective:q.adopted.prevObjective==='cheap'?'cheap':q.adopted.prevObjective==='strict'?'strict':'optimal'}
+    :null;
+  if(plannerAdopted&&!plannerAdopted.rows.length)plannerAdopted=null;
   plannerObjective=q?.objective==='cheap'?'cheap':q?.objective==='strict'?'strict':'optimal';
   const objSel=document.getElementById('pl-inp-obj');
   if(objSel)objSel.value=plannerObjective;
@@ -2859,6 +2872,7 @@ function restorePlannerQuery(){
     const row=rows.lastElementChild;
     const[s,i,u]=row.querySelectorAll('select,input');
     s.value=inp.resourceId;i.value=inp.rate;u.value=inp.unit;
+    if(inp.ad==='1'||inp.ad==='merged')row.dataset.adopted=inp.ad; // adopted-extras highlight survives reload
   });
   document.getElementById('pl-inp-tgt-rows').innerHTML='';
   const savedInpTargets=q.inpSecondaryTargets||[];
@@ -2899,7 +2913,7 @@ function clearPlanner(){
   ensureTrailingBlankTargetRow('pl-inp-tgt-rows');
   document.getElementById('pl-results').innerHTML='';
   lastPlan=null;
-  plannerPins={}; plannerClocks={}; plannerGroupClocks={}; plannerBuilt=new Set(); plannerSugApplied=null; plannerBans=new Set(); // all per-plan state clears with the plan
+  plannerPins={}; plannerClocks={}; plannerGroupClocks={}; plannerBuilt=new Set(); plannerSugApplied=null; plannerBans=new Set(); plannerAdopted=null; // all per-plan state clears with the plan
   renderPlannerControls();
   savePlannerQuery(); saveState();
 }
@@ -4390,6 +4404,24 @@ function suggestBetterMix(primaryResId, inputMap, secondaryTargets, results){
   }
   if(!pairs.length)return null;
   pairs.sort((a,b)=>(thr[b.id]||0)-(thr[a.id]||0)||(a.id<b.id?-1:1));
+  // Supplied-share gate: raw-cost-weighted, the supplied inputs must stay a
+  // SUBSTANTIAL part of the candidate's total feedstock. Nitro Rocket Fuel
+  // keeps crude at ~a third of the feedstock cost (good suggestion, just
+  // mined-heavier); pinning Power to a nuclear chain keeps a token crude
+  // draw for plastic parts while the energy really comes from mined uranium
+  // — supplied share collapses to ~1% and the "suggestion" is a different
+  // factory. 25% floor passes every legitimate mix we know and kills the
+  // category jumps.
+  const rcS=id=>{const r=resources.find(x=>x.id===id);return (r&&r.rawCost)||1;};
+  const suppliedShare=rr=>{
+    let sup=0,ext=0;
+    (rr||[]).forEach(r=>{
+      if(!r||r.error)return;
+      Object.keys(inputMap).forEach(id=>{sup+=((r.rawNeeds&&r.rawNeeds[id])||0)*rcS(id);});
+      if(r.extras)for(const id in r.extras)ext+=(r.extras[id].rate||0)*rcS(id);
+    });
+    return sup+ext>1e-12?sup/(sup+ext):1;
+  };
   const CAP=40;
   let bestProbe=null,evals=0;
   const savedAuto=plannerAutoPins;
@@ -4402,6 +4434,16 @@ function suggestBetterMix(primaryResId, inputMap, secondaryTargets, results){
       const q=(rs&&rs[0]&&!rs[0].error&&isFinite(rs[0].achievable))?rs[0].achievable:-Infinity;
       let ok=q>-Infinity; // a pin must not break a secondary the plan satisfies
       for(let i=1;ok&&i<(rs||[]).length;i++)if(rs[i]&&rs[i].error&&!(results[i]&&results[i].error))ok=false;
+      // A better mix must still RUN ON the supplied inputs. A candidate that
+      // wins by walking away from them — pin Power to Nuclear and mined
+      // Uranium replaces the crude entirely — is answering a different
+      // question, not suggesting a better answer to this one.
+      if(ok&&rs[0])for(const id of Object.keys(inputMap)){
+        const cur=(results[0].rawNeeds&&results[0].rawNeeds[id])||0;
+        const nw=(rs[0].rawNeeds&&rs[0].rawNeeds[id])||0;
+        if(nw<cur*0.999-1e-9){ok=false;break;}
+      }
+      if(ok&&suppliedShare(rs)<0.25)ok=false;
       // MINED extras are a fair price to surface (the banner names them); an
       // IMPORT is not: an extras entry with no extraction recipe behind it
       // means the chain just assumes the resource appears — pinning Turbofuel
@@ -4431,6 +4473,14 @@ function suggestBetterMix(primaryResId, inputMap, secondaryTargets, results){
   const fp=full&&full[0];
   const fa=(fp&&!fp.error&&isFinite(fp.achievable))?fp.achievable:-Infinity;
   if(!(fa>base*1.05))return null; // only clearly-better mixes are worth a banner
+  // Confirmed plan must also still consume the supplied inputs (see probes),
+  // and keep them a substantial share of the feedstock.
+  for(const id of Object.keys(inputMap)){
+    const cur=(p.rawNeeds&&p.rawNeeds[id])||0;
+    const nw=(fp.rawNeeds&&fp.rawNeeds[id])||0;
+    if(nw<cur*0.999-1e-9)return null;
+  }
+  if(suppliedShare(full)<0.25)return null;
   // Same unbacked-import gate as the probes, on what Apply would really build.
   for(const r of full){
     for(const [id,e] of Object.entries((r&&r.extras)||{})){
@@ -4586,6 +4636,17 @@ function renderMultiTargetResults(targets, results, el, inputMap){
         `<button class="btree" style="margin-left:2px;cursor:pointer" onclick="undoSuggestion()">Undo</button></div>`;
     }
   }
+  // Adopted-extras note: after "Add these to inputs & switch to Strict" the
+  // extras notice disappears (that's the point), so this row marks what
+  // happened — the highlighted input rows are the adopted ones — and offers
+  // the way back. From-Inputs only; hand-editing the rows is always allowed
+  // and Undo skips anything the user already changed.
+  if(plannerAdopted&&inputMap&&Object.keys(inputMap).length){
+    const names=plannerAdopted.rows.map(a=>`<span style="white-space:nowrap">${esc(rname(a.resId))}${a.mergedPrev!==undefined?' <span style="color:#8a7d45">(topped up)</span>':''}</span>`).join(', ');
+    top+=`<div class="ach-banner" style="margin-bottom:10px;background:#252112;border-color:#5a4d20;color:#cbb45e">➕ `+
+      `Extras adopted as inputs <span style="color:#8a7d45">(highlighted rows above)</span>: ${names} — `+
+      `<button class="btree" style="margin-left:2px;cursor:pointer" onclick="undoAdoptExtras()">Undo</button></div>`;
+  }
   // Recipes disabled for THIS PLAN (via the 🚫 buttons on the extras notice).
   // Always listed while any exist — the extras they caused are gone from the
   // plan, so this row is the only handle left for turning them back on.
@@ -4645,7 +4706,7 @@ function renderMultiTargetResults(targets, results, el, inputMap){
           const exRes=resources.find(rr=>rr.id===id);
           const multiRoute=!!exRes&&(exRes.recipes||[]).filter(recipeAvailable).length>1;
           const banBtn=(ex.recId&&(ex.isAlt||multiRoute))
-            ?` <button class="btree" style="font-size:10px;padding:1px 6px;cursor:pointer" title="Disable ${esc(ex.recipeName||'')} for this plan only — profile recipe toggles are untouched" onclick="togglePlanBan('${ex.recId}')">🚫 disable for this plan</button>`
+            ?` <button class="btree" style="font-size:10px;padding:1px 6px;cursor:pointer;max-width:100%;white-space:normal" title="Disable ${esc(ex.recipeName||'')} for this plan only — profile recipe toggles are untouched" onclick="togglePlanBan('${ex.recId}')">🚫 disable for this plan</button>`
             :'';
           const via=ex.recipeName
             ?` — via <strong>${esc(ex.recipeName)}</strong>${ex.machineName?` (${esc(ex.machineName)})`:''}${ex.isAlt?' <span style="color:#e8982a">· alternate recipe</span>':''}${banBtn}`
@@ -4657,7 +4718,7 @@ function renderMultiTargetResults(targets, results, el, inputMap){
         // to Strict, so from then on the plan uses ONLY the listed inputs —
         // edit or delete any row to shape what exists.
         const adoptBtn=(inputMap&&Object.keys(inputMap).length)
-          ?`<div style="margin-top:7px"><button class="btree" style="cursor:pointer" onclick="adoptExtrasAsInputs()">➕ Add these to inputs &amp; switch to Strict (only the inputs)</button></div>`
+          ?`<div style="margin-top:7px"><button class="btree" style="cursor:pointer;max-width:100%;white-space:normal;text-align:left" onclick="adoptExtrasAsInputs()">➕ Add these to inputs &amp; switch to Strict</button></div>`
           :'';
         top+=`<div class="ach-banner" style="background:#2a2010;border-color:#665500;color:#ddaa30">
           ⚠ Extra requirements calculated automatically — these weren't covered by ${r.sourceLabel} and will also be needed (full chain below):
@@ -5265,23 +5326,52 @@ function adoptExtrasAsInputs(){
   rs.forEach(r=>{ if(r&&!r.error)Object.entries(r.extras||{}).forEach(([id,ex])=>{add[id]=(add[id]||0)+(ex.rate||0);}); });
   if(!Object.keys(add).length)return;
   const rows=document.getElementById('pl-inp-rows');
+  // Every touched row is recorded (and highlighted via data-adopted) so the
+  // change is visible against the original inputs and Undo can restore them.
+  const adopted=[];
   Object.entries(add).forEach(([id,rate])=>{
     const existing=[...rows.querySelectorAll('.inp-row')].find(row=>row.querySelector('select').value===id);
     if(existing){ // merge into the resource's row instead of duplicating it
       const inp=existing.querySelector('input');
       const unit=parseFloat(existing.querySelector('.inp-unit').value)||60;
+      adopted.push({resId:id,mergedPrev:String(inp.value)});
       inp.value=+((parseFloat(inp.value)||0)+rate*unit).toFixed(3);
+      existing.dataset.adopted='merged';
     } else {
       addInputRow();
       const row=rows.lastElementChild;
       row.querySelector('select').value=id;
       row.querySelector('input').value=+(rate*60).toFixed(3);
       row.querySelector('.inp-unit').value='60';
+      row.dataset.adopted='1';
+      adopted.push({resId:id});
     }
   });
+  plannerAdopted={rows:adopted,prevObjective:plannerObjective};
   plannerObjective='strict';
   const sel=document.getElementById('pl-inp-obj'); if(sel)sel.value='strict';
   runPlanner(); // saves the query (with the new rows and objective) itself
+}
+// Undo for the adoption: added rows are removed, topped-up rows get their
+// previous value back, and the objective returns to what it was. Rows the
+// user already deleted or re-picked by hand are simply skipped — Undo never
+// reverts a hand-made change.
+function undoAdoptExtras(){
+  const ad=plannerAdopted; plannerAdopted=null;
+  if(ad){
+    const rows=document.getElementById('pl-inp-rows');
+    ad.rows.forEach(a=>{
+      const row=[...rows.querySelectorAll('.inp-row')].find(r=>r.dataset.adopted&&r.querySelector('select').value===a.resId);
+      if(!row)return;
+      if(a.mergedPrev!==undefined){
+        row.querySelector('input').value=a.mergedPrev;
+        delete row.dataset.adopted;
+      } else row.remove();
+    });
+    plannerObjective=ad.prevObjective==='cheap'?'cheap':ad.prevObjective==='strict'?'strict':'optimal';
+    const sel=document.getElementById('pl-inp-obj'); if(sel)sel.value=plannerObjective;
+  }
+  runPlanner();
 }
 function setRawCap(resId,val){
   const unit=rateUnit==='m'?60:1;
