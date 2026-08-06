@@ -721,7 +721,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.43';
+const APP_VERSION = '1.0.44';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -6347,11 +6347,107 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
   // ── Edge collection ──
   // Each edge later gets its own entry/exit point along the node side, so
   // multiple flows into one machine no longer converge on a single midpoint.
-  // A consumer's draw of a resource is split proportionally across EVERY
-  // source of it in the plan — any number of primary stages (e.g. Silica from
-  // a Quartz constructor) and any number of byproduct boxes (e.g. Silica from
-  // Alumina Solution) — so the drawn edge rates always add up to what the
-  // stages actually make, whichever combination exists.
+  // When a resource has several sources (primary stages, byproduct boxes, a
+  // raw/supplied box), consumers used to draw a PROPORTIONAL slice of every
+  // source — correct totals, but maximum splitting: water from an extractor
+  // AND from Aluminum Scrap both fanned into every water consumer at awkward
+  // fractional rates. Sources are now ALLOCATED to minimise splitting:
+  //   · a self-recycle byproduct feeds its own machine first (unchanged);
+  //   · each byproduct then goes WHOLE into the tightest consumer that can
+  //     absorb it (splitting only when no single consumer can take it);
+  //   · primary stages next, the raw/supplied box LAST — it tops off
+  //     whatever the in-plan sources didn't cover.
+  // Every consumer still receives exactly its demand and every source ships
+  // exactly its supply (surplus stays in its box) — only the pairing changes,
+  // so belts carry clean whole amounts and far fewer splits are drawn.
+  const resDemands={}; // R → [{consumer,rate}]
+  nodes.forEach(consumer=>{
+    if(!posR[consumer.rec.id])return;
+    const ct=effectiveCycleTime(consumer.rec);
+    consumer.rec.inputs.forEach(inp=>{
+      const rate=(inp.amount/ct)*consumer.exact*(consumer.capF??1)*(consumer.clock??1);
+      if(rate>1e-12)(resDemands[inp.resourceId]=resDemands[inp.resourceId]||[]).push({consumer,rate});
+    });
+  });
+  const resSrcs={}, flowAlloc={}; // R → sources | R → Map(srcKey → Map(consumerRecId → rate))
+  Object.keys(resDemands).forEach(R=>{
+    const srcs=[];
+    (primaryBy[R]||[]).forEach(pn=>{
+      if(!posR[pn.rec.id])return;
+      srcs.push({kind:'n',node:pn,skey:'n'+pn.rec.id,
+        supply:pn.exact*(pn.perMach??((pn.rec.outputAmount??1)/effectiveCycleTime(pn.rec)))});
+    });
+    (byBoxesByRes[R]||[]).forEach(key=>{
+      srcs.push({kind:'b',key,box:posBy[key],skey:'b'+key,supply:posBy[key].rate});
+    });
+    if(posRaw[R]&&rawNeeds[R]>1e-12)srcs.push({kind:'r',skey:'r'+R,supply:rawNeeds[R]});
+    resSrcs[R]=srcs;
+    const demands=resDemands[R];
+    const remS=srcs.map(s=>s.supply), remD=demands.map(d=>d.rate);
+    const A=new Map(); srcs.forEach(s=>A.set(s.skey,new Map()));
+    const eps=1e-9*remS.concat(remD,[1]).reduce((a,b)=>Math.max(a,b),0);
+    const canFeed=(s,dj)=>!(s.kind==='n'&&s.node===demands[dj].consumer); // a stage never feeds itself
+    const give=(si,dj,amt)=>{
+      if(amt<=eps)return;
+      const m=A.get(srcs[si].skey), cid=demands[dj].consumer.rec.id;
+      m.set(cid,(m.get(cid)||0)+amt); remS[si]-=amt; remD[dj]-=amt;
+    };
+    // A node's OWN byproduct box feeding its OWN input is a self-recycle
+    // (Encased Uranium Cell returns 2 of its 8 Sulfuric Acid; Distilled
+    // Silica / Instant Scrap return Water) — allocated FIRST so the box
+    // isn't an orphan and the external feed nets down to what's actually
+    // imported (360, not the gross 480).
+    srcs.forEach((s,si)=>{
+      if(s.kind!=='b')return;
+      const dj=demands.findIndex(d=>d.consumer===s.box.producer);
+      if(dj>=0)give(si,dj,Math.min(remS[si],remD[dj]));
+    });
+    const rank=k=>k==='b'?0:k==='n'?1:2; // byproducts placed first, raw box last (the top-off)
+    const order=srcs.map((_,si)=>si).sort((a,b)=>rank(srcs[a].kind)-rank(srcs[b].kind)||remS[b]-remS[a]);
+    for(const si of order){
+      const s=srcs[si];
+      while(remS[si]>eps){
+        let pick=-1;
+        // exact fit beats everything — one whole belt, no top-off needed
+        for(let dj=0;dj<demands.length;dj++)
+          if(remD[dj]>eps&&canFeed(s,dj)&&Math.abs(remD[dj]-remS[si])<=eps){pick=dj;break;}
+        // else the TIGHTEST consumer that absorbs the whole remainder — keeps
+        // this source unsplit and leaves the big demands open for big sources
+        if(pick<0){
+          for(let dj=0;dj<demands.length;dj++)
+            if(remD[dj]>eps&&canFeed(s,dj)&&remD[dj]>=remS[si]-eps&&(pick<0||remD[dj]<remD[pick]))pick=dj;
+        }
+        // else no one can take it whole — fill the largest remaining demand
+        // and continue with what's left of this source
+        if(pick<0){
+          for(let dj=0;dj<demands.length;dj++)
+            if(remD[dj]>eps&&canFeed(s,dj)&&(pick<0||remD[dj]>remD[pick]))pick=dj;
+        }
+        if(pick<0)break; // all demand covered — remainder is surplus, stays in the box
+        give(si,pick,Math.min(remS[si],remD[pick]));
+      }
+    }
+    // Sizing conventions can leave display-supply short of display-demand:
+    // Target mode credits byproducts at CEILED machine capacity (4 Scrap
+    // refineries were credited 480 Water) while the diagram shows load-based
+    // flows (the stage's 3.75-machine load emits 450), so the extractor was
+    // sized 30 short of the drawn demands. The proportional split used to
+    // absorb that silently by over-drawing every source a little; here any
+    // demand still uncovered tops up ONE source past its nominal supply —
+    // preferring a belt that already feeds this consumer (no new split), and
+    // the most elastic kind first (raw box, then stages, then byproducts) —
+    // so no consumer is ever drawn visibly short of its own input number.
+    for(let dj=0;dj<demands.length;dj++){
+      if(remD[dj]<=eps)continue;
+      const cid=demands[dj].consumer.rec.id;
+      const pref=srcs.map((_,si)=>si).filter(si=>canFeed(srcs[si],dj)).sort((a,b)=>{
+        const ha=A.get(srcs[a].skey).has(cid)?0:1, hb=A.get(srcs[b].skey).has(cid)?0:1;
+        return ha-hb||rank(srcs[b].kind)-rank(srcs[a].kind);
+      });
+      if(pref.length)give(pref[0],dj,remD[dj]);
+    }
+    flowAlloc[R]=A;
+  });
   const edgeList=[];
   nodes.forEach(consumer=>{
     const cp=posR[consumer.rec.id];
@@ -6361,32 +6457,12 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
     consumer.rec.inputs.forEach(inp=>{
       const rate=(inp.amount/ct)*consumer.exact*(consumer.capF??1)*(consumer.clock??1);
       const R=inp.resourceId;
-      const srcs=[];
-      (primaryBy[R]||[]).forEach(pn=>{
-        if(pn===consumer||!posR[pn.rec.id])return;
-        srcs.push({kind:'n',node:pn,
-          supply:pn.exact*(pn.perMach??((pn.rec.outputAmount??1)/effectiveCycleTime(pn.rec)))});
-      });
-      (byBoxesByRes[R]||[]).forEach(key=>{
-        const box=posBy[key];
-        // A node's OWN byproduct box feeding its OWN input is a self-recycle
-        // (Encased Uranium Cell returns 2 of its 8 Sulfuric Acid; Distilled
-        // Silica / Instant Scrap return Water) — a real edge, so the box
-        // isn't an orphan and the external feed nets down to what's actually
-        // imported (360, not the gross 480). Tagged so it draws as a compact
-        // loop instead of a full backward lane under the machine.
-        srcs.push({kind:'b',key,box,supply:box.rate,selfLoop:box.producer===consumer});
-      });
-      // The raw/supplied box is a source like any other: a resource can be
-      // BOTH supplied externally AND byproduced in-chain (supply Water in
-      // from-inputs mode while Aluminum Scrap also returns it) — the raw box
-      // covers exactly the demand the byproducts don't (that's what rawNeeds
-      // holds), so it joins the proportional split rather than being orphaned.
-      if(posRaw[R]&&rawNeeds[R]>1e-12)srcs.push({kind:'r',supply:rawNeeds[R]});
+      const srcs=resSrcs[R]||[];
+      const A=flowAlloc[R];
       const totalSupply=srcs.reduce((s,x)=>s+x.supply,0);
       if(srcs.length&&totalSupply>1e-12){
         srcs.forEach(s=>{
-          const r=rate*s.supply/totalSupply;
+          const r=(A&&A.get(s.skey)&&A.get(s.skey).get(consumer.rec.id))||0;
           if(r<=1e-12)return;
           const dstD=dc[consumer.rec.id];
           const dstGroup=consumer.group||'main';
@@ -6403,7 +6479,7 @@ function buildFlowSVG(targetIds, nodes, rawNeeds, laneHints){
             edgeList.push({fromKey:'b'+s.key,toKey:'n'+consumer.rec.id,
               fx:s.box.x+BW,fyBase:s.box.y,fH:BH,tx:cp.x,tyBase:cp.y,
               rate:r,resId:R,isByproduct:true,byKey:s.key,dstD,dstGroup,
-              srcGroup:s.box.producer.group||'main',selfLoop:s.selfLoop,
+              srcGroup:s.box.producer.group||'main',selfLoop:s.box.producer===consumer,
               srcD:dc[s.box.producer.rec.id],srcIsBox:true,
               fromLabel:`${s.box.producer.rec.machineId?mname(s.box.producer.rec.machineId):'(no machine)'} (byproduct)`,
               toLabel,
