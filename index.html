@@ -531,6 +531,7 @@ body.sample-locked .lock-hide{display:none!important}
         <div style="flex:1;min-width:220px;max-width:360px"><label>Recipe choice <span style="color:#555">(how the auto-selector judges chains)</span></label>
           <select id="pl-inp-obj" onchange="plannerObjective=this.value;savePlannerQuery();saveState();replan()">
             <option value="optimal">Optimal — most target from these inputs</option>
+            <option value="strict">Strict — ONLY these inputs, no extras allowed</option>
             <option value="cheap">Cheapest chain — lowest total raw cost</option>
           </select></div>
       </div>
@@ -710,6 +711,9 @@ let plannerSugApplied=null;// {resId,recId,prev} — a better-mix suggestion the
                           // the banner spot can offer Undo (restore prev, usually unpinned) and so
                           // the state survives reload with the plan. Cleared when the pin no longer
                           // matches (user re-pinned/unpinned by hand) or the plan is cleared.
+let plannerBans=new Set(); // recipeIds disabled for THIS PLAN only — the profile's recipe toggles
+                          // (which record what's unlocked in the save) are untouched. Set from the
+                          // extra-requirements notice; saved with the plan like pins.
 // ── Profile-level usage settings ──
 let rawCaps       = {};   // resId → available supply (per second) — planner warns when a plan exceeds it
 let powerExponent = 1;    // machine power scales with clock^exponent (Satisfactory ≈ 1.321928)
@@ -721,7 +725,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.44';
+const APP_VERSION = '1.0.45';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -1547,6 +1551,7 @@ function machUnlocked(m){return tierOk(m.researchTierId)&&(m.tiers||[]).some(t=>
 function unlockedMachTiers(m){return(m.tiers||[]).filter(t=>tierOk(t.researchTierId));}
 function resUnlocked(r){return tierOk(r.researchTierId);}
 function recipeAvailable(rec){
+  if(plannerBans.has(rec.id))return false; // disabled for THIS PLAN (profile toggles untouched)
   if(recToggles[rec.id]===false)return false;
   if(rec.machineId){const m=machines.find(m=>m.id===rec.machineId);if(m&&!machUnlocked(m))return false;}
   return true;
@@ -2715,7 +2720,7 @@ function planPowerGeneration(mw){
   document.getElementById('pl-tgt-rows').innerHTML='';
   addTargetRow('pl-tgt-rows',pr.id,String(Math.ceil(mw)),'1'); // MW = per-second rate
   ensureTrailingBlankTargetRow('pl-tgt-rows');
-  plannerPins={}; plannerClocks={}; plannerGroupClocks={}; plannerSugApplied=null; renderPlannerControls();
+  plannerPins={}; plannerClocks={}; plannerGroupClocks={}; plannerSugApplied=null; plannerBans=new Set(); renderPlannerControls();
   runPlanner(); // savePlannerQuery inside persists into the new plan
 }
 
@@ -2812,6 +2817,7 @@ function savePlannerQuery(){
     groupClocks:{...plannerGroupClocks},
     objective:plannerObjective,
     built:[...plannerBuilt],
+    bans:[...plannerBans],
     sugApplied:plannerSugApplied?{...plannerSugApplied}:null
   };
 }
@@ -2822,7 +2828,8 @@ function restorePlannerQuery(){
   plannerBuilt=new Set(Array.isArray(q?.built)?q.built.filter(x=>typeof x==='string'):[]);
   plannerSugApplied=(q&&q.sugApplied&&typeof q.sugApplied.resId==='string'&&typeof q.sugApplied.recId==='string')
     ?{resId:q.sugApplied.resId,recId:q.sugApplied.recId,prev:typeof q.sugApplied.prev==='string'?q.sugApplied.prev:null}:null;
-  plannerObjective=q?.objective==='cheap'?'cheap':'optimal';
+  plannerBans=new Set(Array.isArray(q?.bans)?q.bans.filter(x=>typeof x==='string').slice(0,400):[]);
+  plannerObjective=q?.objective==='cheap'?'cheap':q?.objective==='strict'?'strict':'optimal';
   const objSel=document.getElementById('pl-inp-obj');
   if(objSel)objSel.value=plannerObjective;
   if(q&&q.pins&&typeof q.pins==='object')Object.entries(q.pins).forEach(([k,v])=>{if(typeof v==='string')plannerPins[k]=v;});
@@ -2892,7 +2899,7 @@ function clearPlanner(){
   ensureTrailingBlankTargetRow('pl-inp-tgt-rows');
   document.getElementById('pl-results').innerHTML='';
   lastPlan=null;
-  plannerPins={}; plannerClocks={}; plannerGroupClocks={}; plannerBuilt=new Set(); plannerSugApplied=null; // all per-plan state clears with the plan
+  plannerPins={}; plannerClocks={}; plannerGroupClocks={}; plannerBuilt=new Set(); plannerSugApplied=null; plannerBans=new Set(); // all per-plan state clears with the plan
   renderPlannerControls();
   savePlannerQuery(); saveState();
 }
@@ -3005,6 +3012,13 @@ function planRecipes(inputSet,freeSet=new Set()){
   // With no supplied inputs the two are identical (uniform scaling preserves
   // every ranking), so Target mode is unaffected by the setting.
   const optimal=plannerObjective!=='cheap'&&inputSet.size>0;
+  // STRICT mode: the supplied inputs (and any in-plan surplus) are the ONLY
+  // things allowed to enter the chain. No raw fallback, no auto-added mining —
+  // anything else prices at Infinity, so chains that would need an "extra
+  // requirement" are simply ineligible and the achievable rate is whatever
+  // the inputs alone can build. Gated on From-Inputs mode AND non-empty sets
+  // so Target-mode chains (incl. pool-fed secondaries) are never starved.
+  const strict=planMode==='inputs'&&plannerObjective==='strict'&&(inputSet.size>0||freeSet.size>0);
   // Taint of the value costOf most recently RETURNED. A tainted value is one
   // built on a cycle-guard fallback — context-dependent, valid only for the
   // stack it was computed under. Callers read this immediately after each
@@ -3022,7 +3036,7 @@ function planRecipes(inputSet,freeSet=new Set()){
     if(freeSet.has(id)&&!inputSet.has(id))return memo[id]=optimal?0.0001:0;
     if(inputSet.has(id))return memo[id]=optimal?Math.max(rawCostOf(res0),1):0;
     const res=res0;
-    if(!res)return memo[id]=optimal?0.001:1;
+    if(!res)return memo[id]=strict?Infinity:(optimal?0.001:1);
     if(!resUnlocked(res))return memo[id]=Infinity;
     let recs=(res.recipes||[]).filter(recipeAvailable).concat(virtualRoutesFor(id,vidx));
     // A per-plan PIN forces this resource's recipe regardless of cost — the
@@ -3034,7 +3048,7 @@ function planRecipes(inputSet,freeSet=new Set()){
     // sit BELOW a user pin — the optimizer never contests a user-pinned resource.
     const pin=plannerPins[id]??plannerAutoPins[id];
     if(pin){const pr=recs.find(x=>x.id===pin);if(pr)recs=[pr];}
-    if(!recs.length)return memo[id]=rawCostOf(res); // no production route at all — external raw input
+    if(!recs.length)return memo[id]=strict?Infinity:rawCostOf(res); // no production route — external raw input (never in strict)
     if(stack.has(id)){cycleHits++;retTaint=true;return Infinity;} // cycle guard (never memoised)
     stack.add(id);
     const hitsBefore=cycleHits;
@@ -3054,7 +3068,7 @@ function planRecipes(inputSet,freeSet=new Set()){
     let best=Infinity,bestRec=null,bestT=Infinity;
     for(const rec of recs){
       const out=rec.outputAmount??1;
-      let c=rec.inputs.length?0:rawCostOf(res); // zero-input (mining/extraction)
+      let c=rec.inputs.length?0:(strict?Infinity:rawCostOf(res)); // zero-input (mining/extraction) — strict allows no auto-mining
       let taint=false;
       for(const inp of rec.inputs){
         c+=(inp.amount/out)*costOf(inp.resourceId,stack);
@@ -3081,8 +3095,8 @@ function planRecipes(inputSet,freeSet=new Set()){
     // Fuel got memoised as a RAW INPUT, and the rocket-fuel generator plan
     // then showed a dashed box instead of the whole chain. Return the raw
     // fallback for THIS evaluation only; memoise only context-free dead ends.
-    if(cycleHits>hitsBefore){retTaint=true;return rawCostOf(res);}
-    return memo[id]=rawCostOf(res);
+    if(cycleHits>hitsBefore){retTaint=true;return strict?Infinity:rawCostOf(res);}
+    return memo[id]=strict?Infinity:rawCostOf(res);
   }
   return{costOf:id=>costOf(id,new Set()),choice};
 }
@@ -3319,11 +3333,30 @@ function computeFromInputsOnce(targetResId, inputMap){
   // at all (e.g. Concrete → Limestone, both fully disconnected from an
   // Iron-Ore-only supply) is reported at its own top — walking it further
   // down to raw ore/water would just be noise.
-  const reachable=reachableFromInputs(inputSet);
   const nodeByResId={};
   nodes.forEach(n=>{nodeByResId[n.resId]=n;});
+  // CHAIN-AWARE supplied-side test: does THIS PLAN's subtree for a resource
+  // bottom out entirely in the supplied inputs? The old test asked
+  // reachableFromInputs — "COULD it be made from the inputs via any enabled
+  // recipe" — which goes blind the moment a pin or a price pick routes
+  // through something else: a pinned Iron Alloy Ingot pulled mined Copper
+  // Ore into a nominally all-reachable iron chain and no extra was reported.
+  // The notice owes the user the chain AS BUILT, so walk the actual nodes:
+  // supplied input → yes; mined/extracted stage or imported raw → no.
+  const ssMemo={};
+  function suppliedSide(id,stack){
+    if(inputSet.has(id))return true;
+    if(ssMemo[id]!==undefined)return ssMemo[id];
+    if(stack.has(id))return false; // recycle loop — judged by its other inputs
+    stack.add(id);
+    const n=nodeByResId[id];
+    const v=!!n&&n.rec.inputs.length>0&&n.rec.inputs.every(inp=>suppliedSide(inp.resourceId,stack));
+    stack.delete(id);
+    return ssMemo[id]=v;
+  }
+  const onSupply=id=>suppliedSide(id,new Set());
   function subtreeTouchesSupply(id,visited){
-    if(reachable(id))return true;
+    if(onSupply(id))return true;
     if(visited.has(id))return false;
     visited.add(id);
     const n=nodeByResId[id];
@@ -3335,21 +3368,21 @@ function computeFromInputsOnce(targetResId, inputMap){
     visited.add(id);
     const n=nodeByResId[id];
     if(!n||!n.rec.inputs.length)return[id]; // raw/mined dead end — report it
-    if(n.rec.inputs.some(inp=>reachable(inp.resourceId))){
+    if(n.rec.inputs.some(inp=>onSupply(inp.resourceId))){
       // Mixes a supplied-side ingredient with an unsupplied one — the boundary.
-      return n.rec.inputs.filter(inp=>!reachable(inp.resourceId)).map(inp=>inp.resourceId);
+      return n.rec.inputs.filter(inp=>!onSupply(inp.resourceId)).map(inp=>inp.resourceId);
     }
     if(!n.rec.inputs.some(inp=>subtreeTouchesSupply(inp.resourceId,new Set(visited)))){
       return[id]; // wholly disconnected sub-chain — report it, don't drill further
     }
     // Doesn't mix directly, but a descendant does — unwrap this pass-through.
-    return n.rec.inputs.filter(inp=>!reachable(inp.resourceId))
+    return n.rec.inputs.filter(inp=>!onSupply(inp.resourceId))
       .flatMap(inp=>resolveExtraIds(inp.resourceId,visited));
   }
   const targetNode=nodeByResId[targetResId];
   const extraIds=new Set();
   (targetNode?.rec.inputs||[]).forEach(inp=>{
-    if(reachable(inp.resourceId))return;
+    if(onSupply(inp.resourceId))return;
     resolveExtraIds(inp.resourceId,new Set()).forEach(id=>extraIds.add(id));
   });
 
@@ -3363,11 +3396,14 @@ function computeFromInputsOnce(targetResId, inputMap){
     const n=nodeByResId[id];
     if(n){
       const res=resources.find(r=>r.id===id);
-      extras[id]={rate:n.exact*n.perMach,recipeName:n.rec.name,
+      extras[id]={rate:n.exact*n.perMach,recipeName:n.rec.name,recId:n.rec.id,
         machineName:n.rec.machineId?mname(n.rec.machineId):null,
         isAlt:!!res&&!!res.defaultRecipeId&&res.defaultRecipeId!==n.rec.id};
     } else {
-      extras[id]={rate:rawNeeds[id]||0,recipeName:null,machineName:null,isAlt:false};
+      // No stage and no draw = fully covered by an in-chain byproduct — that
+      // isn't an extra requirement, and a 0.000/min row would only confuse.
+      if(!(rawNeeds[id]>1e-12))return;
+      extras[id]={rate:rawNeeds[id],recipeName:null,recId:null,machineName:null,isAlt:false};
     }
   });
 
@@ -3598,6 +3634,7 @@ function externalDraw(nodes,rawNeeds,inputSet){
 // hill-climb optimizer uses. Returns a result in computeFromInputs' shape.
 function planRouteMixLP(targetResId,inputMap,effCap){
   const inputSet=new Set(Object.keys(inputMap));
+  const strict=planMode==='inputs'&&plannerObjective==='strict'&&inputSet.size>0; // mirror of planRecipes: inputs are the ONLY inputs
   const tRes=resources.find(r=>r.id===targetResId);
   if(!tRes||!resUnlocked(tRes))return null;
   // Candidate recipes: available, unlocked, and honouring plain pins. A pinned
@@ -3613,19 +3650,23 @@ function planRouteMixLP(targetResId,inputMap,effCap){
       if(pin&&rec.id!==pin)continue;
       // A supplied resource comes from the supply, never from its own miner —
       // otherwise the solver mines around the budget the mode is built on.
-      if(!rec.inputs.length&&inputSet.has(res.id))continue;
+      // Strict mode allows no mining at all: supplied inputs are the only way
+      // anything enters.
+      if(!rec.inputs.length&&(strict||inputSet.has(res.id)))continue;
       cands.push({rec,resId:res.id,...recipeFlows(rec,res.id)});
     }
   }
   if(!cands.length)return null;
   // Resources needing an external-supply variable: nothing available produces
   // them, but a chain may still legitimately need them (reported as extras).
+  // Strict mode gets NO external variables — a balance row with no escape
+  // valve forces the solver to route around any recipe needing outside help.
   const produced=new Set(cands.map(c=>c.resId));
   cands.forEach(c=>Object.keys(c.net).forEach(id=>{ if(c.net[id]>0)produced.add(id); }));
   const touched=new Set();
   cands.forEach(c=>Object.keys(c.net).forEach(id=>touched.add(id)));
   touched.add(targetResId); inputSet.forEach(id=>touched.add(id));
-  const extIds=[...touched].filter(id=>!produced.has(id)&&!inputSet.has(id));
+  const extIds=strict?[]:[...touched].filter(id=>!produced.has(id)&&!inputSet.has(id));
   const rows=[...touched];
   const rowIx={}; rows.forEach((id,i)=>rowIx[id]=i);
   const nX=cands.length, nE=extIds.length, nVar=nX+nE+1, iT=nVar-1;
@@ -3718,7 +3759,7 @@ function planRouteMixLP(targetResId,inputMap,effCap){
     if(inputSet.has(id))return;
     const made=nodes.find(n=>n.resId===id&&!n.rec.inputs.length);
     const res=resources.find(x=>x.id===id);
-    extras[id]={rate:r,recipeName:made?made.rec.name:null,
+    extras[id]={rate:r,recipeName:made?made.rec.name:null,recId:made?made.rec.id:null,
       machineName:made&&made.rec.machineId?mname(made.rec.machineId):null,
       isAlt:!!res&&!!res.defaultRecipeId&&!!made&&res.defaultRecipeId!==made.rec.id};
   });
@@ -3763,6 +3804,9 @@ function planCostLP(targetResId,D,supplyMap={},freeMap={},w={supply:0,free:1e-4,
   const supplyIds=Object.keys(supplyMap).filter(k=>supplyMap[k]>1e-12);
   const freeIds=Object.keys(freeMap).filter(k=>freeMap[k]>1e-12);
   const supplySet=new Set(supplyIds), freeSet=new Set(freeIds);
+  // Strict mode (see planRecipes): supplied budget + in-plan pool are the ONLY
+  // ways in — no mining candidates, no external variables. From-Inputs only.
+  const strict=planMode==='inputs'&&plannerObjective==='strict'&&(supplyIds.length>0||freeIds.length>0);
   const tRes=resources.find(r=>r.id===targetResId);
   if(!tRes||!resUnlocked(tRes))return null;
   const cands=[];
@@ -3774,7 +3818,7 @@ function planCostLP(targetResId,D,supplyMap={},freeMap={},w={supply:0,free:1e-4,
       if(!recipeAvailable(rec))continue;
       if(pin&&rec.id!==pin)continue;
       // A supplied/pooled resource comes from that stock, never its own miner.
-      if(!rec.inputs.length&&(supplySet.has(res.id)||freeSet.has(res.id)))continue;
+      if(!rec.inputs.length&&(strict||supplySet.has(res.id)||freeSet.has(res.id)))continue;
       cands.push({rec,resId:res.id,...recipeFlows(rec,res.id)});
     }
   }
@@ -3784,7 +3828,7 @@ function planCostLP(targetResId,D,supplyMap={},freeMap={},w={supply:0,free:1e-4,
   const touched=new Set();
   cands.forEach(c=>Object.keys(c.net).forEach(id=>touched.add(id)));
   touched.add(targetResId); supplyIds.forEach(id=>touched.add(id)); freeIds.forEach(id=>touched.add(id));
-  const extIds=[...touched].filter(id=>!produced.has(id)&&!supplySet.has(id)&&!freeSet.has(id));
+  const extIds=strict?[]:[...touched].filter(id=>!produced.has(id)&&!supplySet.has(id)&&!freeSet.has(id));
   const rows=[...touched];
   const rawC=id=>Math.max(rawCostOf(resources.find(r=>r.id===id)||{}),0.001);
   // Vars: recipes | supply DRAWS | free DRAWS | externals | delivered.
@@ -4542,11 +4586,27 @@ function renderMultiTargetResults(targets, results, el, inputMap){
         `<button class="btree" style="margin-left:2px;cursor:pointer" onclick="undoSuggestion()">Undo</button></div>`;
     }
   }
+  // Recipes disabled for THIS PLAN (via the 🚫 buttons on the extras notice).
+  // Always listed while any exist — the extras they caused are gone from the
+  // plan, so this row is the only handle left for turning them back on.
+  if(plannerBans.size){
+    const allRecs=resources.flatMap(r=>r.recipes||[]);
+    const chips=[...plannerBans].map(id=>{
+      const rec=allRecs.find(x=>x.id===id);
+      return`<span style="white-space:nowrap">${esc(rec?rec.name:id)} <button class="bx" style="font-size:10px;padding:0 5px;cursor:pointer" title="re-enable for this plan" onclick="togglePlanBan('${id}')">✕</button></span>`;
+    }).join('<span style="color:#444;margin:0 6px">·</span>');
+    top+=`<div class="ach-banner" style="margin-bottom:10px;background:#242018;border-color:#4a4030;color:#a89878">🚫 Disabled for this plan <span style="color:#6a6050">(profile recipe toggles untouched)</span>: ${chips}</div>`;
+  }
   results.forEach((r,i)=>{
     const t=targets[i];
     const num=`${i+1}.`;
     if(r.error){
-      top+=`<div class="alert ae" style="margin-bottom:10px"><strong>${num} ${esc(rname(t.resId))}:</strong> ${esc(r.error)}</div>`;
+      // Strict mode fails honestly when the inputs can't build the target —
+      // say so, rather than leaving a bare "no recipe" to puzzle over.
+      const strictHint=(plannerObjective==='strict'&&inputMap&&Object.keys(inputMap).length)
+        ?` <span style="color:var(--dim)">Strict mode: every ingredient must come from the supplied inputs — add the missing inputs, or switch Recipe choice back to Optimal to allow extras.</span>`
+        :'';
+      top+=`<div class="alert ae" style="margin-bottom:10px"><strong>${num} ${esc(rname(t.resId))}:</strong> ${esc(r.error)}${strictHint}</div>`;
       return;
     }
     const mt=i?'margin-top:14px':'margin-top:0';
@@ -4577,14 +4637,31 @@ function renderMultiTargetResults(targets, results, el, inputMap){
       const extraEntries=Object.entries(r.extras||{});
       if(extraEntries.length){
         const rows=extraEntries.map(([id,ex])=>{
+          // Per-plan disable: bans the recipe for THIS PLAN only (saved with
+          // the plan) — the profile's Recipe Toggles, which record what's
+          // unlocked in the save, stay untouched. Offered when the plan has
+          // somewhere else to go: the recipe is an alternate, or the resource
+          // has another available route to fall back to.
+          const exRes=resources.find(rr=>rr.id===id);
+          const multiRoute=!!exRes&&(exRes.recipes||[]).filter(recipeAvailable).length>1;
+          const banBtn=(ex.recId&&(ex.isAlt||multiRoute))
+            ?` <button class="btree" style="font-size:10px;padding:1px 6px;cursor:pointer" title="Disable ${esc(ex.recipeName||'')} for this plan only — profile recipe toggles are untouched" onclick="togglePlanBan('${ex.recId}')">🚫 disable for this plan</button>`
+            :'';
           const via=ex.recipeName
-            ?` — via <strong>${esc(ex.recipeName)}</strong>${ex.machineName?` (${esc(ex.machineName)})`:''}${ex.isAlt?' <span style="color:#e8982a">· alternate recipe — disable it in Recipe Toggles below if you don\'t want this</span>':''}`
+            ?` — via <strong>${esc(ex.recipeName)}</strong>${ex.machineName?` (${esc(ex.machineName)})`:''}${ex.isAlt?' <span style="color:#e8982a">· alternate recipe</span>':''}${banBtn}`
             :'';
           return`<li>${rateStr(id,ex.rate,3)} <strong>${esc(rname(id))}</strong>${via}</li>`;
         }).join('');
+        // From-Inputs plans can ADOPT the extras: they get appended to the
+        // Available-inputs rows at exactly these rates and the objective flips
+        // to Strict, so from then on the plan uses ONLY the listed inputs —
+        // edit or delete any row to shape what exists.
+        const adoptBtn=(inputMap&&Object.keys(inputMap).length)
+          ?`<div style="margin-top:7px"><button class="btree" style="cursor:pointer" onclick="adoptExtrasAsInputs()">➕ Add these to inputs &amp; switch to Strict (only the inputs)</button></div>`
+          :'';
         top+=`<div class="ach-banner" style="background:#2a2010;border-color:#665500;color:#ddaa30">
           ⚠ Extra requirements calculated automatically — these weren't covered by ${r.sourceLabel} and will also be needed (full chain below):
-          <ul style="margin:6px 0 0 18px;padding:0">${rows}</ul>
+          <ul style="margin:6px 0 0 18px;padding:0">${rows}</ul>${adoptBtn}
         </div>`;
       }
     }
@@ -5166,6 +5243,45 @@ function applySuggestion(resId,recId){
 function undoSuggestion(){
   const sa=plannerSugApplied; plannerSugApplied=null;
   if(sa)setRecipePin(sa.resId,sa.prev||'');
+}
+// Per-plan recipe disable (the 🚫 buttons on the extras notice + the chips
+// row). Toggles membership in plannerBans — plan state, so it rides the
+// saved plan and share links; the PROFILE's recipe toggles (what's unlocked
+// in the save) are never touched.
+function togglePlanBan(recId){
+  if(plannerBans.has(recId))plannerBans.delete(recId); else plannerBans.add(recId);
+  savePlannerQuery(); saveState();
+  renderPlannerControls(); // pin pickers must stop offering (or resume offering) the recipe
+  replan();
+}
+// "Add these to inputs & switch to Strict": every reported extra requirement
+// (across all rows) is appended to the Available-inputs list at exactly the
+// rate the plan needed, and the objective flips to Strict — from here on the
+// listed inputs are ALL there is, so rows can be edited or deleted to shape
+// what actually exists.
+function adoptExtrasAsInputs(){
+  const rs=(lastRenderArgs&&lastRenderArgs.results)||[];
+  const add={};
+  rs.forEach(r=>{ if(r&&!r.error)Object.entries(r.extras||{}).forEach(([id,ex])=>{add[id]=(add[id]||0)+(ex.rate||0);}); });
+  if(!Object.keys(add).length)return;
+  const rows=document.getElementById('pl-inp-rows');
+  Object.entries(add).forEach(([id,rate])=>{
+    const existing=[...rows.querySelectorAll('.inp-row')].find(row=>row.querySelector('select').value===id);
+    if(existing){ // merge into the resource's row instead of duplicating it
+      const inp=existing.querySelector('input');
+      const unit=parseFloat(existing.querySelector('.inp-unit').value)||60;
+      inp.value=+((parseFloat(inp.value)||0)+rate*unit).toFixed(3);
+    } else {
+      addInputRow();
+      const row=rows.lastElementChild;
+      row.querySelector('select').value=id;
+      row.querySelector('input').value=+(rate*60).toFixed(3);
+      row.querySelector('.inp-unit').value='60';
+    }
+  });
+  plannerObjective='strict';
+  const sel=document.getElementById('pl-inp-obj'); if(sel)sel.value='strict';
+  runPlanner(); // saves the query (with the new rows and objective) itself
 }
 function setRawCap(resId,val){
   const unit=rateUnit==='m'?60:1;
