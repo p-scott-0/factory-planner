@@ -731,7 +731,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.47';
+const APP_VERSION = '1.0.48';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -3048,7 +3048,12 @@ function planRecipes(inputSet,freeSet=new Set()){
     // than the ε-priced auto-supplied raws, so a chain that can run on another
     // target's byproducts is always preferred.
     if(freeSet.has(id)&&!inputSet.has(id))return memo[id]=optimal?0.0001:0;
-    if(inputSet.has(id))return memo[id]=optimal?Math.max(rawCostOf(res0),1):0;
+    // _preferInputPricing: the noConsume retry (see computeFromInputsOnce)
+    // prices the supplied inputs ~FREE, inverting the incentive — a route
+    // that consumes them (Diamonds from 20 Coal) now crushes one that buys
+    // other raws at real cost (Oil-Based from 10 Crude), so the cheapest
+    // chain is a CONSUMING chain whenever one exists at any depth.
+    if(inputSet.has(id))return memo[id]=_preferInputPricing?0.0001:(optimal?Math.max(rawCostOf(res0),1):0);
     const res=res0;
     if(!res)return memo[id]=strict?Infinity:(optimal?0.001:1);
     if(!resUnlocked(res))return memo[id]=Infinity;
@@ -3329,7 +3334,26 @@ function computeFromInputsOnce(targetResId, inputMap){
   const unpin=()=>{if(searchPin)delete plannerPins[targetResId];};
   if(infeasible){unpin();return{error:'This target isn\'t currently producible — its recipe chain is research-locked or cyclic.'};}
   if(noRecipe){unpin();return{error:'No recipe found for target resource.'};}
-  if(!isFinite(achievable)||achievable<=0){unpin();return{noConsume:true,error:'The recipe chain does not consume any of the given inputs, so nothing constrains the rate. Use Target mode instead.'};}
+  if(!isFinite(achievable)||achievable<=0){
+    unpin();
+    // The cheapest chain never touched the supplied inputs. The target-recipe
+    // search above can't fix this when the avoidance happens DEEPER: with
+    // Coal supplied and Time Crystal targeted, Oil-Based Diamonds (10 Crude,
+    // real-priced) undercuts the 20-Coal recipe, so no target pin makes the
+    // diamond step consume coal. Retry the whole computation once with the
+    // supplied inputs priced ~free — any route that CAN consume them now
+    // wins at every depth, and the optimizer/LP layers refine that consuming
+    // baseline as usual. Only if even that finds nothing is the honest
+    // answer "this chain can't run on these inputs".
+    if(!_preferInputPricing&&plannerObjective!=='cheap'){
+      _preferInputPricing=true;
+      try{
+        const r=computeFromInputsOnce(targetResId,inputMap);
+        if(r&&!r.error)return r;
+      }finally{ _preferInputPricing=false; }
+    }
+    return{noConsume:true,error:'The recipe chain does not consume any of the given inputs, so nothing constrains the rate. Use Target mode instead.'};
+  }
 
   // Final pass at achievable rate — still exact so consumption matches the inputs
   const{nodes,rawNeeds,byproductSurplus,converged}=computeChain(targetResId,achievable,inputSet,false);
@@ -3458,6 +3482,7 @@ function computeFromInputsOnce(targetResId, inputMap){
 // keeps the greedy plan exactly as before. Skipped under the 'cheap'
 // objective, which asks for the cheapest chain rather than the most output.
 let _lpBusy=false; // set while the hill-climb searches, so it isn't paying for an LP per probe
+let _preferInputPricing=false; // one-shot retry mode: supplied inputs priced ~free so consuming routes win (see computeFromInputsOnce)
 function computeFromInputs(targetResId, inputMap){
   const greedy=computeFromInputsGreedy(targetResId,inputMap);
   if(_lpBusy||plannerObjective==='cheap')return greedy;
