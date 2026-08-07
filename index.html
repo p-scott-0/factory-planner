@@ -731,7 +731,7 @@ let editRecId     = null;
 // App version — shown in the nav so you can tell whether you're on the latest
 // deploy. Bump on EVERY site change (including UI-only tweaks) so a glance at
 // the nav confirms you're looking at the current visuals.
-const APP_VERSION = '1.0.46';
+const APP_VERSION = '1.0.47';
 
 // ── Profiles ──
 let profiles = [];        // [{id,name,machines,resources,categories,selTiers,recOverrides}]
@@ -8510,6 +8510,66 @@ syncFlowLayoutUI(); // reflect the saved machine-columns preference in its contr
 // Best-effort refresh of any locked sample profiles from their bundled copy
 // (self-update). Runs after the UI is up so it never blocks first paint.
 syncSampleProfiles();
+
+// ── Update check ──
+// The app is one static file on GitHub Pages: the running copy knows its own
+// APP_VERSION, and the deployed copy's constant sits ~48KB into the file — so
+// "is there an update" is a single small ranged fetch and a regex. No service
+// worker, no separate version file to keep in sync with the bump convention.
+// Checked shortly after load, whenever the tab regains focus, and on a slow
+// timer; each is throttled to one real request per few minutes. GitHub Pages
+// caches HTML on its CDN for ~10 minutes, so the Refresh button refetches the
+// page with cache:'reload' (replacing the stale HTTP-cache entry) BEFORE
+// reloading — a bare location.reload() could serve the old copy right back.
+// Every plan/profile lives in localStorage, so refreshing loses nothing.
+(function(){
+  let last=0, shown=null;
+  const cmp=(a,b)=>{const pa=String(a).split('.').map(Number),pb=String(b).split('.').map(Number);
+    for(let i=0;i<Math.max(pa.length,pb.length);i++){const d=(pa[i]||0)-(pb[i]||0);if(d)return d;}return 0;};
+  function pill(ver){
+    if(shown===ver)return;
+    shown=ver;
+    let el=document.getElementById('upd-pill');
+    if(!el){
+      el=document.createElement('div');
+      el.id='upd-pill';
+      el.style.cssText='position:fixed;right:14px;bottom:14px;z-index:2000;background:#182818;border:1px solid #2a5a2a;'+
+        'border-radius:8px;padding:9px 12px;font-size:13px;color:#5aaa6a;box-shadow:0 4px 16px rgba(0,0,0,.45);'+
+        'display:flex;align-items:center;gap:8px;flex-wrap:wrap;max-width:min(92vw,360px)';
+      document.body.appendChild(el);
+    }
+    el.innerHTML=`<span style="white-space:nowrap">⟳ v${ver} is available</span>`+
+      `<button class="btree" style="cursor:pointer" onclick="fpRefreshApp()">Refresh</button>`+
+      `<button class="bx" style="cursor:pointer" title="not now" onclick="dismissUpdatePill('${ver}')">✕</button>`;
+  }
+  window.dismissUpdatePill=ver=>{
+    try{localStorage.setItem('fp_skipver',ver);}catch(e){}
+    const el=document.getElementById('upd-pill'); if(el)el.remove();
+    shown=null;
+  };
+  window.fpRefreshApp=async()=>{
+    try{await fetch(location.href.split('#')[0],{cache:'reload'});}catch(e){}
+    location.reload();
+  };
+  async function check(){
+    if(Date.now()-last<4*60*1000)return;
+    last=Date.now();
+    try{
+      const res=await fetch(location.pathname+'?uc='+Date.now(),
+        {headers:{'Range':'bytes=0-262143'},cache:'no-store'});
+      if(!(res.ok||res.status===206))return;
+      const m=(await res.text()).match(/APP_VERSION\s*=\s*'([0-9.]+)'/);
+      if(!m)return;
+      // Only a strictly NEWER live version prompts — an equal or older one
+      // (mid-deploy CDN staleness) is not an update.
+      if(cmp(m[1],APP_VERSION)>0&&localStorage.getItem('fp_skipver')!==m[1])pill(m[1]);
+    }catch(e){} // offline / transient — next trigger tries again
+  }
+  window._fpUpdCheck=check; // manual hook (console / tests)
+  setTimeout(check,20000);
+  setInterval(check,30*60*1000);
+  document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible')check(); });
+})();
 </script>
 </body>
 </html>
